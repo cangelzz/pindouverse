@@ -177,27 +177,7 @@ export function PixelCanvas() {
     isPanning.current = false;
   }, []);
 
-  const handleWheel = useCallback(
-    (e: React.WheelEvent) => {
-      e.preventDefault();
-      const rect = containerRef.current?.getBoundingClientRect();
-      if (!rect) return;
 
-      const mouseX = e.clientX - rect.left;
-      const mouseY = e.clientY - rect.top;
-
-      const factor = e.deltaY < 0 ? 1.15 : 1 / 1.15;
-      const newZoom = zoom * factor;
-
-      // Zoom toward cursor
-      const newOffsetX = mouseX - (mouseX - offsetX) * factor;
-      const newOffsetY = mouseY - (mouseY - offsetY) * factor;
-
-      setZoom(newZoom);
-      setOffset(newOffsetX, newOffsetY);
-    },
-    [zoom, offsetX, offsetY, setZoom, setOffset]
-  );
 
   // Keyboard shortcuts
   useEffect(() => {
@@ -263,7 +243,6 @@ export function PixelCanvas() {
         onMouseMove={handleMouseMove}
         onMouseUp={handleMouseUp}
         onMouseLeave={handleMouseUp}
-        onWheel={handleWheel}
         onContextMenu={(e) => e.preventDefault()}
       >
         <canvas

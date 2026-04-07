@@ -1,4 +1,6 @@
 import { create } from "zustand";
+import { invoke } from "@tauri-apps/api/core";
+import { save, open as dialogOpen } from "@tauri-apps/plugin-dialog";
 import type {
   CanvasCell,
   CanvasData,
@@ -6,7 +8,14 @@ import type {
   EditorTool,
   GridConfig,
   HistoryAction,
+  ProjectFile,
 } from "../types";
+
+interface SnapshotInfo {
+  path: string;
+  name: string;
+  modified: string;
+}
 
 interface EditorState {
   // Canvas data
@@ -15,7 +24,7 @@ interface EditorState {
   gridConfig: GridConfig;
 
   // View state
-  cellSize: number; // pixels per cell on screen
+  cellSize: number;
   offsetX: number;
   offsetY: number;
   zoom: number;
@@ -32,6 +41,13 @@ interface EditorState {
   projectPath: string | null;
   isDirty: boolean;
 
+  // Auto-save state
+  lastSavedAt: string | null;
+  autoSaveEnabled: boolean;
+
+  // Snapshots
+  snapshots: SnapshotInfo[];
+
   // Actions
   newCanvas: (width: number, height: number) => void;
   setCell: (row: number, col: number, colorIndex: number | null) => void;
@@ -44,6 +60,18 @@ interface EditorState {
   redo: () => void;
   loadCanvasData: (data: CanvasData, size: CanvasSize) => void;
   setProjectPath: (path: string | null) => void;
+
+  // Save/Load
+  saveProject: () => Promise<void>;
+  saveProjectAs: () => Promise<void>;
+  openProject: () => Promise<void>;
+  autoSave: () => Promise<void>;
+  setAutoSaveEnabled: (enabled: boolean) => void;
+
+  // Snapshots
+  createSnapshot: (label: string) => Promise<void>;
+  loadSnapshots: () => Promise<void>;
+  restoreSnapshot: (path: string) => Promise<void>;
 }
 
 function createEmptyCanvas(width: number, height: number): CanvasData {
@@ -58,6 +86,17 @@ const DEFAULT_GRID_CONFIG: GridConfig = {
 };
 
 const MAX_HISTORY = 200;
+
+function buildProjectFile(state: EditorState): ProjectFile {
+  const now = new Date().toISOString();
+  return {
+    version: 1,
+    canvasSize: state.canvasSize,
+    canvasData: state.canvasData,
+    createdAt: state.lastSavedAt || now,
+    updatedAt: now,
+  };
+}
 
 export const useEditorStore = create<EditorState>((set, get) => ({
   canvasSize: { width: 52, height: 52 },
@@ -77,6 +116,11 @@ export const useEditorStore = create<EditorState>((set, get) => ({
 
   projectPath: null,
   isDirty: false,
+
+  lastSavedAt: null,
+  autoSaveEnabled: true,
+
+  snapshots: [],
 
   newCanvas: (width, height) => {
     set({
@@ -196,4 +240,102 @@ export const useEditorStore = create<EditorState>((set, get) => ({
   },
 
   setProjectPath: (path) => set({ projectPath: path }),
+
+  saveProject: async () => {
+    const state = get();
+    let path = state.projectPath;
+    if (!path) {
+      const selected = await save({
+        filters: [{ name: "PinDou Project", extensions: ["pindou"] }],
+        defaultPath: "untitled.pindou",
+      });
+      if (!selected) return;
+      path = selected;
+    }
+    const project = buildProjectFile(state);
+    await invoke("save_project", { path, project });
+    const now = new Date().toLocaleTimeString();
+    set({ projectPath: path, isDirty: false, lastSavedAt: now });
+  },
+
+  saveProjectAs: async () => {
+    const state = get();
+    const selected = await save({
+      filters: [{ name: "PinDou Project", extensions: ["pindou"] }],
+      defaultPath: state.projectPath || "untitled.pindou",
+    });
+    if (!selected) return;
+    const project = buildProjectFile(state);
+    await invoke("save_project", { path: selected, project });
+    const now = new Date().toLocaleTimeString();
+    set({ projectPath: selected, isDirty: false, lastSavedAt: now });
+  },
+
+  openProject: async () => {
+    const selected = await dialogOpen({
+      filters: [{ name: "PinDou Project", extensions: ["pindou"] }],
+      multiple: false,
+    });
+    if (!selected) return;
+    const project = await invoke<ProjectFile>("load_project", { path: selected });
+    set({
+      canvasData: project.canvasData,
+      canvasSize: project.canvasSize,
+      projectPath: selected as string,
+      undoStack: [],
+      redoStack: [],
+      isDirty: false,
+      lastSavedAt: new Date().toLocaleTimeString(),
+      offsetX: 0,
+      offsetY: 0,
+    });
+  },
+
+  autoSave: async () => {
+    const state = get();
+    if (!state.autoSaveEnabled || !state.isDirty) return;
+
+    try {
+      const dir = await invoke<string>("get_autosave_dir");
+      const path = `${dir}\\autosave.pindou`;
+      const project = buildProjectFile(state);
+      await invoke("save_project", { path, project });
+      const now = new Date().toLocaleTimeString();
+      set({ lastSavedAt: now, isDirty: false });
+    } catch {
+      // Silent fail for auto-save
+    }
+  },
+
+  setAutoSaveEnabled: (enabled) => set({ autoSaveEnabled: enabled }),
+
+  createSnapshot: async (label) => {
+    const state = get();
+    const project = buildProjectFile(state);
+    await invoke("save_snapshot", { project, label });
+    await get().loadSnapshots();
+  },
+
+  loadSnapshots: async () => {
+    try {
+      const snapshots = await invoke<SnapshotInfo[]>("list_snapshots");
+      set({ snapshots });
+    } catch {
+      set({ snapshots: [] });
+    }
+  },
+
+  restoreSnapshot: async (path) => {
+    const project = await invoke<ProjectFile>("load_snapshot", { path });
+    set({
+      canvasData: project.canvasData,
+      canvasSize: project.canvasSize,
+      undoStack: [],
+      redoStack: [],
+      isDirty: false,
+      lastSavedAt: new Date().toLocaleTimeString(),
+      offsetX: 0,
+      offsetY: 0,
+    });
+  },
 }));

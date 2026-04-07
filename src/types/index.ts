@@ -59,3 +59,19 @@ export interface BeadCount {
   hex: string;
   count: number;
 }
+
+export interface ProjectFile {
+  version: number;
+  canvasSize: CanvasSize;
+  canvasData: CanvasData;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface ProjectSnapshot {
+  id: number;
+  timestamp: string;
+  label: string;
+  canvasSize: CanvasSize;
+  canvasData: CanvasData;
+}
