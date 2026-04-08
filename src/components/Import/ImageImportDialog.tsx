@@ -2,6 +2,7 @@ import { useState, useRef, useCallback, useEffect } from "react";
 import { useEditorStore } from "../../store/editorStore";
 import { matchImageToMard } from "../../utils/colorMatching";
 import { MARD_COLORS } from "../../data/mard221";
+import { detectPixelGrid } from "../../utils/gridDetect";
 import type { ColorMatchAlgorithm, CanvasCell } from "../../types";
 import { invoke } from "@tauri-apps/api/core";
 import { open } from "@tauri-apps/plugin-dialog";
@@ -71,6 +72,9 @@ export function ImageImportDialog({ onClose }: { onClose: () => void }) {
   // Grid origin offset in source pixels (for aligning grid to image content)
   const [gridOffsetX, setGridOffsetX] = useState(0);
   const [gridOffsetY, setGridOffsetY] = useState(0);
+
+  // Auto grid detection result
+  const [autoDetectResult, setAutoDetectResult] = useState<string | null>(null);
 
   // Interaction mode
   const [interactionMode, setInteractionMode] = useState<"crop" | "loupe">("crop");
@@ -394,6 +398,28 @@ export function ImageImportDialog({ onClose }: { onClose: () => void }) {
     setCropRect(null);
     setMatchedPreview(null);
     setActualSize(null);
+  };
+
+  const handleAutoDetect = async () => {
+    if (!filePath || !imagePreview) return;
+    try {
+      // Get full-resolution pixels for detection
+      const data = await invoke<PixelData>("import_image", {
+        path: filePath,
+        maxDimension: Math.max(imagePreview.original_width, imagePreview.original_height),
+        crop: cropRect ? { x: cropRect.x, y: cropRect.y, width: cropRect.width, height: cropRect.height } : null,
+        sharp: true,
+      });
+      const result = detectPixelGrid(data.pixels as number[], data.width, data.height);
+      setMaxDimension(result.recommendedMaxDimension);
+      setMatchedPreview(null);
+      setActualSize(null);
+      setAutoDetectResult(
+        `检测到网格: ${result.gridCols}×${result.gridRows} (cell≈${result.cellSize}px, 置信度 ${Math.round(result.confidence * 100)}%)`
+      );
+    } catch (e) {
+      setAutoDetectResult(`检测失败: ${e}`);
+    }
   };
 
   const handlePreview = async () => {
@@ -726,6 +752,15 @@ export function ImageImportDialog({ onClose }: { onClose: () => void }) {
               最大边长 (保持比例)
             </label>
             <div className="flex gap-2 mb-1">
+              {imagePreview && (
+                <button
+                  onClick={handleAutoDetect}
+                  className="px-2 py-1 text-xs rounded border bg-amber-50 border-amber-400 text-amber-700 hover:bg-amber-100"
+                  title="自动检测像素画网格大小"
+                >
+                  🔍 自动检测
+                </button>
+              )}
               {[
                 { label: "26", v: 26 },
                 { label: "52 (中板)", v: 52 },
@@ -780,6 +815,11 @@ export function ImageImportDialog({ onClose }: { onClose: () => void }) {
             {actualSize && (
               <p className="text-xs text-green-600 mt-1">
                 图片尺寸: {actualSize.width}×{actualSize.height}
+              </p>
+            )}
+            {autoDetectResult && (
+              <p className="text-xs text-amber-600 mt-1">
+                {autoDetectResult}
               </p>
             )}
           </div>
