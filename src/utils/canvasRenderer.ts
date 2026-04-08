@@ -63,9 +63,13 @@ export function renderGrid(
 ): void {
   ctx.clearRect(0, 0, viewWidth, viewHeight);
 
-  const { groupSize, edgePadding } = gridConfig;
+  const { groupSize } = gridConfig;
   const totalCols = canvasWidth;
   const totalRows = canvasHeight;
+
+  // Compute edge padding: leftover cells split evenly on each side
+  const edgePaddingX = Math.floor((totalCols % groupSize) / 2);
+  const edgePaddingY = Math.floor((totalRows % groupSize) / 2);
 
   // Draw thin cell borders
   ctx.strokeStyle = "rgba(0,0,0,0.15)";
@@ -89,40 +93,40 @@ export function renderGrid(
   ctx.stroke();
 
   // Draw thick group divider lines (5x5 grouping)
-  // The grid starts at edgePadding offset from edge
+  // The grid starts at computed edge padding from each side
   ctx.strokeStyle = "rgba(0,0,0,0.5)";
   ctx.lineWidth = 2;
   ctx.beginPath();
 
-  for (let col = edgePadding; col <= totalCols - edgePadding; col += groupSize) {
+  for (let col = edgePaddingX; col <= totalCols - edgePaddingX; col += groupSize) {
     const x = Math.round(col * cellSize + offsetX);
     if (x >= 0 && x <= viewWidth) {
-      ctx.moveTo(x, Math.max(0, edgePadding * cellSize + offsetY));
-      ctx.lineTo(x, Math.min(viewHeight, (totalRows - edgePadding) * cellSize + offsetY));
+      ctx.moveTo(x, Math.max(0, edgePaddingY * cellSize + offsetY));
+      ctx.lineTo(x, Math.min(viewHeight, (totalRows - edgePaddingY) * cellSize + offsetY));
     }
   }
   // Right boundary of last group
   {
-    const x = Math.round((totalCols - edgePadding) * cellSize + offsetX);
+    const x = Math.round((totalCols - edgePaddingX) * cellSize + offsetX);
     if (x >= 0 && x <= viewWidth) {
-      ctx.moveTo(x, Math.max(0, edgePadding * cellSize + offsetY));
-      ctx.lineTo(x, Math.min(viewHeight, (totalRows - edgePadding) * cellSize + offsetY));
+      ctx.moveTo(x, Math.max(0, edgePaddingY * cellSize + offsetY));
+      ctx.lineTo(x, Math.min(viewHeight, (totalRows - edgePaddingY) * cellSize + offsetY));
     }
   }
 
-  for (let row = edgePadding; row <= totalRows - edgePadding; row += groupSize) {
+  for (let row = edgePaddingY; row <= totalRows - edgePaddingY; row += groupSize) {
     const y = Math.round(row * cellSize + offsetY);
     if (y >= 0 && y <= viewHeight) {
-      ctx.moveTo(Math.max(0, edgePadding * cellSize + offsetX), y);
-      ctx.lineTo(Math.min(viewWidth, (totalCols - edgePadding) * cellSize + offsetX), y);
+      ctx.moveTo(Math.max(0, edgePaddingX * cellSize + offsetX), y);
+      ctx.lineTo(Math.min(viewWidth, (totalCols - edgePaddingX) * cellSize + offsetX), y);
     }
   }
   // Bottom boundary of last group
   {
-    const y = Math.round((totalRows - edgePadding) * cellSize + offsetY);
+    const y = Math.round((totalRows - edgePaddingY) * cellSize + offsetY);
     if (y >= 0 && y <= viewHeight) {
-      ctx.moveTo(Math.max(0, edgePadding * cellSize + offsetX), y);
-      ctx.lineTo(Math.min(viewWidth, (totalCols - edgePadding) * cellSize + offsetX), y);
+      ctx.moveTo(Math.max(0, edgePaddingX * cellSize + offsetX), y);
+      ctx.lineTo(Math.min(viewWidth, (totalCols - edgePaddingX) * cellSize + offsetX), y);
     }
   }
 
