@@ -8,6 +8,7 @@ export interface RenderOptions {
   offsetY: number;
   viewWidth: number;
   viewHeight: number;
+  highlightColorIndex?: number | null;
 }
 
 /**
@@ -18,9 +19,10 @@ export function renderPixels(
   ctx: CanvasRenderingContext2D,
   opts: RenderOptions
 ): void {
-  const { canvasData, cellSize, offsetX, offsetY, viewWidth, viewHeight } = opts;
+  const { canvasData, cellSize, offsetX, offsetY, viewWidth, viewHeight, highlightColorIndex } = opts;
   const rows = canvasData.length;
   const cols = rows > 0 ? canvasData[0].length : 0;
+  const hasHighlight = highlightColorIndex !== null && highlightColorIndex !== undefined;
 
   // Calculate visible cell range
   const startCol = Math.max(0, Math.floor(-offsetX / cellSize));
@@ -40,8 +42,62 @@ export function renderPixels(
         const color = MARD_COLORS[cell.colorIndex];
         ctx.fillStyle = color.hex || "#FF00FF";
         ctx.fillRect(x, y, cellSize, cellSize);
+
+        // Dim non-highlighted cells
+        if (hasHighlight && cell.colorIndex !== highlightColorIndex) {
+          ctx.fillStyle = "rgba(255,255,255,0.7)";
+          ctx.fillRect(x, y, cellSize, cellSize);
+        }
       }
       // Empty cells are transparent (no fill)
+    }
+  }
+
+  // Draw highlight outlines — only draw edges where adjacent cell is NOT the same highlighted color
+  if (hasHighlight) {
+    ctx.strokeStyle = "rgba(230,80,80,0.5)";
+    ctx.lineWidth = 2;
+    for (let row = startRow; row < endRow; row++) {
+      for (let col = startCol; col < endCol; col++) {
+        const cell = canvasData[row][col];
+        if (cell.colorIndex !== highlightColorIndex) continue;
+
+        const x = col * cellSize + offsetX;
+        const y = row * cellSize + offsetY;
+
+        // Top edge: draw if row above is not same color
+        const above = row > 0 ? canvasData[row - 1][col]?.colorIndex : null;
+        if (above !== highlightColorIndex) {
+          ctx.beginPath();
+          ctx.moveTo(x, y);
+          ctx.lineTo(x + cellSize, y);
+          ctx.stroke();
+        }
+        // Bottom edge
+        const below = row < rows - 1 ? canvasData[row + 1][col]?.colorIndex : null;
+        if (below !== highlightColorIndex) {
+          ctx.beginPath();
+          ctx.moveTo(x, y + cellSize);
+          ctx.lineTo(x + cellSize, y + cellSize);
+          ctx.stroke();
+        }
+        // Left edge
+        const left = col > 0 ? canvasData[row][col - 1]?.colorIndex : null;
+        if (left !== highlightColorIndex) {
+          ctx.beginPath();
+          ctx.moveTo(x, y);
+          ctx.lineTo(x, y + cellSize);
+          ctx.stroke();
+        }
+        // Right edge
+        const right = col < cols - 1 ? canvasData[row][col + 1]?.colorIndex : null;
+        if (right !== highlightColorIndex) {
+          ctx.beginPath();
+          ctx.moveTo(x + cellSize, y);
+          ctx.lineTo(x + cellSize, y + cellSize);
+          ctx.stroke();
+        }
+      }
     }
   }
 }

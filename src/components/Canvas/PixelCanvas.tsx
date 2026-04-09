@@ -34,6 +34,7 @@ export function PixelCanvas() {
   // Bead layer controls
   const beadLayerVisible = useEditorStore((s) => s.beadLayerVisible);
   const beadLayerOpacity = useEditorStore((s) => s.beadLayerOpacity);
+  const highlightColorIndex = useEditorStore((s) => s.highlightColorIndex);
 
   // Track dragging state
   const isDragging = useRef(false);
@@ -87,9 +88,10 @@ export function PixelCanvas() {
       offsetY,
       viewWidth: w,
       viewHeight: h,
+      highlightColorIndex,
     });
     ctx.globalAlpha = 1;
-  }, [canvasData, cellSize, offsetX, offsetY, beadLayerVisible, beadLayerOpacity]);
+  }, [canvasData, cellSize, offsetX, offsetY, beadLayerVisible, beadLayerOpacity, highlightColorIndex]);
 
   // Render reference image layer
   useEffect(() => {

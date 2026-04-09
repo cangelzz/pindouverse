@@ -43,6 +43,7 @@ interface EditorState {
   // Tool state
   currentTool: EditorTool;
   selectedColorIndex: number | null;
+  highlightColorIndex: number | null; // highlight all cells of this color
 
   // History
   undoStack: HistoryAction[];
@@ -104,6 +105,11 @@ interface EditorState {
   // Bead layer
   setBeadLayerVisible: (visible: boolean) => void;
   setBeadLayerOpacity: (opacity: number) => void;
+
+  // Highlight & replace
+  setHighlightColor: (index: number | null) => void;
+  countColor: (index: number) => number;
+  replaceColor: (fromIndex: number, toIndex: number) => void;
 }
 
 function createEmptyCanvas(width: number, height: number): CanvasData {
@@ -151,6 +157,7 @@ export const useEditorStore = create<EditorState>((set, get) => ({
 
   currentTool: "pen",
   selectedColorIndex: 0,
+  highlightColorIndex: null,
 
   undoStack: [],
   redoStack: [],
@@ -411,4 +418,42 @@ export const useEditorStore = create<EditorState>((set, get) => ({
 
   setBeadLayerVisible: (visible) => set({ beadLayerVisible: visible }),
   setBeadLayerOpacity: (opacity) => set({ beadLayerOpacity: Math.max(0, Math.min(1, opacity)) }),
+
+  setHighlightColor: (index) => set({ highlightColorIndex: index }),
+
+  countColor: (index) => {
+    const { canvasData } = get();
+    let count = 0;
+    for (const row of canvasData) {
+      for (const cell of row) {
+        if (cell.colorIndex === index) count++;
+      }
+    }
+    return count;
+  },
+
+  replaceColor: (fromIndex, toIndex) => {
+    const state = get();
+    const newData = state.canvasData.map((r) => r.map((c) => ({ ...c })));
+    const action: HistoryAction = [];
+
+    for (let row = 0; row < newData.length; row++) {
+      for (let col = 0; col < newData[row].length; col++) {
+        if (newData[row][col].colorIndex === fromIndex) {
+          action.push({ row, col, prevColorIndex: fromIndex, newColorIndex: toIndex });
+          newData[row][col] = { colorIndex: toIndex };
+        }
+      }
+    }
+
+    if (action.length === 0) return;
+
+    const undoStack = [...state.undoStack, action].slice(-MAX_HISTORY);
+    set({
+      canvasData: newData,
+      undoStack,
+      redoStack: [],
+      isDirty: true,
+    });
+  },
 }));
