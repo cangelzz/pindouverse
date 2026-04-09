@@ -74,6 +74,7 @@ export function ExportDialog({ onClose }: { onClose: () => void }) {
             format,
             start_x: gridConfig.startX,
             start_y: gridConfig.startY,
+            edge_padding: gridConfig.edgePadding,
           },
         });
         results.push(`图纸: ${blueprintPath}`);
@@ -90,6 +91,7 @@ export function ExportDialog({ onClose }: { onClose: () => void }) {
               format,
               start_x: gridConfig.startX,
               start_y: gridConfig.startY,
+              edge_padding: gridConfig.edgePadding,
             },
           });
           results.push(`镜像图纸: ${mirrorPath}`);

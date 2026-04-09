@@ -22,6 +22,7 @@ pub struct ExportRequest {
     pub format: String, // "png" or "jpeg"
     pub start_x: Option<i32>,
     pub start_y: Option<i32>,
+    pub edge_padding: Option<u32>,
 }
 
 fn luminance(r: u8, g: u8, b: u8) -> f64 {
@@ -93,20 +94,21 @@ pub fn export_image(request: ExportRequest) -> Result<String, String> {
     let legend_title_scale = PxScale::from(cs as f32 * 0.5);
     let axis_color = Rgba([80, 80, 80, 255]);
 
-    let sx = request.start_x.unwrap_or(0);
-    let sy = request.start_y.unwrap_or(0);
+    let sx = request.start_x.unwrap_or(1);
+    let sy = request.start_y.unwrap_or(1);
+    let ep = request.edge_padding.unwrap_or(0);
 
-    // Draw axis numbers
-    for col in 0..request.width {
+    // Draw axis numbers (only for grid area, skip edge padding cells)
+    for col in ep..request.width - ep {
         let x = margin + col * cs;
-        let label = format!("{}", col as i32 + sx);
+        let label = format!("{}", col as i32 - ep as i32 + sx);
         let tx = x as i32 + cs as i32 / 6;
         let ty = cs as i32 / 4;
         draw_text_mut(&mut img, axis_color, tx, ty, axis_scale, &font, &label);
     }
-    for row in 0..request.height {
+    for row in ep..request.height - ep {
         let y = margin + row * cs;
-        let label = format!("{}", row as i32 + sy);
+        let label = format!("{}", row as i32 - ep as i32 + sy);
         let tx = cs as i32 / 8;
         let ty = y as i32 + cs as i32 / 4;
         draw_text_mut(&mut img, axis_color, tx, ty, axis_scale, &font, &label);
@@ -178,8 +180,8 @@ pub fn export_image(request: ExportRequest) -> Result<String, String> {
         draw_hline(&mut img, y, grid_x_start, grid_x_end, thin_color, 1);
     }
 
-    let edge_px = (request.width % 5) / 2;
-    let edge_py = (request.height % 5) / 2;
+    let edge_px = ep;
+    let edge_py = ep;
 
     for col_g in (edge_px..=request.width - edge_px).step_by(5) {
         let x = grid_x_start + col_g * cs;

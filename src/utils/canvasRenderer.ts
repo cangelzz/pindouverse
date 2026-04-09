@@ -147,13 +147,13 @@ export function renderGrid(
 ): void {
   ctx.clearRect(0, 0, viewWidth, viewHeight);
 
-  const { groupSize } = gridConfig;
+  const { groupSize, edgePadding } = gridConfig;
   const totalCols = canvasWidth;
   const totalRows = canvasHeight;
 
-  // Compute edge padding: leftover cells split evenly on each side
-  const edgePaddingX = Math.floor((totalCols % groupSize) / 2);
-  const edgePaddingY = Math.floor((totalRows % groupSize) / 2);
+  // Use configured edge padding
+  const edgePaddingX = edgePadding;
+  const edgePaddingY = edgePadding;
 
   // Draw thin cell borders
   ctx.strokeStyle = "rgba(0,0,0,0.15)";

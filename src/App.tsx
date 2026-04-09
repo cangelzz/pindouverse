@@ -45,6 +45,7 @@ function App() {
   const renameLayer = useEditorStore((s) => s.renameLayer);
   const gridConfig = useEditorStore((s) => s.gridConfig);
   const setGridStartCoords = useEditorStore((s) => s.setGridStartCoords);
+  const setEdgePadding = useEditorStore((s) => s.setEdgePadding);
   const snapshots = useEditorStore((s) => s.snapshots);
   const createSnapshot = useEditorStore((s) => s.createSnapshot);
   const loadSnapshots = useEditorStore((s) => s.loadSnapshots);
@@ -348,6 +349,18 @@ function App() {
                 <div className="border rounded p-1.5 bg-gray-50">
                   <span className="font-semibold text-gray-600">📐 网格</span>
                   <div className="mt-1 flex flex-col gap-1">
+                    <div className="flex items-center gap-1">
+                      <span className="text-gray-500 w-12">边距</span>
+                      <input
+                        type="number"
+                        min={0}
+                        max={10}
+                        value={gridConfig.edgePadding}
+                        onChange={(e) => setEdgePadding(Number(e.target.value))}
+                        className="w-12 px-1 py-0 border rounded text-center text-[10px]"
+                      />
+                      <span className="text-[9px] text-gray-400">格</span>
+                    </div>
                     <div className="flex items-center gap-1">
                       <span className="text-gray-500 w-12">起始列</span>
                       <input

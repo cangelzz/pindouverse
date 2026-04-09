@@ -177,14 +177,14 @@ export function PixelCanvas() {
 
     if (!blueprintMode) return;
 
-    const { startX = 0, startY = 0 } = gridConfig;
+    const { startX = 1, startY = 1, edgePadding = 0 } = gridConfig;
     const fontSize = Math.max(8, Math.min(cellSize * 0.4, 14));
     ctx.font = `bold ${fontSize}px monospace`;
     const labelH = fontSize + 4;
 
-    // Column numbers along top edge
-    const startCol = Math.max(0, Math.floor(-offsetX / cellSize));
-    const endCol = Math.min(canvasSize.width, Math.ceil((w - offsetX) / cellSize));
+    // Column numbers along top edge (only for grid area, skip edge padding cells)
+    const startCol = Math.max(edgePadding, Math.floor(-offsetX / cellSize));
+    const endCol = Math.min(canvasSize.width - edgePadding, Math.ceil((w - offsetX) / cellSize));
 
     // Background bar for column labels
     ctx.fillStyle = "rgba(255,255,255,0.85)";
@@ -199,13 +199,13 @@ export function PixelCanvas() {
     for (let col = startCol; col < endCol; col++) {
       const x = col * cellSize + offsetX + cellSize / 2;
       if (x > 0 && x < w) {
-        ctx.fillText(`${col + startX}`, x, labelH / 2);
+        ctx.fillText(`${col - edgePadding + startX}`, x, labelH / 2);
       }
     }
 
-    // Row numbers along left edge
-    const startRow = Math.max(0, Math.floor(-offsetY / cellSize));
-    const endRow = Math.min(canvasSize.height, Math.ceil((h - offsetY) / cellSize));
+    // Row numbers along left edge (only for grid area, skip edge padding cells)
+    const startRow = Math.max(edgePadding, Math.floor(-offsetY / cellSize));
+    const endRow = Math.min(canvasSize.height - edgePadding, Math.ceil((h - offsetY) / cellSize));
     const labelW = Math.max(fontSize * 2.5, 24);
 
     // Background bar for row labels
@@ -220,7 +220,7 @@ export function PixelCanvas() {
     for (let row = startRow; row < endRow; row++) {
       const y = row * cellSize + offsetY + cellSize / 2;
       if (y > labelH && y < h) {
-        ctx.fillText(`${row + startY}`, labelW / 2, y);
+        ctx.fillText(`${row - edgePadding + startY}`, labelW / 2, y);
       }
     }
 

@@ -77,6 +77,7 @@ interface EditorState {
   setOffset: (x: number, y: number) => void;
   setBlueprintMode: (on: boolean) => void;
   setGridStartCoords: (startX: number, startY: number) => void;
+  setEdgePadding: (padding: number) => void;
   undo: () => void;
   redo: () => void;
   loadCanvasData: (data: CanvasData, size: CanvasSize) => void;
@@ -163,12 +164,24 @@ function mergeLayers(layers: BeadLayer[], width: number, height: number): Canvas
   return merged;
 }
 
-const DEFAULT_GRID_CONFIG: GridConfig = {
-  groupSize: 5,
-  edgePadding: 2,
-  startX: 1,
-  startY: 1,
-};
+/** Compute default edge padding for a canvas size */
+function defaultEdgePadding(width: number, height: number): number {
+  // 52×52 → 1, 104×104 → 2, others → 0
+  if (width === 52 && height === 52) return 1;
+  if (width === 104 && height === 104) return 2;
+  return 0;
+}
+
+function makeGridConfig(width: number, height: number): GridConfig {
+  return {
+    groupSize: 5,
+    edgePadding: defaultEdgePadding(width, height),
+    startX: 1,
+    startY: 1,
+  };
+}
+
+const DEFAULT_GRID_CONFIG: GridConfig = makeGridConfig(52, 52);
 
 const MAX_HISTORY = 200;
 
@@ -226,6 +239,7 @@ export const useEditorStore = create<EditorState>((set, get) => ({
     set({
       canvasSize: { width, height },
       canvasData: createEmptyCanvas(width, height),
+      gridConfig: makeGridConfig(width, height),
       layers: [layer],
       activeLayerId: layer.id,
       undoStack: [],
@@ -309,6 +323,10 @@ export const useEditorStore = create<EditorState>((set, get) => ({
 
   setGridStartCoords: (startX, startY) => set((state) => ({
     gridConfig: { ...state.gridConfig, startX, startY },
+  })),
+
+  setEdgePadding: (padding) => set((state) => ({
+    gridConfig: { ...state.gridConfig, edgePadding: Math.max(0, padding) },
   })),
 
   undo: () => {
