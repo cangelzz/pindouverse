@@ -89,3 +89,65 @@ export function matchImageToMard(
 
   return result;
 }
+
+/**
+ * Denoise: replace isolated pixels with dominant neighbor color.
+ * Each pass scans the grid; a pixel is replaced if fewer than `threshold`
+ * of its 8 neighbors share the same color.
+ * @param indices flat array of color indices
+ * @param width image width in pixels
+ * @param height image height in pixels
+ * @param passes number of denoise passes (0 = none)
+ * @param threshold min same-color neighbors to keep (default 2)
+ */
+export function denoiseIndices(
+  indices: number[],
+  width: number,
+  height: number,
+  passes: number = 1,
+  threshold: number = 2
+): number[] {
+  let current = [...indices];
+
+  for (let p = 0; p < passes; p++) {
+    const next = [...current];
+    for (let row = 0; row < height; row++) {
+      for (let col = 0; col < width; col++) {
+        const i = row * width + col;
+        const myColor = current[i];
+
+        // Count neighbor colors
+        const counts = new Map<number, number>();
+        let sameCount = 0;
+
+        for (let dr = -1; dr <= 1; dr++) {
+          for (let dc = -1; dc <= 1; dc++) {
+            if (dr === 0 && dc === 0) continue;
+            const nr = row + dr;
+            const nc = col + dc;
+            if (nr < 0 || nr >= height || nc < 0 || nc >= width) continue;
+            const nc2 = current[nr * width + nc];
+            counts.set(nc2, (counts.get(nc2) ?? 0) + 1);
+            if (nc2 === myColor) sameCount++;
+          }
+        }
+
+        // If too few same-color neighbors, replace with most common neighbor
+        if (sameCount < threshold) {
+          let bestColor = myColor;
+          let bestCount = 0;
+          for (const [color, count] of counts) {
+            if (count > bestCount) {
+              bestCount = count;
+              bestColor = color;
+            }
+          }
+          next[i] = bestColor;
+        }
+      }
+    }
+    current = next;
+  }
+
+  return current;
+}

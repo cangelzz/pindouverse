@@ -59,6 +59,17 @@ export function ImageImportDialog({ onClose }: { onClose: () => void }) {
   const [rawPixels, setRawPixels] = useState<number[] | null>(null);
   const [actualSize, setActualSize] = useState<{ width: number; height: number } | null>(null);
 
+  // Denoise & comparison
+  const [showComparison, setShowComparison] = useState(false);
+  interface CompareItem {
+    label: string;
+    algo: ColorMatchAlgorithm;
+    indices: number[];
+  }
+  const [compareResults, setCompareResults] = useState<CompareItem[]>([]);
+  const [selectedCompareIdx, setSelectedCompareIdx] = useState<number | null>(null);
+  const [previewScale, setPreviewScale] = useState(4);
+
   // Grid overlay & magnifier
   const [showGrid, setShowGrid] = useState(true);
   const [loupePos, setLoupePos] = useState<{ x: number; y: number } | null>(null);
@@ -85,6 +96,24 @@ export function ImageImportDialog({ onClose }: { onClose: () => void }) {
   const cropCanvasRef = useRef<HTMLCanvasElement>(null);
   const isDraggingCrop = useRef(false);
   const cropStart = useRef({ x: 0, y: 0 });
+
+  // Synced scroll refs for comparison
+  const compareScrollRefs = useRef<(HTMLDivElement | null)[]>([]);
+  const isSyncingScroll = useRef(false);
+  const handleCompareScroll = useCallback((sourceIdx: number) => {
+    if (isSyncingScroll.current) return;
+    isSyncingScroll.current = true;
+    const source = compareScrollRefs.current[sourceIdx];
+    if (source) {
+      compareScrollRefs.current.forEach((el, i) => {
+        if (el && i !== sourceIdx) {
+          el.scrollTop = source.scrollTop;
+          el.scrollLeft = source.scrollLeft;
+        }
+      });
+    }
+    requestAnimationFrame(() => { isSyncingScroll.current = false; });
+  }, []);
 
   const handleSelectFile = async () => {
     const selected = await open({
@@ -443,12 +472,52 @@ export function ImageImportDialog({ onClose }: { onClose: () => void }) {
         crop,
         sharp: sharpEdge,
       });
-      const matched = matchImageToMard(data.pixels, algorithm, colorGroupId);
+
+      let matched = matchImageToMard(data.pixels, algorithm, colorGroupId);
       setMatchedPreview(matched);
       setRawPixels(data.pixels as number[]);
       setActualSize({ width: data.width, height: data.height });
+      setShowComparison(false);
     } catch (e) {
       alert(`导入失败: ${e}`);
+    } finally {
+      setIsProcessing(false);
+    }
+  };
+
+  const handleCompare = async () => {
+    if (!filePath) return;
+    setIsProcessing(true);
+    try {
+      const crop = cropRect
+        ? { x: cropRect.x, y: cropRect.y, width: cropRect.width, height: cropRect.height }
+        : null;
+
+      const data = await invoke<PixelData>("import_image", {
+        path: filePath,
+        maxDimension,
+        crop,
+        sharp: sharpEdge,
+      });
+      setRawPixels(data.pixels as number[]);
+      setActualSize({ width: data.width, height: data.height });
+
+      const algos: { algo: ColorMatchAlgorithm; label: string }[] = [
+        { algo: "euclidean", label: "RGB" },
+        { algo: "ciede2000", label: "CIELAB" },
+      ];
+      const results: CompareItem[] = [];
+
+      for (const { algo, label } of algos) {
+        const matched = matchImageToMard(data.pixels, algo, colorGroupId);
+        results.push({ label, algo, indices: matched });
+      }
+
+      setCompareResults(results);
+      setShowComparison(true);
+      setSelectedCompareIdx(null);
+    } catch (e) {
+      alert(`对比生成失败: ${e}`);
     } finally {
       setIsProcessing(false);
     }
@@ -523,7 +592,7 @@ export function ImageImportDialog({ onClose }: { onClose: () => void }) {
 
   return (
     <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50">
-      <div className="bg-white rounded-lg shadow-xl w-[560px] max-h-[85vh] flex flex-col">
+      <div className={`bg-white rounded-lg shadow-xl max-h-[90vh] flex flex-col transition-all ${showComparison ? "w-[90vw] max-w-[1200px]" : "w-[560px]"}`}>
         <div className="px-4 py-3 border-b flex justify-between items-center">
           <h2 className="font-semibold text-sm">导入图片</h2>
           <button
@@ -985,14 +1054,21 @@ export function ImageImportDialog({ onClose }: { onClose: () => void }) {
             </div>
           </div>
 
-          {/* Preview / Confirm */}
-          <div className="flex gap-2">
+          {/* Preview / Compare / Confirm */}
+          <div className="flex gap-2 flex-wrap">
             <button
               onClick={handlePreview}
               disabled={!filePath || isProcessing}
               className="px-3 py-1.5 bg-gray-600 text-white text-xs rounded hover:bg-gray-700 disabled:opacity-40"
             >
-              {isProcessing ? "处理中..." : "预览匹配结果"}
+              {isProcessing ? "处理中..." : "预览"}
+            </button>
+            <button
+              onClick={handleCompare}
+              disabled={!filePath || isProcessing}
+              className="px-3 py-1.5 bg-purple-600 text-white text-xs rounded hover:bg-purple-700 disabled:opacity-40"
+            >
+              {isProcessing ? "处理中..." : "对比多种组合"}
             </button>
             <button
               onClick={handleConfirm}
@@ -1003,36 +1079,125 @@ export function ImageImportDialog({ onClose }: { onClose: () => void }) {
             </button>
           </div>
 
-          {/* Matched result preview */}
-          {matchedPreview && actualSize && (
+          {/* Comparison side-by-side */}
+          {showComparison && actualSize && compareResults.length > 0 && (
             <div className="border rounded p-2 bg-gray-50">
-              <p className="text-[10px] text-gray-500 mb-1">
-                匹配结果 ({actualSize.width}×{actualSize.height}):
-              </p>
-              <canvas
-                ref={(canvas) => {
-                  if (!canvas || !matchedPreview || !actualSize) return;
-                  canvas.width = actualSize.width;
-                  canvas.height = actualSize.height;
-                  const ctx = canvas.getContext("2d");
-                  if (!ctx) return;
+              <div className="flex items-center gap-2 mb-2">
+                <p className="text-[10px] text-gray-500">
+                  点击选择 ({actualSize.width}×{actualSize.height}):
+                </p>
+                <div className="flex items-center gap-1 ml-auto">
+                  <button
+                    onClick={() => setPreviewScale(Math.max(1, previewScale - 1))}
+                    className="w-5 h-5 text-[10px] border rounded hover:bg-gray-200 flex items-center justify-center"
+                  >−</button>
+                  <span className="text-[10px] text-gray-500 w-6 text-center">{previewScale}x</span>
+                  <button
+                    onClick={() => setPreviewScale(Math.min(12, previewScale + 1))}
+                    className="w-5 h-5 text-[10px] border rounded hover:bg-gray-200 flex items-center justify-center"
+                  >+</button>
+                </div>
+              </div>
+              <div className="flex gap-2">
+                {compareResults.map((item, idx) => (
+                  <div key={idx} className="flex-1 min-w-0 flex flex-col">
+                    <button
+                      onClick={() => {
+                        setSelectedCompareIdx(idx);
+                        setMatchedPreview(item.indices);
+                        setAlgorithm(item.algo);
+                      }}
+                      className={`w-full px-2 py-1 text-xs rounded-t border-2 border-b-0 ${
+                        selectedCompareIdx === idx
+                          ? "bg-blue-100 border-blue-500 text-blue-700 font-semibold"
+                          : "border-gray-300 hover:bg-gray-100"
+                      }`}
+                    >
+                      {item.label} {selectedCompareIdx === idx && "✓"}
+                    </button>
+                    <div
+                      ref={(el) => { compareScrollRefs.current[idx] = el; }}
+                      onScroll={() => handleCompareScroll(idx)}
+                      className={`overflow-auto border-2 rounded-b ${
+                        selectedCompareIdx === idx ? "border-blue-500" : "border-gray-300"
+                      }`}
+                      style={{ maxHeight: 400 }}
+                    >
+                      <canvas
+                        ref={(canvas) => {
+                          if (!canvas || !actualSize) return;
+                          canvas.width = actualSize.width;
+                          canvas.height = actualSize.height;
+                          const ctx = canvas.getContext("2d");
+                          if (!ctx) return;
+                          for (let r = 0; r < actualSize.height; r++) {
+                            for (let c = 0; c < actualSize.width; c++) {
+                              const ci = item.indices[r * actualSize.width + c];
+                              const color = MARD_COLORS[ci];
+                              ctx.fillStyle = color?.hex || "#FFF";
+                              ctx.fillRect(c, r, 1, 1);
+                            }
+                          }
+                        }}
+                        style={{
+                          width: actualSize.width * previewScale,
+                          height: actualSize.height * previewScale,
+                          imageRendering: "pixelated",
+                          display: "block",
+                        }}
+                      />
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
 
-                  for (let row = 0; row < actualSize.height; row++) {
-                    for (let col = 0; col < actualSize.width; col++) {
-                      const idx =
-                        matchedPreview[row * actualSize.width + col];
-                      const color = MARD_COLORS[idx];
-                      ctx.fillStyle = color?.hex || "#FFF";
-                      ctx.fillRect(col, row, 1, 1);
+          {/* Single matched result preview */}
+          {!showComparison && matchedPreview && actualSize && (
+            <div className="border rounded p-2 bg-gray-50">
+              <div className="flex items-center gap-2 mb-1">
+                <p className="text-[10px] text-gray-500">
+                  匹配结果 ({actualSize.width}×{actualSize.height}):
+                </p>
+                <div className="flex items-center gap-1 ml-auto">
+                  <button
+                    onClick={() => setPreviewScale(Math.max(1, previewScale - 1))}
+                    className="w-5 h-5 text-[10px] border rounded hover:bg-gray-200 flex items-center justify-center"
+                  >−</button>
+                  <span className="text-[10px] text-gray-500 w-6 text-center">{previewScale}x</span>
+                  <button
+                    onClick={() => setPreviewScale(Math.min(12, previewScale + 1))}
+                    className="w-5 h-5 text-[10px] border rounded hover:bg-gray-200 flex items-center justify-center"
+                  >+</button>
+                </div>
+              </div>
+              <div className="overflow-auto max-h-[400px]">
+                <canvas
+                  ref={(canvas) => {
+                    if (!canvas || !matchedPreview || !actualSize) return;
+                    canvas.width = actualSize.width;
+                    canvas.height = actualSize.height;
+                    const ctx = canvas.getContext("2d");
+                    if (!ctx) return;
+
+                    for (let row = 0; row < actualSize.height; row++) {
+                      for (let col = 0; col < actualSize.width; col++) {
+                        const idx =
+                          matchedPreview[row * actualSize.width + col];
+                        const color = MARD_COLORS[idx];
+                        ctx.fillStyle = color?.hex || "#FFF";
+                        ctx.fillRect(col, row, 1, 1);
+                      }
                     }
-                  }
-                }}
-                style={{
-                  width: Math.min(400, actualSize.width * 4),
-                  height: Math.min(400, actualSize.height * 4),
-                  imageRendering: "pixelated",
-                }}
-              />
+                  }}
+                  style={{
+                    width: actualSize.width * previewScale,
+                    height: actualSize.height * previewScale,
+                    imageRendering: "pixelated",
+                  }}
+                />
+              </div>
             </div>
           )}
         </div>
