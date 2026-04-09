@@ -7,6 +7,7 @@ export function PixelCanvas() {
   const pixelCanvasRef = useRef<HTMLCanvasElement>(null);
   const refCanvasRef = useRef<HTMLCanvasElement>(null);
   const gridCanvasRef = useRef<HTMLCanvasElement>(null);
+  const axisCanvasRef = useRef<HTMLCanvasElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
 
   const canvasData = useEditorStore((s) => s.canvasData);
@@ -35,6 +36,7 @@ export function PixelCanvas() {
   const beadLayerVisible = useEditorStore((s) => s.beadLayerVisible);
   const beadLayerOpacity = useEditorStore((s) => s.beadLayerOpacity);
   const highlightColorIndex = useEditorStore((s) => s.highlightColorIndex);
+  const blueprintMode = useEditorStore((s) => s.blueprintMode);
 
   // Track dragging state
   const isDragging = useRef(false);
@@ -47,13 +49,14 @@ export function PixelCanvas() {
     const pc = pixelCanvasRef.current;
     const rc = refCanvasRef.current;
     const gc = gridCanvasRef.current;
-    if (!container || !pc || !rc || !gc) return;
+    const ac = axisCanvasRef.current;
+    if (!container || !pc || !rc || !gc || !ac) return;
 
     const w = container.clientWidth;
     const h = container.clientHeight;
     const dpr = window.devicePixelRatio || 1;
 
-    for (const c of [pc, rc, gc]) {
+    for (const c of [pc, rc, gc, ac]) {
       c.width = w * dpr;
       c.height = h * dpr;
       c.style.width = `${w}px`;
@@ -89,9 +92,10 @@ export function PixelCanvas() {
       viewWidth: w,
       viewHeight: h,
       highlightColorIndex,
+      blueprintMode,
     });
     ctx.globalAlpha = 1;
-  }, [canvasData, cellSize, offsetX, offsetY, beadLayerVisible, beadLayerOpacity, highlightColorIndex]);
+  }, [canvasData, cellSize, offsetX, offsetY, beadLayerVisible, beadLayerOpacity, highlightColorIndex, blueprintMode]);
 
   // Render reference image layer
   useEffect(() => {
@@ -145,6 +149,69 @@ export function PixelCanvas() {
       gridConfig
     );
   }, [canvasSize, cellSize, offsetX, offsetY, gridConfig]);
+
+  // Render floating axis labels in blueprint mode
+  useEffect(() => {
+    const ctx = axisCanvasRef.current?.getContext("2d");
+    if (!ctx || !containerRef.current) return;
+
+    const w = containerRef.current.clientWidth;
+    const h = containerRef.current.clientHeight;
+    ctx.clearRect(0, 0, w, h);
+
+    if (!blueprintMode) return;
+
+    const { startX = 0, startY = 0 } = gridConfig;
+    const fontSize = Math.max(8, Math.min(cellSize * 0.4, 14));
+    ctx.font = `bold ${fontSize}px monospace`;
+    const labelH = fontSize + 4;
+
+    // Column numbers along top edge
+    const startCol = Math.max(0, Math.floor(-offsetX / cellSize));
+    const endCol = Math.min(canvasSize.width, Math.ceil((w - offsetX) / cellSize));
+
+    // Background bar for column labels
+    ctx.fillStyle = "rgba(255,255,255,0.85)";
+    ctx.fillRect(0, 0, w, labelH);
+    ctx.fillStyle = "rgba(0,0,0,0.08)";
+    ctx.fillRect(0, labelH - 1, w, 1);
+
+    ctx.textAlign = "center";
+    ctx.textBaseline = "middle";
+    ctx.fillStyle = "rgba(80,80,80,0.9)";
+
+    for (let col = startCol; col < endCol; col++) {
+      const x = col * cellSize + offsetX + cellSize / 2;
+      if (x > 0 && x < w) {
+        ctx.fillText(`${col + startX}`, x, labelH / 2);
+      }
+    }
+
+    // Row numbers along left edge
+    const startRow = Math.max(0, Math.floor(-offsetY / cellSize));
+    const endRow = Math.min(canvasSize.height, Math.ceil((h - offsetY) / cellSize));
+    const labelW = Math.max(fontSize * 2.5, 24);
+
+    // Background bar for row labels
+    ctx.fillStyle = "rgba(255,255,255,0.85)";
+    ctx.fillRect(0, labelH, labelW, h - labelH);
+    ctx.fillStyle = "rgba(0,0,0,0.08)";
+    ctx.fillRect(labelW - 1, labelH, 1, h - labelH);
+
+    ctx.textAlign = "center";
+    ctx.fillStyle = "rgba(80,80,80,0.9)";
+
+    for (let row = startRow; row < endRow; row++) {
+      const y = row * cellSize + offsetY + cellSize / 2;
+      if (y > labelH && y < h) {
+        ctx.fillText(`${row + startY}`, labelW / 2, y);
+      }
+    }
+
+    // Corner box
+    ctx.fillStyle = "rgba(255,255,255,0.85)";
+    ctx.fillRect(0, 0, labelW, labelH);
+  }, [blueprintMode, canvasSize, cellSize, offsetX, offsetY, gridConfig]);
 
   // Convert screen position to cell coordinates
   const screenToCell = useCallback(
@@ -316,6 +383,7 @@ export function PixelCanvas() {
           style={{ imageRendering: "pixelated" }}
         />
         <canvas ref={gridCanvasRef} className="absolute inset-0 pointer-events-none" />
+        <canvas ref={axisCanvasRef} className="absolute inset-0 pointer-events-none" />
       </div>
     </div>
   );

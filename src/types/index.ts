@@ -21,6 +21,10 @@ export interface GridConfig {
   groupSize: number;
   /** Padding pixels outside the grid on each edge */
   edgePadding: number;
+  /** Starting coordinate label for columns (default 0) */
+  startX: number;
+  /** Starting coordinate label for rows (default 0) */
+  startY: number;
 }
 
 export interface CanvasCell {

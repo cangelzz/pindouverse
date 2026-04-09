@@ -39,6 +39,7 @@ interface EditorState {
   offsetX: number;
   offsetY: number;
   zoom: number;
+  blueprintMode: boolean;
 
   // Tool state
   currentTool: EditorTool;
@@ -69,6 +70,8 @@ interface EditorState {
   setSelectedColor: (index: number | null) => void;
   setZoom: (zoom: number) => void;
   setOffset: (x: number, y: number) => void;
+  setBlueprintMode: (on: boolean) => void;
+  setGridStartCoords: (startX: number, startY: number) => void;
   undo: () => void;
   redo: () => void;
   loadCanvasData: (data: CanvasData, size: CanvasSize) => void;
@@ -121,6 +124,8 @@ function createEmptyCanvas(width: number, height: number): CanvasData {
 const DEFAULT_GRID_CONFIG: GridConfig = {
   groupSize: 5,
   edgePadding: 2,
+  startX: 1,
+  startY: 1,
 };
 
 const MAX_HISTORY = 200;
@@ -154,6 +159,7 @@ export const useEditorStore = create<EditorState>((set, get) => ({
   offsetX: 0,
   offsetY: 0,
   zoom: 1,
+  blueprintMode: false,
 
   currentTool: "pen",
   selectedColorIndex: 0,
@@ -239,6 +245,12 @@ export const useEditorStore = create<EditorState>((set, get) => ({
   },
 
   setOffset: (x, y) => set({ offsetX: x, offsetY: y }),
+
+  setBlueprintMode: (on) => set({ blueprintMode: on }),
+
+  setGridStartCoords: (startX, startY) => set((state) => ({
+    gridConfig: { ...state.gridConfig, startX, startY },
+  })),
 
   undo: () => {
     const state = get();

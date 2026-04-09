@@ -17,6 +17,8 @@ export function CanvasToolbar() {
   const redoStack = useEditorStore((s) => s.redoStack);
   const zoom = useEditorStore((s) => s.zoom);
   const setZoom = useEditorStore((s) => s.setZoom);
+  const blueprintMode = useEditorStore((s) => s.blueprintMode);
+  const setBlueprintMode = useEditorStore((s) => s.setBlueprintMode);
 
   return (
     <div className="flex flex-col gap-1 p-2 bg-gray-50 border-r w-12 items-center select-none">
@@ -77,6 +79,18 @@ export function CanvasToolbar() {
         title="重置缩放"
       >
         1:1
+      </button>
+
+      <div className="border-t my-1 w-full" />
+
+      {/* Blueprint mode toggle */}
+      <button
+        onClick={() => setBlueprintMode(!blueprintMode)}
+        className={`w-9 h-9 rounded flex items-center justify-center text-sm transition-colors
+          ${blueprintMode ? "bg-orange-500 text-white shadow" : "hover:bg-gray-200"}`}
+        title={blueprintMode ? "退出图纸模式" : "图纸模式"}
+      >
+        📋
       </button>
     </div>
   );

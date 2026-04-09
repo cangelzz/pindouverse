@@ -20,6 +20,8 @@ pub struct ExportRequest {
     pub cells: Vec<Vec<Option<CellData>>>,
     pub output_path: String,
     pub format: String, // "png" or "jpeg"
+    pub start_x: Option<i32>,
+    pub start_y: Option<i32>,
 }
 
 fn luminance(r: u8, g: u8, b: u8) -> f64 {
@@ -91,17 +93,20 @@ pub fn export_image(request: ExportRequest) -> Result<String, String> {
     let legend_title_scale = PxScale::from(cs as f32 * 0.5);
     let axis_color = Rgba([80, 80, 80, 255]);
 
+    let sx = request.start_x.unwrap_or(0);
+    let sy = request.start_y.unwrap_or(0);
+
     // Draw axis numbers
     for col in 0..request.width {
         let x = margin + col * cs;
-        let label = format!("{}", col + 1);
+        let label = format!("{}", col as i32 + sx);
         let tx = x as i32 + cs as i32 / 6;
         let ty = cs as i32 / 4;
         draw_text_mut(&mut img, axis_color, tx, ty, axis_scale, &font, &label);
     }
     for row in 0..request.height {
         let y = margin + row * cs;
-        let label = format!("{}", row + 1);
+        let label = format!("{}", row as i32 + sy);
         let tx = cs as i32 / 8;
         let ty = y as i32 + cs as i32 / 4;
         draw_text_mut(&mut img, axis_color, tx, ty, axis_scale, &font, &label);

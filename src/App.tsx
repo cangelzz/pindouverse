@@ -37,6 +37,8 @@ function App() {
   const beadLayerOpacity = useEditorStore((s) => s.beadLayerOpacity);
   const setBeadLayerVisible = useEditorStore((s) => s.setBeadLayerVisible);
   const setBeadLayerOpacity = useEditorStore((s) => s.setBeadLayerOpacity);
+  const gridConfig = useEditorStore((s) => s.gridConfig);
+  const setGridStartCoords = useEditorStore((s) => s.setGridStartCoords);
   const snapshots = useEditorStore((s) => s.snapshots);
   const createSnapshot = useEditorStore((s) => s.createSnapshot);
   const loadSnapshots = useEditorStore((s) => s.loadSnapshots);
@@ -292,6 +294,26 @@ function App() {
                     <span className="text-gray-400">最上层覆盖</span>
                   </div>
                   <p className="text-gray-500 mt-1">5×5分组网格线</p>
+                  <div className="mt-2 flex flex-col gap-1">
+                    <div className="flex items-center gap-1">
+                      <span className="text-gray-500 w-16">起始列号</span>
+                      <input
+                        type="number"
+                        value={gridConfig.startX}
+                        onChange={(e) => setGridStartCoords(Number(e.target.value), gridConfig.startY)}
+                        className="w-14 px-1 py-0.5 border rounded text-center"
+                      />
+                    </div>
+                    <div className="flex items-center gap-1">
+                      <span className="text-gray-500 w-16">起始行号</span>
+                      <input
+                        type="number"
+                        value={gridConfig.startY}
+                        onChange={(e) => setGridStartCoords(gridConfig.startX, Number(e.target.value))}
+                        className="w-14 px-1 py-0.5 border rounded text-center"
+                      />
+                    </div>
+                  </div>
                 </div>
               </div>
             )}

@@ -37,12 +37,12 @@ export function ImageImportDialog({ onClose }: { onClose: () => void }) {
 
   const [filePath, setFilePath] = useState<string | null>(null);
   const [maxDimension, setMaxDimension] = useState(52);
-  const [algorithm, setAlgorithm] = useState<ColorMatchAlgorithm>("ciede2000");
+  const [algorithm, setAlgorithm] = useState<ColorMatchAlgorithm>("euclidean");
   const [colorGroupId, setColorGroupId] = useState("mard221");
   const [isProcessing, setIsProcessing] = useState(false);
 
   // Resize filter: sharp (nearest) vs smooth (lanczos)
-  const [sharpEdge, setSharpEdge] = useState(true);
+  const [sharpEdge, setSharpEdge] = useState(false);
 
   // Canvas size (independent from image size)
   const [canvasW, setCanvasW] = useState(currentCanvasSize.width);

@@ -8,6 +8,7 @@ export function ExportDialog({ onClose }: { onClose: () => void }) {
   const canvasData = useEditorStore((s) => s.canvasData);
   const canvasSize = useEditorStore((s) => s.canvasSize);
   const importedFileName = useEditorStore((s) => s.importedFileName);
+  const gridConfig = useEditorStore((s) => s.gridConfig);
 
   const [cellSize, setCellSize] = useState(40);
   const [format, setFormat] = useState<"png" | "jpeg">("png");
@@ -67,6 +68,8 @@ export function ExportDialog({ onClose }: { onClose: () => void }) {
             cells,
             output_path: blueprintPath,
             format,
+            start_x: gridConfig.startX,
+            start_y: gridConfig.startY,
           },
         });
         results.push(`图纸: ${blueprintPath}`);
@@ -81,6 +84,8 @@ export function ExportDialog({ onClose }: { onClose: () => void }) {
               cells: mirrorCells(cells),
               output_path: mirrorPath,
               format,
+              start_x: gridConfig.startX,
+              start_y: gridConfig.startY,
             },
           });
           results.push(`镜像图纸: ${mirrorPath}`);

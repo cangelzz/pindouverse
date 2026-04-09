@@ -9,6 +9,15 @@ export interface RenderOptions {
   viewWidth: number;
   viewHeight: number;
   highlightColorIndex?: number | null;
+  blueprintMode?: boolean;
+}
+
+/** Compute contrasting text color */
+function textLum(hex: string): number {
+  const r = parseInt(hex.slice(1, 3), 16);
+  const g = parseInt(hex.slice(3, 5), 16);
+  const b = parseInt(hex.slice(5, 7), 16);
+  return 0.299 * r + 0.587 * g + 0.114 * b;
 }
 
 /**
@@ -19,7 +28,7 @@ export function renderPixels(
   ctx: CanvasRenderingContext2D,
   opts: RenderOptions
 ): void {
-  const { canvasData, cellSize, offsetX, offsetY, viewWidth, viewHeight, highlightColorIndex } = opts;
+  const { canvasData, cellSize, offsetX, offsetY, viewWidth, viewHeight, highlightColorIndex, blueprintMode } = opts;
   const rows = canvasData.length;
   const cols = rows > 0 ? canvasData[0].length : 0;
   const hasHighlight = highlightColorIndex !== null && highlightColorIndex !== undefined;
@@ -42,6 +51,23 @@ export function renderPixels(
         const color = MARD_COLORS[cell.colorIndex];
         ctx.fillStyle = color.hex || "#FF00FF";
         ctx.fillRect(x, y, cellSize, cellSize);
+
+        // Blueprint mode: draw cell border + color code text
+        if (blueprintMode) {
+          ctx.strokeStyle = "rgba(0,0,0,0.15)";
+          ctx.lineWidth = 1;
+          ctx.strokeRect(x, y, cellSize, cellSize);
+
+          // Only draw text if cell is large enough
+          if (cellSize >= 16) {
+            const fontSize = Math.max(6, Math.min(cellSize * 0.3, 14));
+            ctx.font = `bold ${fontSize}px monospace`;
+            ctx.textAlign = "center";
+            ctx.textBaseline = "middle";
+            ctx.fillStyle = textLum(color.hex || "#FFF") > 140 ? "rgba(0,0,0,0.8)" : "rgba(255,255,255,0.9)";
+            ctx.fillText(color.code, x + cellSize / 2, y + cellSize / 2, cellSize - 2);
+          }
+        }
 
         // Dim non-highlighted cells
         if (hasHighlight && cell.colorIndex !== highlightColorIndex) {
