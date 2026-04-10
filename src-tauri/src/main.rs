@@ -1,3 +1,3 @@
 fn main() {
-    pindou_lib::run()
+    pindouverse_lib::run()
 }

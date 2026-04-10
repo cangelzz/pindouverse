@@ -135,7 +135,7 @@ function App() {
     <div className="flex flex-col h-screen bg-white text-gray-800">
       {/* Top menu bar */}
       <div className="flex items-center gap-1 px-2 py-1 bg-gray-100 border-b text-xs select-none">
-        <span className="font-bold text-sm mr-2">🎨 拼豆编辑器</span>
+        <span className="font-bold text-sm mr-2">🎨 拼豆宇宙</span>
         <button
           onClick={() => setShowNewCanvas(true)}
           className="px-2 py-1 rounded hover:bg-gray-200"

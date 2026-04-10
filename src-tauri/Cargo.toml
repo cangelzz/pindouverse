@@ -1,12 +1,12 @@
 [package]
-name = "pindou"
+name = "pindouverse"
 version = "0.1.0"
-description = "拼豆像素艺术编辑器 - Pixel Art Editor for Perler Beads"
+description = "拼豆宇宙 - PindouVerse Pixel Art Editor for Perler Beads"
 authors = ["xiaofeicheng"]
 edition = "2021"
 
 [lib]
-name = "pindou_lib"
+name = "pindouverse_lib"
 crate-type = ["lib", "cdylib", "staticlib"]
 
 [build-dependencies]
