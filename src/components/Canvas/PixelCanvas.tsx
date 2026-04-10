@@ -3,7 +3,7 @@ import { useEditorStore } from "../../store/editorStore";
 import { renderPixels, renderGrid } from "../../utils/canvasRenderer";
 import { MARD_COLORS } from "../../data/mard221";
 import { useVoiceControl, type VoiceCommand } from "../../hooks/useVoiceControl";
-import { playDone, playUnknown, playListenStart, speak } from "../../utils/audioFeedback";
+import { playDone, playUnknown, playListenStart, speak, warmupAudio } from "../../utils/audioFeedback";
 
 export function PixelCanvas() {
   const pixelCanvasRef = useRef<HTMLCanvasElement>(null);
@@ -90,15 +90,14 @@ export function PixelCanvas() {
         return { groupCol: nc, groupRow: nr };
       });
 
-      const SPEAK: Record<string, string> = {
-        up: "上", down: "下", left: "左", right: "右",
-        cancel: "取消", confirm: "确认",
-      };
-
       // Show feedback and play sound, then speak the command
       if (result.command !== "unknown") {
         playDone("A");
-        setTimeout(() => speak(SPEAK[result.command] ?? ""), 250);
+        const SPEAK: Record<string, string> = {
+          up: "上", down: "下", left: "左", right: "右",
+          cancel: "取消", confirm: "确认",
+        };
+        setTimeout(() => speak(SPEAK[result.command] ?? "", "zh-CN"), 250);
       } else {
         playUnknown();
       }
@@ -112,8 +111,16 @@ export function PixelCanvas() {
   // Voice control: start/stop based on store toggle
   const voiceControl = useVoiceControl({ onCommand: handleVoiceCommand });
 
+  // Sync store when voice auto-stops (idle timeout)
+  useEffect(() => {
+    if (voiceControlEnabled && !voiceControl.isListening) {
+      setVoiceControlEnabled(false);
+    }
+  }, [voiceControl.isListening, voiceControlEnabled, setVoiceControlEnabled]);
+
   useEffect(() => {
     if (voiceControlEnabled && gridFocusMode && blueprintMode) {
+      warmupAudio();
       voiceControl.start();
       playListenStart();
     } else {

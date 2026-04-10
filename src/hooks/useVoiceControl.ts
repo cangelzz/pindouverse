@@ -17,14 +17,14 @@ interface VoiceCommandResult {
 
 // ─── Command matching table ──────────────────────────────────────
 
-const COMMAND_PATTERNS: { patterns: RegExp; command: VoiceCommand }[] = [
-  { patterns: /^(上|向上|往上|上面|上移|shàng)$/i, command: "up" },
-  { patterns: /^(下|向下|往下|下面|下移|xià)$/i, command: "down" },
-  { patterns: /^(左|向左|往左|左边|左移|zuǒ)$/i, command: "left" },
-  { patterns: /^(右|向右|往右|右边|右移|yòu)$/i, command: "right" },
-  { patterns: /^(取消|关闭|清除|取消高亮|qǔxiāo)$/i, command: "cancel" },
-  { patterns: /^(确认|好了|完成|确定|quèrèn)$/i, command: "confirm" },
-  // English fallback
+// Exact matches
+const EXACT_PATTERNS: { patterns: RegExp; command: VoiceCommand }[] = [
+  { patterns: /^(上|向上|往上|上面|上移|上去|上方)$/i, command: "up" },
+  { patterns: /^(下|向下|往下|下面|下移|下去|下方)$/i, command: "down" },
+  { patterns: /^(左|向左|往左|左边|左移|左面|左方)$/i, command: "left" },
+  { patterns: /^(右|向右|往右|右边|右移|右面|右方)$/i, command: "right" },
+  { patterns: /^(取消|关闭|清除|取消高亮)$/i, command: "cancel" },
+  { patterns: /^(确认|好了|完成|确定)$/i, command: "confirm" },
   { patterns: /^(up|go up|move up)$/i, command: "up" },
   { patterns: /^(down|go down|move down)$/i, command: "down" },
   { patterns: /^(left|go left|move left)$/i, command: "left" },
@@ -33,19 +33,51 @@ const COMMAND_PATTERNS: { patterns: RegExp; command: VoiceCommand }[] = [
   { patterns: /^(confirm|ok|done|yes)$/i, command: "confirm" },
 ];
 
+// Homophone / misrecognition mapping
+const HOMOPHONES: { patterns: RegExp; command: VoiceCommand }[] = [
+  { patterns: /^[尚伤赏商晌]$/, command: "up" },
+  { patterns: /^[吓夏瞎虾]$/, command: "down" },
+  { patterns: /^[做坐作座]$/, command: "left" },
+  { patterns: /^[又有由油友幼游]$/, command: "right" },
+  { patterns: /尚|上[啊吧呢嘛]/, command: "up" },
+  { patterns: /下[啊吧呢嘛]|虾/, command: "down" },
+  { patterns: /左[啊吧呢嘛]/, command: "left" },
+  { patterns: /右[啊吧呢嘛]|又[啊]/, command: "right" },
+];
+
 function matchCommand(text: string): VoiceCommand {
   const cleaned = text.trim();
-  for (const { patterns, command } of COMMAND_PATTERNS) {
+
+  for (const { patterns, command } of EXACT_PATTERNS) {
     if (patterns.test(cleaned)) return command;
   }
-  // Fuzzy: check if any keyword is contained in the text
+  for (const { patterns, command } of HOMOPHONES) {
+    if (patterns.test(cleaned)) return command;
+  }
+  // Fuzzy contain
   if (/上/.test(cleaned)) return "up";
   if (/下/.test(cleaned)) return "down";
   if (/左/.test(cleaned)) return "left";
   if (/右/.test(cleaned)) return "right";
   if (/取消|关闭|清除/.test(cleaned)) return "cancel";
-  if (/确认|完成|好/.test(cleaned)) return "confirm";
+  if (/确认|完成/.test(cleaned)) return "confirm";
+  if (/\bup\b/i.test(cleaned)) return "up";
+  if (/\bdown\b/i.test(cleaned)) return "down";
+  if (/\bleft\b/i.test(cleaned)) return "left";
+  if (/\bright\b/i.test(cleaned)) return "right";
   return "unknown";
+}
+
+/** Try matching across all alternatives, return first match */
+function matchFromAlternatives(result: SpeechRecognitionResult): { command: VoiceCommand; raw: string; confidence: number } {
+  for (let i = 0; i < result.length; i++) {
+    const alt = result[i];
+    const cmd = matchCommand(alt.transcript);
+    if (cmd !== "unknown") {
+      return { command: cmd, raw: alt.transcript.trim(), confidence: alt.confidence };
+    }
+  }
+  return { command: "unknown", raw: result[0].transcript.trim(), confidence: result[0].confidence };
 }
 
 // ─── Hook ────────────────────────────────────────────────────────
@@ -62,6 +94,24 @@ export function useVoiceControl({ lang = "zh-CN", onCommand }: UseVoiceControlOp
   const recognitionRef = useRef<SpeechRecognition | null>(null);
   const onCommandRef = useRef(onCommand);
   onCommandRef.current = onCommand;
+
+  // Auto-stop after 5 minutes of no valid command
+  const idleTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const IDLE_TIMEOUT = 5 * 60 * 1000;
+
+  const resetIdleTimer = useCallback(() => {
+    if (idleTimerRef.current) clearTimeout(idleTimerRef.current);
+    idleTimerRef.current = setTimeout(() => {
+      // Auto-stop after idle timeout
+      if (recognitionRef.current) {
+        const ref = recognitionRef.current;
+        recognitionRef.current = null;
+        ref.abort();
+        setIsListening(false);
+        setLastResult(null);
+      }
+    }, IDLE_TIMEOUT);
+  }, []);
 
   const start = useCallback(() => {
     if (!isSupported) return;
@@ -80,13 +130,13 @@ export function useVoiceControl({ lang = "zh-CN", onCommand }: UseVoiceControlOp
       const last = event.results[event.results.length - 1];
       if (!last.isFinal) return;
 
-      const transcript = last[0].transcript.trim();
-      const confidence = last[0].confidence;
-      const command = matchCommand(transcript);
-
-      const result: VoiceCommandResult = { command, raw: transcript, confidence };
+      const result = matchFromAlternatives(last);
       setLastResult(result);
       onCommandRef.current(result);
+      // Reset idle timer on valid command
+      if (result.command !== "unknown") {
+        resetIdleTimer();
+      }
     };
 
     recognition.onerror = (event) => {
@@ -109,9 +159,14 @@ export function useVoiceControl({ lang = "zh-CN", onCommand }: UseVoiceControlOp
     recognitionRef.current = recognition;
     recognition.start();
     setIsListening(true);
-  }, [isSupported, lang]);
+    resetIdleTimer();
+  }, [isSupported, lang, resetIdleTimer]);
 
   const stop = useCallback(() => {
+    if (idleTimerRef.current) {
+      clearTimeout(idleTimerRef.current);
+      idleTimerRef.current = null;
+    }
     if (recognitionRef.current) {
       const ref = recognitionRef.current;
       recognitionRef.current = null; // prevent auto-restart

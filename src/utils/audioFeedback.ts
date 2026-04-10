@@ -9,7 +9,22 @@ function getAudioContext(): AudioContext {
   if (!audioCtx) {
     audioCtx = new AudioContext();
   }
+  // Resume if suspended (browser policy requires user gesture)
+  if (audioCtx.state === "suspended") {
+    audioCtx.resume();
+  }
   return audioCtx;
+}
+
+/** Pre-warm AudioContext to reduce first-play latency. Call on user gesture. */
+export function warmupAudio() {
+  const ctx = getAudioContext();
+  // Play a silent buffer to fully initialize the audio pipeline
+  const buf = ctx.createBuffer(1, 1, ctx.sampleRate);
+  const src = ctx.createBufferSource();
+  src.buffer = buf;
+  src.connect(ctx.destination);
+  src.start();
 }
 
 interface ToneOptions {
@@ -141,14 +156,70 @@ export function playListenStart() {
   ], 0.03);
 }
 
+/** Get all available voices for a language (empty = all languages) */
+export function getVoices(lang = ""): SpeechSynthesisVoice[] {
+  if (!("speechSynthesis" in window)) return [];
+  const all = window.speechSynthesis.getVoices();
+  if (!lang) return all;
+  return all.filter((v) => v.lang.startsWith(lang));
+}
+
+/** Get all voices (any language) */
+export function getAllVoices(): SpeechSynthesisVoice[] {
+  if (!("speechSynthesis" in window)) return [];
+  return window.speechSynthesis.getVoices();
+}
+
+let selectedVoice: SpeechSynthesisVoice | null = null;
+
+/** Set preferred voice by name */
+export function setVoice(voice: SpeechSynthesisVoice | null) {
+  selectedVoice = voice;
+}
+
+/** Auto-pick the best Chinese voice (prefer female/natural sounding) */
+function pickBestVoice(lang: string): SpeechSynthesisVoice | null {
+  if (selectedVoice) return selectedVoice;
+  const voices = window.speechSynthesis.getVoices();
+  const langVoices = voices.filter((v) => v.lang.startsWith(lang.slice(0, 2)));
+  if (langVoices.length === 0) return null;
+
+  // Prefer: Xiaoxiao, Yunyang, HuiHui, Yaoyao, Kangkang — Microsoft's natural voices
+  const preferred = ["Xiaoxiao", "Yunyang", "HuiHui", "Yaoyao", "Kangkang", "Hanhan", "Zhiwei"];
+  for (const name of preferred) {
+    const v = langVoices.find((v) => v.name.includes(name));
+    if (v) return v;
+  }
+  // Prefer non-default, often better quality
+  const nonDefault = langVoices.find((v) => !v.default);
+  return nonDefault ?? langVoices[0];
+}
+
 /** Speak a short text using Web Speech Synthesis */
 export function speak(text: string, lang = "zh-CN") {
   if (!("speechSynthesis" in window)) return;
+  // Cancel any ongoing speech
+  window.speechSynthesis.cancel();
   const utterance = new SpeechSynthesisUtterance(text);
   utterance.lang = lang;
-  utterance.rate = 1.3;  // slightly faster for short words
-  utterance.volume = 0.8;
-  utterance.pitch = 1.1;
+  utterance.rate = 1.4;
+  utterance.volume = 0.9;
+  utterance.pitch = 1.2;
+  const voice = pickBestVoice(lang);
+  if (voice) utterance.voice = voice;
+  window.speechSynthesis.speak(utterance);
+}
+
+/** Preview a specific voice */
+export function previewVoice(voice: SpeechSynthesisVoice, text = "上下左右") {
+  if (!("speechSynthesis" in window)) return;
+  window.speechSynthesis.cancel();
+  const utterance = new SpeechSynthesisUtterance(text);
+  utterance.voice = voice;
+  utterance.lang = voice.lang;
+  utterance.rate = 1.4;
+  utterance.volume = 0.9;
+  utterance.pitch = 1.2;
   window.speechSynthesis.speak(utterance);
 }
 
