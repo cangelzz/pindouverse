@@ -9,10 +9,33 @@ pub struct ProjectFile {
     pub canvas_size: CanvasSize,
     #[serde(rename = "canvasData")]
     pub canvas_data: Vec<Vec<CellData>>,
+    #[serde(rename = "gridConfig", skip_serializing_if = "Option::is_none", default)]
+    pub grid_config: Option<GridConfig>,
     #[serde(rename = "createdAt")]
     pub created_at: String,
     #[serde(rename = "updatedAt")]
     pub updated_at: String,
+}
+
+#[derive(Serialize, Deserialize)]
+pub struct GridConfig {
+    #[serde(rename = "groupSize")]
+    pub group_size: u32,
+    #[serde(rename = "edgePadding")]
+    pub edge_padding: u32,
+    #[serde(rename = "startX")]
+    pub start_x: i32,
+    #[serde(rename = "startY")]
+    pub start_y: i32,
+    pub visible: bool,
+    #[serde(rename = "lineColor")]
+    pub line_color: String,
+    #[serde(rename = "lineWidth")]
+    pub line_width: f64,
+    #[serde(rename = "groupLineColor")]
+    pub group_line_color: String,
+    #[serde(rename = "groupLineWidth")]
+    pub group_line_width: f64,
 }
 
 #[derive(Serialize, Deserialize)]

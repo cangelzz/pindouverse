@@ -86,6 +86,7 @@ export interface ProjectFile {
   version: number;
   canvasSize: CanvasSize;
   canvasData: CanvasData;
+  gridConfig?: GridConfig;
   createdAt: string;
   updatedAt: string;
 }

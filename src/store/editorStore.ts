@@ -201,6 +201,7 @@ function buildProjectFile(state: EditorState): ProjectFile {
     version: 1,
     canvasSize: state.canvasSize,
     canvasData: state.canvasData,
+    gridConfig: state.gridConfig,
     createdAt: state.lastSavedAt || now,
     updatedAt: now,
   };
@@ -491,9 +492,12 @@ export const useEditorStore = create<EditorState>((set, get) => ({
     const project = await invoke<ProjectFile>("load_project", { path: selected });
     const layer = createDefaultLayer(project.canvasSize.width, project.canvasSize.height);
     layer.data = project.canvasData;
+    const defaultGrid = makeGridConfig(project.canvasSize.width, project.canvasSize.height);
+    const savedGrid = project.gridConfig;
     set({
       canvasData: project.canvasData,
       canvasSize: project.canvasSize,
+      gridConfig: savedGrid ? { ...defaultGrid, ...savedGrid } : defaultGrid,
       layers: [layer],
       activeLayerId: layer.id,
       projectPath: selected as string,
@@ -503,6 +507,11 @@ export const useEditorStore = create<EditorState>((set, get) => ({
       lastSavedAt: new Date().toLocaleTimeString(),
       offsetX: 0,
       offsetY: 0,
+      refImagePixels: null,
+      refImageWidth: 0,
+      refImageHeight: 0,
+      refImageVisible: true,
+      refImageOpacity: 0.3,
     });
   },
 
