@@ -11,7 +11,13 @@
     "test:watch": "vitest",
     "tauri": "tauri",
     "ext:dev": "vite --config platforms/extension/vite.config.ts",
-    "ext:build": "vite build --config platforms/extension/vite.config.ts"
+    "ext:build": "vite build --config platforms/extension/vite.config.ts",
+    "ios:init": "tauri ios init",
+    "ios:dev": "tauri ios dev",
+    "ios:build": "tauri ios build",
+    "android:init": "tauri android init",
+    "android:dev": "tauri android dev",
+    "android:build": "tauri android build"
   },
   "dependencies": {
     "@tauri-apps/api": "^2.0.0",

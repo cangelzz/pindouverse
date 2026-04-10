@@ -18,6 +18,8 @@ pub fn run() {
             commands::project::save_snapshot,
             commands::project::list_snapshots,
             commands::project::load_snapshot,
+            commands::mobile::get_mobile_documents_dir,
+            commands::mobile::share_file,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
