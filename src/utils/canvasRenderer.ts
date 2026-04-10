@@ -147,7 +147,9 @@ export function renderGrid(
 ): void {
   ctx.clearRect(0, 0, viewWidth, viewHeight);
 
-  const { groupSize, edgePadding } = gridConfig;
+  if (!gridConfig.visible) return;
+
+  const { groupSize, edgePadding, lineColor, lineWidth, groupLineColor, groupLineWidth } = gridConfig;
   const totalCols = canvasWidth;
   const totalRows = canvasHeight;
 
@@ -156,8 +158,8 @@ export function renderGrid(
   const edgePaddingY = edgePadding;
 
   // Draw thin cell borders
-  ctx.strokeStyle = "rgba(0,0,0,0.15)";
-  ctx.lineWidth = 1;
+  ctx.strokeStyle = lineColor;
+  ctx.lineWidth = lineWidth;
   ctx.beginPath();
 
   for (let col = 0; col <= totalCols; col++) {
@@ -178,8 +180,8 @@ export function renderGrid(
 
   // Draw thick group divider lines (5x5 grouping)
   // The grid starts at computed edge padding from each side
-  ctx.strokeStyle = "rgba(0,0,0,0.5)";
-  ctx.lineWidth = 2;
+  ctx.strokeStyle = groupLineColor;
+  ctx.lineWidth = groupLineWidth;
   ctx.beginPath();
 
   for (let col = edgePaddingX; col <= totalCols - edgePaddingX; col += groupSize) {

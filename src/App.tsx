@@ -7,6 +7,28 @@ import { ImageImportDialog } from "./components/Import/ImageImportDialog";
 import { ExportDialog } from "./components/Export/ExportDialog";
 import { useEditorStore } from "./store/editorStore";
 
+/** Extract hex color (#RRGGBB) from an rgba() string */
+function rgbaToHex(rgba: string): string {
+  const m = rgba.match(/rgba?\((\d+),\s*(\d+),\s*(\d+)/);
+  if (!m) return "#000000";
+  const [, r, g, b] = m;
+  return "#" + [r, g, b].map((v) => Number(v).toString(16).padStart(2, "0")).join("");
+}
+
+/** Extract alpha from an rgba() string (0-1) */
+function rgbaAlpha(rgba: string): number {
+  const m = rgba.match(/rgba?\([^)]*,\s*([\d.]+)\s*\)/);
+  return m ? parseFloat(m[1]) : 1;
+}
+
+/** Convert hex + alpha to rgba() string */
+function hexToRgba(hex: string, alpha: number): string {
+  const r = parseInt(hex.slice(1, 3), 16);
+  const g = parseInt(hex.slice(3, 5), 16);
+  const b = parseInt(hex.slice(5, 7), 16);
+  return `rgba(${r},${g},${b},${alpha})`;
+}
+
 function App() {
   const [showImport, setShowImport] = useState(false);
   const [showExport, setShowExport] = useState(false);
@@ -46,6 +68,11 @@ function App() {
   const gridConfig = useEditorStore((s) => s.gridConfig);
   const setGridStartCoords = useEditorStore((s) => s.setGridStartCoords);
   const setEdgePadding = useEditorStore((s) => s.setEdgePadding);
+  const setGridVisible = useEditorStore((s) => s.setGridVisible);
+  const setGridLineColor = useEditorStore((s) => s.setGridLineColor);
+  const setGridLineWidth = useEditorStore((s) => s.setGridLineWidth);
+  const setGridGroupLineColor = useEditorStore((s) => s.setGridGroupLineColor);
+  const setGridGroupLineWidth = useEditorStore((s) => s.setGridGroupLineWidth);
   const snapshots = useEditorStore((s) => s.snapshots);
   const createSnapshot = useEditorStore((s) => s.createSnapshot);
   const loadSnapshots = useEditorStore((s) => s.loadSnapshots);
@@ -347,7 +374,15 @@ function App() {
 
                 {/* Grid layer */}
                 <div className="border rounded p-1.5 bg-gray-50">
-                  <span className="font-semibold text-gray-600">📐 网格</span>
+                  <div className="flex items-center gap-1">
+                    <input
+                      type="checkbox"
+                      checked={gridConfig.visible}
+                      onChange={(e) => setGridVisible(e.target.checked)}
+                      className="w-3 h-3"
+                    />
+                    <span className="font-semibold text-gray-600">📐 网格</span>
+                  </div>
                   <div className="mt-1 flex flex-col gap-1">
                     <div className="flex items-center gap-1">
                       <span className="text-gray-500 w-12">边距</span>
@@ -376,6 +411,44 @@ function App() {
                         onChange={(e) => setGridStartCoords(gridConfig.startX, Number(e.target.value))}
                         className="w-12 px-1 py-0 border rounded text-center text-[10px]"
                       />
+                    </div>
+                    <div className="flex items-center gap-1">
+                      <span className="text-gray-500 w-12">细线</span>
+                      <input
+                        type="color"
+                        value={rgbaToHex(gridConfig.lineColor)}
+                        onChange={(e) => setGridLineColor(hexToRgba(e.target.value, rgbaAlpha(gridConfig.lineColor)))}
+                        className="w-5 h-4 p-0 border rounded cursor-pointer"
+                      />
+                      <input
+                        type="number"
+                        min={0}
+                        max={5}
+                        step={0.5}
+                        value={gridConfig.lineWidth}
+                        onChange={(e) => setGridLineWidth(Number(e.target.value))}
+                        className="w-10 px-1 py-0 border rounded text-center text-[10px]"
+                      />
+                      <span className="text-[9px] text-gray-400">px</span>
+                    </div>
+                    <div className="flex items-center gap-1">
+                      <span className="text-gray-500 w-12">粗线</span>
+                      <input
+                        type="color"
+                        value={rgbaToHex(gridConfig.groupLineColor)}
+                        onChange={(e) => setGridGroupLineColor(hexToRgba(e.target.value, rgbaAlpha(gridConfig.groupLineColor)))}
+                        className="w-5 h-4 p-0 border rounded cursor-pointer"
+                      />
+                      <input
+                        type="number"
+                        min={0}
+                        max={10}
+                        step={0.5}
+                        value={gridConfig.groupLineWidth}
+                        onChange={(e) => setGridGroupLineWidth(Number(e.target.value))}
+                        className="w-10 px-1 py-0 border rounded text-center text-[10px]"
+                      />
+                      <span className="text-[9px] text-gray-400">px</span>
                     </div>
                   </div>
                 </div>

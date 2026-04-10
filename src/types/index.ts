@@ -25,6 +25,16 @@ export interface GridConfig {
   startX: number;
   /** Starting coordinate label for rows (default 0) */
   startY: number;
+  /** Whether grid lines are visible */
+  visible: boolean;
+  /** Thin cell border color */
+  lineColor: string;
+  /** Thin cell border width */
+  lineWidth: number;
+  /** Thick group divider color */
+  groupLineColor: string;
+  /** Thick group divider width */
+  groupLineWidth: number;
 }
 
 export interface CanvasCell {

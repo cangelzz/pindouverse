@@ -78,6 +78,11 @@ interface EditorState {
   setBlueprintMode: (on: boolean) => void;
   setGridStartCoords: (startX: number, startY: number) => void;
   setEdgePadding: (padding: number) => void;
+  setGridVisible: (visible: boolean) => void;
+  setGridLineColor: (color: string) => void;
+  setGridLineWidth: (width: number) => void;
+  setGridGroupLineColor: (color: string) => void;
+  setGridGroupLineWidth: (width: number) => void;
   undo: () => void;
   redo: () => void;
   loadCanvasData: (data: CanvasData, size: CanvasSize) => void;
@@ -166,9 +171,9 @@ function mergeLayers(layers: BeadLayer[], width: number, height: number): Canvas
 
 /** Compute default edge padding for a canvas size */
 function defaultEdgePadding(width: number, height: number): number {
-  // 52×52 → 1, 104×104 → 2, others → 0
-  if (width === 52 && height === 52) return 1;
-  if (width === 104 && height === 104) return 2;
+  const maxBorder = Math.max(width, height);
+  if (maxBorder === 104) return 2;
+  if (maxBorder === 52) return 1;
   return 0;
 }
 
@@ -178,6 +183,11 @@ function makeGridConfig(width: number, height: number): GridConfig {
     edgePadding: defaultEdgePadding(width, height),
     startX: 1,
     startY: 1,
+    visible: true,
+    lineColor: "rgba(0,0,0,0.15)",
+    lineWidth: 1,
+    groupLineColor: "rgba(0,0,0,0.5)",
+    groupLineWidth: 2,
   };
 }
 
@@ -329,6 +339,26 @@ export const useEditorStore = create<EditorState>((set, get) => ({
     gridConfig: { ...state.gridConfig, edgePadding: Math.max(0, padding) },
   })),
 
+  setGridVisible: (visible) => set((state) => ({
+    gridConfig: { ...state.gridConfig, visible },
+  })),
+
+  setGridLineColor: (color) => set((state) => ({
+    gridConfig: { ...state.gridConfig, lineColor: color },
+  })),
+
+  setGridLineWidth: (width) => set((state) => ({
+    gridConfig: { ...state.gridConfig, lineWidth: Math.max(0, width) },
+  })),
+
+  setGridGroupLineColor: (color) => set((state) => ({
+    gridConfig: { ...state.gridConfig, groupLineColor: color },
+  })),
+
+  setGridGroupLineWidth: (width) => set((state) => ({
+    gridConfig: { ...state.gridConfig, groupLineWidth: Math.max(0, width) },
+  })),
+
   undo: () => {
     const state = get();
     if (state.undoStack.length === 0) return;
@@ -387,6 +417,7 @@ export const useEditorStore = create<EditorState>((set, get) => ({
     set({
       canvasData: data,
       canvasSize: size,
+      gridConfig: makeGridConfig(size.width, size.height),
       layers: [layer],
       activeLayerId: layer.id,
       undoStack: [],
@@ -409,6 +440,7 @@ export const useEditorStore = create<EditorState>((set, get) => ({
     set({
       canvasData: layer.data,
       canvasSize: { width: canvasW, height: canvasH },
+      gridConfig: makeGridConfig(canvasW, canvasH),
       layers: [layer],
       activeLayerId: layer.id,
       undoStack: [],
