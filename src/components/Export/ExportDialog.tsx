@@ -1,8 +1,7 @@
 import { useState } from "react";
 import { useEditorStore } from "../../store/editorStore";
 import { MARD_COLORS } from "../../data/mard221";
-import { invoke } from "@tauri-apps/api/core";
-import { save } from "@tauri-apps/plugin-dialog";
+import { getAdapter } from "../../adapters";
 
 export function ExportDialog({ onClose }: { onClose: () => void }) {
   const canvasData = useEditorStore((s) => s.canvasData);
@@ -44,17 +43,19 @@ export function ExportDialog({ onClose }: { onClose: () => void }) {
   const handleExport = async () => {
     if (!exportBlueprint && !exportPreview) return;
 
+    const adapter = getAdapter();
+
     // Ask user to pick a folder (use save dialog for the blueprint path)
     let blueprintPath: string | null = null;
     if (exportBlueprint) {
-      blueprintPath = await save({
-        filters: [
+      blueprintPath = await adapter.showSaveDialog(
+        [
           format === "png"
             ? { name: "PNG Image", extensions: ["png"] }
             : { name: "JPEG Image", extensions: ["jpg", "jpeg"] },
         ],
-        defaultPath: `${baseName}_pindou_export.${ext}`,
-      });
+        `${baseName}_pindou_export.${ext}`,
+      );
       if (!blueprintPath) return;
     }
 
@@ -64,51 +65,45 @@ export function ExportDialog({ onClose }: { onClose: () => void }) {
       const results: string[] = [];
 
       if (exportBlueprint && blueprintPath) {
-        await invoke("export_image", {
-          request: {
-            width: canvasSize.width,
-            height: canvasSize.height,
-            cell_size: cellSize,
-            cells,
-            output_path: blueprintPath,
-            format,
-            start_x: gridConfig.startX,
-            start_y: gridConfig.startY,
-            edge_padding: gridConfig.edgePadding,
-          },
+        await adapter.exportImage({
+          width: canvasSize.width,
+          height: canvasSize.height,
+          cell_size: cellSize,
+          cells,
+          output_path: blueprintPath,
+          format,
+          start_x: gridConfig.startX,
+          start_y: gridConfig.startY,
+          edge_padding: gridConfig.edgePadding,
         });
         results.push(`图纸: ${blueprintPath}`);
 
         if (exportMirror) {
           const mirrorPath = blueprintPath.replace(/\.([^.]+)$/, "_mirror.$1");
-          await invoke("export_image", {
-            request: {
-              width: canvasSize.width,
-              height: canvasSize.height,
-              cell_size: cellSize,
-              cells: mirrorCells(cells),
-              output_path: mirrorPath,
-              format,
-              start_x: gridConfig.startX,
-              start_y: gridConfig.startY,
-              edge_padding: gridConfig.edgePadding,
-            },
+          await adapter.exportImage({
+            width: canvasSize.width,
+            height: canvasSize.height,
+            cell_size: cellSize,
+            cells: mirrorCells(cells),
+            output_path: mirrorPath,
+            format,
+            start_x: gridConfig.startX,
+            start_y: gridConfig.startY,
+            edge_padding: gridConfig.edgePadding,
           });
           results.push(`镜像图纸: ${mirrorPath}`);
         }
       }
 
       if (exportPreview) {
-        // Derive preview path from blueprint path or ask separately
         let previewPath: string;
         if (blueprintPath) {
-          // Replace extension suffix with _preview.jpg
           previewPath = blueprintPath.replace(/\.[^.]+$/, "_preview.jpg");
         } else {
-          const selected = await save({
-            filters: [{ name: "JPEG Image", extensions: ["jpg", "jpeg"] }],
-            defaultPath: `${baseName}_pindou_preview.jpg`,
-          });
+          const selected = await adapter.showSaveDialog(
+            [{ name: "JPEG Image", extensions: ["jpg", "jpeg"] }],
+            `${baseName}_pindou_preview.jpg`,
+          );
           if (!selected) {
             setIsExporting(false);
             return;
@@ -116,27 +111,23 @@ export function ExportDialog({ onClose }: { onClose: () => void }) {
           previewPath = selected;
         }
 
-        await invoke("export_preview", {
-          request: {
-            width: canvasSize.width,
-            height: canvasSize.height,
-            pixel_size: cellSize,
-            cells,
-            output_path: previewPath,
-          },
+        await adapter.exportPreview({
+          width: canvasSize.width,
+          height: canvasSize.height,
+          pixel_size: cellSize,
+          cells,
+          output_path: previewPath,
         });
         results.push(`效果图: ${previewPath}`);
 
         if (exportMirror) {
           const mirrorPreviewPath = previewPath.replace(/\.([^.]+)$/, "_mirror.$1");
-          await invoke("export_preview", {
-            request: {
-              width: canvasSize.width,
-              height: canvasSize.height,
-              pixel_size: cellSize,
-              cells: mirrorCells(cells),
-              output_path: mirrorPreviewPath,
-            },
+          await adapter.exportPreview({
+            width: canvasSize.width,
+            height: canvasSize.height,
+            pixel_size: cellSize,
+            cells: mirrorCells(cells),
+            output_path: mirrorPreviewPath,
           });
           results.push(`镜像效果图: ${mirrorPreviewPath}`);
         }

@@ -4,29 +4,8 @@ import { matchImageToMard } from "../../utils/colorMatching";
 import { MARD_COLORS, COLOR_GROUPS } from "../../data/mard221";
 import { detectPixelGrid } from "../../utils/gridDetect";
 import type { ColorMatchAlgorithm, CanvasCell } from "../../types";
-import { invoke } from "@tauri-apps/api/core";
-import { open } from "@tauri-apps/plugin-dialog";
-
-interface PixelData {
-  width: number;
-  height: number;
-  pixels: number[];
-}
-
-interface ImagePreview {
-  original_width: number;
-  original_height: number;
-  preview_width: number;
-  preview_height: number;
-  pixels: number[];
-}
-
-interface CropRect {
-  x: number;
-  y: number;
-  width: number;
-  height: number;
-}
+import { getAdapter } from "../../adapters";
+import type { ImagePreview, CropRect } from "../../adapters";
 
 export function ImageImportDialog({ onClose }: { onClose: () => void }) {
   const loadCanvasData = useEditorStore((s) => s.loadCanvasData);
@@ -116,15 +95,13 @@ export function ImageImportDialog({ onClose }: { onClose: () => void }) {
   }, []);
 
   const handleSelectFile = async () => {
-    const selected = await open({
-      multiple: false,
-      filters: [
-        {
-          name: "Image",
-          extensions: ["png", "jpg", "jpeg", "bmp", "gif", "webp"],
-        },
-      ],
-    });
+    const adapter = getAdapter();
+    const selected = await adapter.showOpenDialog([
+      {
+        name: "Image",
+        extensions: ["png", "jpg", "jpeg", "bmp", "gif", "webp"],
+      },
+    ]);
     if (selected) {
       setFilePath(selected as string);
       setImagePreview(null);
@@ -134,9 +111,7 @@ export function ImageImportDialog({ onClose }: { onClose: () => void }) {
       setLoupePos(null);
 
       try {
-        const preview = await invoke<ImagePreview>("preview_image", {
-          path: selected as string,
-        });
+        const preview = await adapter.previewImage(selected as string);
         setImagePreview(preview);
       } catch (e) {
         alert(`加载预览失败: ${e}`);
@@ -434,13 +409,13 @@ export function ImageImportDialog({ onClose }: { onClose: () => void }) {
   const handleAutoDetect = async () => {
     if (!filePath || !imagePreview) return;
     try {
-      // Get full-resolution pixels for detection
-      const data = await invoke<PixelData>("import_image", {
-        path: filePath,
-        maxDimension: Math.max(imagePreview.original_width, imagePreview.original_height),
-        crop: cropRect ? { x: cropRect.x, y: cropRect.y, width: cropRect.width, height: cropRect.height } : null,
-        sharp: true,
-      });
+      const adapter = getAdapter();
+      const data = await adapter.importImage(
+        filePath,
+        Math.max(imagePreview.original_width, imagePreview.original_height),
+        cropRect ? { x: cropRect.x, y: cropRect.y, width: cropRect.width, height: cropRect.height } : null,
+        true,
+      );
       const result = detectPixelGrid(data.pixels as number[], data.width, data.height);
       setMaxDimension(result.recommendedMaxDimension);
       setMatchedPreview(null);
@@ -466,12 +441,8 @@ export function ImageImportDialog({ onClose }: { onClose: () => void }) {
           }
         : null;
 
-      const data = await invoke<PixelData>("import_image", {
-        path: filePath,
-        maxDimension,
-        crop,
-        sharp: sharpEdge,
-      });
+      const adapter = getAdapter();
+      const data = await adapter.importImage(filePath, maxDimension, crop, sharpEdge);
 
       let matched = matchImageToMard(data.pixels, algorithm, colorGroupId);
       setMatchedPreview(matched);
@@ -493,12 +464,8 @@ export function ImageImportDialog({ onClose }: { onClose: () => void }) {
         ? { x: cropRect.x, y: cropRect.y, width: cropRect.width, height: cropRect.height }
         : null;
 
-      const data = await invoke<PixelData>("import_image", {
-        path: filePath,
-        maxDimension,
-        crop,
-        sharp: sharpEdge,
-      });
+      const adapter = getAdapter();
+      const data = await adapter.importImage(filePath, maxDimension, crop, sharpEdge);
       setRawPixels(data.pixels as number[]);
       setActualSize({ width: data.width, height: data.height });
 

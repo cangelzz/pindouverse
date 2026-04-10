@@ -1,6 +1,6 @@
 import { create } from "zustand";
-import { invoke } from "@tauri-apps/api/core";
-import { save, open as dialogOpen } from "@tauri-apps/plugin-dialog";
+import { getAdapter } from "../adapters";
+import type { SnapshotInfo } from "../adapters";
 import type {
   BeadLayer,
   CanvasCell,
@@ -11,12 +11,6 @@ import type {
   HistoryAction,
   ProjectFile,
 } from "../types";
-
-interface SnapshotInfo {
-  path: string;
-  name: string;
-  modified: string;
-}
 
 interface EditorState {
   // Canvas data (merged view from layers)
@@ -464,42 +458,44 @@ export const useEditorStore = create<EditorState>((set, get) => ({
   setImportedFileName: (name: string | null) => set({ importedFileName: name }),
 
   saveProject: async () => {
+    const adapter = getAdapter();
     const state = get();
     let path = state.projectPath;
     if (!path) {
-      const selected = await save({
-        filters: [{ name: "PinDou Project", extensions: ["pindou"] }],
-        defaultPath: "untitled.pindou",
-      });
+      const selected = await adapter.showSaveDialog(
+        [{ name: "PinDou Project", extensions: ["pindou"] }],
+        "untitled.pindou",
+      );
       if (!selected) return;
       path = selected;
     }
     const project = buildProjectFile(state);
-    await invoke("save_project", { path, project });
+    await adapter.saveProject(path, project);
     const now = new Date().toLocaleTimeString();
     set({ projectPath: path, isDirty: false, lastSavedAt: now });
   },
 
   saveProjectAs: async () => {
+    const adapter = getAdapter();
     const state = get();
-    const selected = await save({
-      filters: [{ name: "PinDou Project", extensions: ["pindou"] }],
-      defaultPath: state.projectPath || "untitled.pindou",
-    });
+    const selected = await adapter.showSaveDialog(
+      [{ name: "PinDou Project", extensions: ["pindou"] }],
+      state.projectPath || "untitled.pindou",
+    );
     if (!selected) return;
     const project = buildProjectFile(state);
-    await invoke("save_project", { path: selected, project });
+    await adapter.saveProject(selected, project);
     const now = new Date().toLocaleTimeString();
     set({ projectPath: selected, isDirty: false, lastSavedAt: now });
   },
 
   openProject: async () => {
-    const selected = await dialogOpen({
-      filters: [{ name: "PinDou Project", extensions: ["pindou"] }],
-      multiple: false,
-    });
+    const adapter = getAdapter();
+    const selected = await adapter.showOpenDialog(
+      [{ name: "PinDou Project", extensions: ["pindou"] }],
+    );
     if (!selected) return;
-    const project = await invoke<ProjectFile>("load_project", { path: selected });
+    const project = await adapter.loadProject(selected);
     const layer = createDefaultLayer(project.canvasSize.width, project.canvasSize.height);
     layer.data = project.canvasData;
     const defaultGrid = makeGridConfig(project.canvasSize.width, project.canvasSize.height);
@@ -526,14 +522,15 @@ export const useEditorStore = create<EditorState>((set, get) => ({
   },
 
   autoSave: async () => {
+    const adapter = getAdapter();
     const state = get();
     if (!state.autoSaveEnabled || !state.isDirty) return;
 
     try {
-      const dir = await invoke<string>("get_autosave_dir");
+      const dir = await adapter.getAutosaveDir();
       const path = `${dir}\\autosave.pindou`;
       const project = buildProjectFile(state);
-      await invoke("save_project", { path, project });
+      await adapter.saveProject(path, project);
       const now = new Date().toLocaleTimeString();
       set({ lastSavedAt: now, isDirty: false });
     } catch {
@@ -544,15 +541,17 @@ export const useEditorStore = create<EditorState>((set, get) => ({
   setAutoSaveEnabled: (enabled) => set({ autoSaveEnabled: enabled }),
 
   createSnapshot: async (label) => {
+    const adapter = getAdapter();
     const state = get();
     const project = buildProjectFile(state);
-    await invoke("save_snapshot", { project, label });
+    await adapter.saveSnapshot(project, label);
     await get().loadSnapshots();
   },
 
   loadSnapshots: async () => {
     try {
-      const snapshots = await invoke<SnapshotInfo[]>("list_snapshots");
+      const adapter = getAdapter();
+      const snapshots = await adapter.listSnapshots();
       set({ snapshots });
     } catch {
       set({ snapshots: [] });
@@ -560,7 +559,8 @@ export const useEditorStore = create<EditorState>((set, get) => ({
   },
 
   restoreSnapshot: async (path) => {
-    const project = await invoke<ProjectFile>("load_snapshot", { path });
+    const adapter = getAdapter();
+    const project = await adapter.loadSnapshot(path);
     const layer = createDefaultLayer(project.canvasSize.width, project.canvasSize.height);
     layer.data = project.canvasData;
     set({
