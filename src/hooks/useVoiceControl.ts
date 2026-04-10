@@ -7,6 +7,7 @@ export type VoiceCommand =
   | "right"
   | "cancel"
   | "confirm"
+  | "summary"
   | "unknown";
 
 interface VoiceCommandResult {
@@ -25,6 +26,7 @@ const EXACT_PATTERNS: { patterns: RegExp; command: VoiceCommand }[] = [
   { patterns: /^(右|向右|往右|右边|右移|右面|右方)$/i, command: "right" },
   { patterns: /^(取消|关闭|清除|取消高亮)$/i, command: "cancel" },
   { patterns: /^(确认|好了|完成|确定)$/i, command: "confirm" },
+  { patterns: /^(总结|统计|汇总|报告|播报|念一下|读一下|数一下|数数|看看|说说|告诉我|报数|清点|盘点|多少|几种)$/i, command: "summary" },
   { patterns: /^(up|go up|move up)$/i, command: "up" },
   { patterns: /^(down|go down|move down)$/i, command: "down" },
   { patterns: /^(left|go left|move left)$/i, command: "left" },
@@ -33,38 +35,61 @@ const EXACT_PATTERNS: { patterns: RegExp; command: VoiceCommand }[] = [
   { patterns: /^(confirm|ok|done|yes)$/i, command: "confirm" },
 ];
 
-// Homophone / misrecognition mapping
+// Homophone / misrecognition mapping — all characters sharing the same sound
 const HOMOPHONES: { patterns: RegExp; command: VoiceCommand }[] = [
-  { patterns: /^[尚伤赏商晌]$/, command: "up" },
-  { patterns: /^[吓夏瞎虾]$/, command: "down" },
-  { patterns: /^[做坐作座]$/, command: "left" },
-  { patterns: /^[又有由油友幼游]$/, command: "right" },
-  { patterns: /尚|上[啊吧呢嘛]/, command: "up" },
-  { patterns: /下[啊吧呢嘛]|虾/, command: "down" },
-  { patterns: /左[啊吧呢嘛]/, command: "left" },
-  { patterns: /右[啊吧呢嘛]|又[啊]/, command: "right" },
+  // shàng/shǎng/shāng — 上的同音字
+  { patterns: /^[尚伤赏商晌裳殇觞墒熵]$/, command: "up" },
+  // xià/xiá/xiā — 下的同音字
+  { patterns: /^[吓夏瞎虾侠狭峡霞辖暇遐黠匣]$/, command: "down" },
+  // zuǒ/zuò/zuō — 左的同音字
+  { patterns: /^[做坐作座昨琢撮佐]$/, command: "left" },
+  // yòu/yǒu/yóu — 右的同音字
+  { patterns: /^[又有由油友幼游优忧悠尤犹邮铀柚佑诱釉鼬莠]$/, command: "right" },
+  // Longer misrecognitions with filler words (anchored to avoid conflicts)
+  { patterns: /^[尚伤赏商][啊吧呢嘛哦呀]?$|上[啊吧呢嘛哦呀]/, command: "up" },
+  { patterns: /^[吓夏瞎虾侠][啊吧呢嘛哦呀]?$|下[啊吧呢嘛哦呀]/, command: "down" },
+  { patterns: /左[啊吧呢嘛哦呀]/, command: "left" },
+  { patterns: /^[又有由][啊吧呢嘛哦呀]?$|右[啊吧呢嘛哦呀]/, command: "right" },
+];
+
+// Pinyin romanization matching (speech API sometimes returns pinyin)
+const PINYIN_PATTERNS: { patterns: RegExp; command: VoiceCommand }[] = [
+  { patterns: /^sh[aà]ng$/i, command: "up" },
+  { patterns: /^xi[aà]$/i, command: "down" },
+  { patterns: /^zu[oǒ]$/i, command: "left" },
+  { patterns: /^y[oò]u$/i, command: "right" },
+  { patterns: /^q[uǔ]xi[aā]o$/i, command: "cancel" },
+  { patterns: /^qu[eè]r[eè]n$/i, command: "confirm" },
 ];
 
 function matchCommand(text: string): VoiceCommand {
   const cleaned = text.trim();
 
+  // 1. Exact match
   for (const { patterns, command } of EXACT_PATTERNS) {
     if (patterns.test(cleaned)) return command;
   }
+  // 2. Homophone match
   for (const { patterns, command } of HOMOPHONES) {
     if (patterns.test(cleaned)) return command;
   }
-  // Fuzzy contain
+  // 3. Pinyin romanization match
+  for (const { patterns, command } of PINYIN_PATTERNS) {
+    if (patterns.test(cleaned)) return command;
+  }
+  // 4. Fuzzy contain
   if (/上/.test(cleaned)) return "up";
   if (/下/.test(cleaned)) return "down";
   if (/左/.test(cleaned)) return "left";
   if (/右/.test(cleaned)) return "right";
   if (/取消|关闭|清除/.test(cleaned)) return "cancel";
   if (/确认|完成/.test(cleaned)) return "confirm";
+  if (/总结|统计|汇总|报告|播报|念|读|数[一数]|清点|盘点|几种|多少/.test(cleaned)) return "summary";
   if (/\bup\b/i.test(cleaned)) return "up";
   if (/\bdown\b/i.test(cleaned)) return "down";
   if (/\bleft\b/i.test(cleaned)) return "left";
   if (/\bright\b/i.test(cleaned)) return "right";
+  if (/\bsummary\b/i.test(cleaned)) return "summary";
   return "unknown";
 }
 

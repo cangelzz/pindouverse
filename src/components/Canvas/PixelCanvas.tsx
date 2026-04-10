@@ -54,6 +54,8 @@ export function PixelCanvas() {
 
   // Blueprint mode: focused 5×5 grid group highlight
   const [focusGroup, setFocusGroup] = useState<{ groupCol: number; groupRow: number } | null>(null);
+  const focusGroupRef = useRef(focusGroup);
+  focusGroupRef.current = focusGroup;
 
   // Voice command feedback
   const [voiceFeedback, setVoiceFeedback] = useState<string | null>(null);
@@ -71,8 +73,53 @@ export function PixelCanvas() {
 
       const LABELS: Record<string, string> = {
         up: "⬆ 上", down: "⬇ 下", left: "⬅ 左", right: "➡ 右",
-        cancel: "❌ 取消", confirm: "✅ 确认", unknown: `? ${result.raw}`,
+        cancel: "❌ 取消", confirm: "✅ 确认", summary: "📊 总结",
+        unknown: `? ${result.raw}`,
       };
+
+      // Handle summary command — read out bead colors in current focus group
+      if (result.command === "summary") {
+        const currentFocus = focusGroupRef.current;
+        if (currentFocus) {
+          const { groupSize, edgePadding, startX = 1, startY = 1 } = state.gridConfig;
+          const startR = edgePadding + currentFocus.groupRow * groupSize;
+          const startC = edgePadding + currentFocus.groupCol * groupSize;
+          // Top-left coordinate label
+          const coordCol = currentFocus.groupCol * groupSize + startX;
+          const coordRow = currentFocus.groupRow * groupSize + startY;
+          const counts = new Map<number, number>();
+          for (let r = startR; r < startR + groupSize && r < state.canvasSize.height; r++) {
+            for (let c = startC; c < startC + groupSize && c < state.canvasSize.width; c++) {
+              const ci = state.canvasData[r]?.[c]?.colorIndex;
+              if (ci !== null && ci !== undefined) {
+                counts.set(ci, (counts.get(ci) ?? 0) + 1);
+              }
+            }
+          }
+          // Sort by count descending
+          const sorted = [...counts.entries()].sort((a, b) => b[1] - a[1]);
+          if (sorted.length === 0) {
+            playDone("A");
+            setTimeout(() => speak("空格", "zh-CN"), 250);
+          } else {
+            const total = sorted.length;
+            const allCodes = sorted.map(([ci]) => MARD_COLORS[ci].code).join("，");
+            const top2 = sorted.slice(0, 2).map(([ci, cnt]) =>
+              `${MARD_COLORS[ci].code} ${cnt}颗`
+            );
+            const text = `位于${coordCol}列${coordRow}行，共${total}种颜色，分别是${allCodes}，最多的${top2.length === 1 ? "是" : "两个是"}${top2.join("和")}`;
+            playDone("A");
+            setTimeout(() => speak(text, "zh-CN"), 250);
+          }
+        } else {
+          playUnknown();
+          setTimeout(() => speak("请先选择一个网格", "zh-CN"), 250);
+        }
+        setVoiceFeedback(LABELS.summary);
+        if (voiceFeedbackTimer.current) clearTimeout(voiceFeedbackTimer.current);
+        voiceFeedbackTimer.current = setTimeout(() => setVoiceFeedback(null), 3000);
+        return;
+      }
 
       setFocusGroup((prev) => {
         const gc = prev ? prev.groupCol : 0;
@@ -95,7 +142,7 @@ export function PixelCanvas() {
         playDone("A");
         const SPEAK: Record<string, string> = {
           up: "上", down: "下", left: "左", right: "右",
-          cancel: "取消", confirm: "确认",
+          cancel: "取消", confirm: "确认", summary: "总结",
         };
         setTimeout(() => speak(SPEAK[result.command] ?? "", "zh-CN"), 250);
       } else {
@@ -111,9 +158,13 @@ export function PixelCanvas() {
   // Voice control: start/stop based on store toggle
   const voiceControl = useVoiceControl({ onCommand: handleVoiceCommand });
 
-  // Sync store when voice auto-stops (idle timeout)
+  // Sync store when voice auto-stops (idle timeout) — only if it was previously listening
+  const wasListening = useRef(false);
   useEffect(() => {
-    if (voiceControlEnabled && !voiceControl.isListening) {
+    if (voiceControl.isListening) {
+      wasListening.current = true;
+    } else if (wasListening.current && voiceControlEnabled) {
+      wasListening.current = false;
       setVoiceControlEnabled(false);
     }
   }, [voiceControl.isListening, voiceControlEnabled, setVoiceControlEnabled]);
