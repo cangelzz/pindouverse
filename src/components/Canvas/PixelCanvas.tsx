@@ -307,15 +307,20 @@ export function PixelCanvas() {
       const x = clientX - rect.left;
       const y = clientY - rect.top;
 
-      const col = Math.floor((x - offsetX) / cellSize);
+      let col = Math.floor((x - offsetX) / cellSize);
       const row = Math.floor((y - offsetY) / cellSize);
+
+      // In mirror mode, map visual column to the mirrored data column
+      if (isMirror) {
+        col = canvasSize.width - 1 - col;
+      }
 
       if (row < 0 || row >= canvasSize.height || col < 0 || col >= canvasSize.width) {
         return null;
       }
       return { row, col };
     },
-    [offsetX, offsetY, cellSize, canvasSize]
+    [offsetX, offsetY, cellSize, canvasSize, isMirror]
   );
 
   // Handle tool action on a cell
@@ -383,14 +388,21 @@ export function PixelCanvas() {
   }, []);
 
   // Double-click to set/toggle grid focus (works in any tool mode including pan)
+  // Uses visual (screen) column, NOT mirrored data column
   const handleDoubleClick = useCallback(
     (e: React.MouseEvent) => {
       if (!gridFocusMode || !blueprintMode) return;
-      const cell = screenToCell(e.clientX, e.clientY);
-      if (!cell) return;
+      const rect = containerRef.current?.getBoundingClientRect();
+      if (!rect) return;
+      const x = e.clientX - rect.left;
+      const y = e.clientY - rect.top;
+      const visualCol = Math.floor((x - offsetX) / cellSize);
+      const visualRow = Math.floor((y - offsetY) / cellSize);
+      if (visualRow < 0 || visualRow >= canvasSize.height || visualCol < 0 || visualCol >= canvasSize.width) return;
+
       const { groupSize, edgePadding } = gridConfig;
-      const col = cell.col - edgePadding;
-      const row = cell.row - edgePadding;
+      const col = visualCol - edgePadding;
+      const row = visualRow - edgePadding;
       const innerW = canvasSize.width - edgePadding * 2;
       const innerH = canvasSize.height - edgePadding * 2;
       if (col >= 0 && col < innerW && row >= 0 && row < innerH) {
@@ -405,7 +417,7 @@ export function PixelCanvas() {
         setFocusGroup(null);
       }
     },
-    [gridFocusMode, blueprintMode, screenToCell, gridConfig, canvasSize, focusGroup]
+    [gridFocusMode, blueprintMode, offsetX, offsetY, cellSize, gridConfig, canvasSize, focusGroup]
   );
 
 
