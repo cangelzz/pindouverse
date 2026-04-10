@@ -1,0 +1,20 @@
+{
+  "manifest_version": 3,
+  "name": "PindouVerse - 拼豆宇宙",
+  "version": "0.1.0",
+  "description": "Pixel art editor for perler beads (拼豆像素编辑器)",
+  "permissions": ["storage"],
+  "action": {
+    "default_title": "PindouVerse"
+  },
+  "icons": {
+    "32": "icons/32x32.png",
+    "128": "icons/128x128.png"
+  },
+  "side_panel": {
+    "default_path": "index.html"
+  },
+  "content_security_policy": {
+    "extension_pages": "script-src 'self'; object-src 'self'"
+  }
+}

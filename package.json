@@ -9,7 +9,9 @@
     "preview": "vite preview",
     "test": "vitest run",
     "test:watch": "vitest",
-    "tauri": "tauri"
+    "tauri": "tauri",
+    "ext:dev": "vite --config platforms/extension/vite.config.ts",
+    "ext:build": "vite build --config platforms/extension/vite.config.ts"
   },
   "dependencies": {
     "@tauri-apps/api": "^2.0.0",
