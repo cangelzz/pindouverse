@@ -1,5 +1,7 @@
+import { useState } from "react";
 import { useEditorStore } from "../../store/editorStore";
 import type { EditorTool } from "../../types";
+import { hasToken, clearGitHubToken, requestDeviceCode, pollForToken, type DeviceCodeInfo } from "../../utils/llmVoice";
 
 const tools: { id: EditorTool; label: string; icon: string; shortcut: string }[] = [
   { id: "pen", label: "画笔", icon: "✏️", shortcut: "P" },
@@ -11,6 +13,13 @@ const tools: { id: EditorTool; label: string; icon: string; shortcut: string }[]
 export function CanvasToolbar() {
   const currentTool = useEditorStore((s) => s.currentTool);
   const setTool = useEditorStore((s) => s.setTool);
+
+  const [showTokenDialog, setShowTokenDialog] = useState(false);
+  const [deviceInfo, setDeviceInfo] = useState<DeviceCodeInfo | null>(null);
+  const [authStatus, setAuthStatus] = useState("");
+  const [isAuthPolling, setIsAuthPolling] = useState(false);
+  const [hasLLM, setHasLLM] = useState(hasToken());
+
   const undo = useEditorStore((s) => s.undo);
   const redo = useEditorStore((s) => s.redo);
   const undoStack = useEditorStore((s) => s.undoStack);
@@ -133,6 +142,89 @@ export function CanvasToolbar() {
         >
           🎤
         </button>
+      )}
+
+      {/* AI voice enhancement toggle */}
+      {blueprintMode && gridFocusMode && (
+        <button
+          onClick={() => {
+            if (hasLLM) {
+              clearGitHubToken();
+              setHasLLM(false);
+            } else {
+              setShowTokenDialog(true);
+              setAuthStatus("正在请求验证码...");
+              setDeviceInfo(null);
+              requestDeviceCode().then((info) => {
+                setDeviceInfo(info);
+                setAuthStatus("请在浏览器中输入验证码");
+                // Open verification URL in system browser
+                import("@tauri-apps/plugin-shell").then(({ open }) => open(info.verification_uri)).catch(() => {
+                  window.open(info.verification_uri, "_blank");
+                });
+                // Start polling
+                setIsAuthPolling(true);
+                pollForToken(info.device_code, info.interval, info.expires_in, setAuthStatus).then((ok) => {
+                  setIsAuthPolling(false);
+                  if (ok) {
+                    setHasLLM(true);
+                    setTimeout(() => setShowTokenDialog(false), 1000);
+                  }
+                });
+              }).catch((e) => {
+                setAuthStatus(`请求失败: ${e.message}`);
+              });
+            }
+          }}
+          className={`w-9 h-7 rounded flex items-center justify-center text-[9px] transition-colors
+            ${hasLLM ? "bg-green-500 text-white shadow" : "hover:bg-gray-200 text-gray-400"}`}
+          title={hasLLM ? "AI增强已开启（点击登出）" : "登录GitHub开启AI语音增强"}
+        >
+          AI
+        </button>
+      )}
+
+      {/* GitHub OAuth Device Flow Dialog */}
+      {showTokenDialog && (
+        <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50">
+          <div className="bg-white rounded-lg shadow-xl w-[360px] p-4">
+            <h3 className="font-semibold text-sm mb-2">登录 GitHub — AI 语音增强</h3>
+            {deviceInfo ? (
+              <>
+                <p className="text-xs text-gray-500 mb-3">
+                  请在浏览器中打开下方链接，输入验证码完成授权：
+                </p>
+                <div className="flex flex-col items-center gap-2 mb-3">
+                  <a
+                    href={deviceInfo.verification_uri}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="text-blue-500 text-xs underline"
+                  >
+                    {deviceInfo.verification_uri}
+                  </a>
+                  <div className="text-2xl font-mono font-bold tracking-widest bg-gray-100 px-4 py-2 rounded select-all">
+                    {deviceInfo.user_code}
+                  </div>
+                </div>
+                <p className="text-xs text-center text-gray-500">
+                  {isAuthPolling && <span className="inline-block w-2 h-2 bg-blue-500 rounded-full animate-pulse mr-1" />}
+                  {authStatus}
+                </p>
+              </>
+            ) : (
+              <p className="text-xs text-gray-500 text-center py-4">{authStatus}</p>
+            )}
+            <div className="flex justify-end mt-3">
+              <button
+                onClick={() => { setShowTokenDialog(false); setDeviceInfo(null); }}
+                className="px-3 py-1.5 text-xs rounded border hover:bg-gray-100"
+              >
+                {isAuthPolling ? "取消" : "关闭"}
+              </button>
+            </div>
+          </div>
+        </div>
       )}
 
     </div>

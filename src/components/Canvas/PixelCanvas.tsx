@@ -63,28 +63,28 @@ export function PixelCanvas() {
 
   // Voice control: move grid focus by voice
   const handleVoiceCommand = useCallback(
-    (result: { command: VoiceCommand; raw: string }) => {
+    (result: { command: VoiceCommand; raw: string; repeat?: number; gotoCol?: number; gotoRow?: number }) => {
       const state = useEditorStore.getState();
-      const { groupSize, edgePadding } = state.gridConfig;
+      const { groupSize, edgePadding, startX = 1, startY = 1 } = state.gridConfig;
       const innerW = state.canvasSize.width - edgePadding * 2;
       const innerH = state.canvasSize.height - edgePadding * 2;
       const maxGC = Math.ceil(innerW / groupSize) - 1;
       const maxGR = Math.ceil(innerH / groupSize) - 1;
 
+      const repeat = result.repeat ?? 1;
+
       const LABELS: Record<string, string> = {
         up: "⬆ 上", down: "⬇ 下", left: "⬅ 左", right: "➡ 右",
         cancel: "❌ 取消", confirm: "✅ 确认", summary: "📊 总结",
-        unknown: `? ${result.raw}`,
+        goto: "📍 定位", unknown: `? ${result.raw}`,
       };
 
-      // Handle summary command — read out bead colors in current focus group
+      // Handle summary command
       if (result.command === "summary") {
         const currentFocus = focusGroupRef.current;
         if (currentFocus) {
-          const { groupSize, edgePadding, startX = 1, startY = 1 } = state.gridConfig;
           const startR = edgePadding + currentFocus.groupRow * groupSize;
           const startC = edgePadding + currentFocus.groupCol * groupSize;
-          // Top-left coordinate label
           const coordCol = currentFocus.groupCol * groupSize + startX;
           const coordRow = currentFocus.groupRow * groupSize + startY;
           const counts = new Map<number, number>();
@@ -96,7 +96,6 @@ export function PixelCanvas() {
               }
             }
           }
-          // Sort by count descending
           const sorted = [...counts.entries()].sort((a, b) => b[1] - a[1]);
           if (sorted.length === 0) {
             playDone("A");
@@ -121,34 +120,57 @@ export function PixelCanvas() {
         return;
       }
 
+      // Handle goto command — jump to grid containing the target cell
+      if (result.command === "goto" && result.gotoCol !== undefined && result.gotoRow !== undefined) {
+        const targetCol = result.gotoCol - startX; // convert label to 0-based
+        const targetRow = result.gotoRow - startY;
+        const gc = Math.max(0, Math.min(maxGC, Math.floor(targetCol / groupSize)));
+        const gr = Math.max(0, Math.min(maxGR, Math.floor(targetRow / groupSize)));
+        setFocusGroup({ groupCol: gc, groupRow: gr });
+        playDone("A");
+        const label = `定位 ${result.gotoCol}列${result.gotoRow}行`;
+        setVoiceFeedback(`📍 ${label}`);
+        setTimeout(() => speak(label, "zh-CN"), 250);
+        if (voiceFeedbackTimer.current) clearTimeout(voiceFeedbackTimer.current);
+        voiceFeedbackTimer.current = setTimeout(() => setVoiceFeedback(null), 1500);
+        return;
+      }
+
+      // Handle directional moves (with repeat)
       setFocusGroup((prev) => {
-        const gc = prev ? prev.groupCol : 0;
-        const gr = prev ? prev.groupRow : 0;
-        let nc = gc, nr = gr;
-        switch (result.command) {
-          case "up": nr = Math.max(0, gr - 1); break;
-          case "down": nr = Math.min(maxGR, gr + 1); break;
-          case "left": nc = Math.max(0, gc - 1); break;
-          case "right": nc = Math.min(maxGC, gc + 1); break;
-          case "cancel": return null;
-          default: return prev;
+        let gc = prev ? prev.groupCol : 0;
+        let gr = prev ? prev.groupRow : 0;
+        for (let i = 0; i < repeat; i++) {
+          switch (result.command) {
+            case "up": gr = Math.max(0, gr - 1); break;
+            case "down": gr = Math.min(maxGR, gr + 1); break;
+            case "left": gc = Math.max(0, gc - 1); break;
+            case "right": gc = Math.min(maxGC, gc + 1); break;
+            case "cancel": return null;
+            default: return prev;
+          }
         }
         if (!prev) return { groupCol: 0, groupRow: 0 };
-        return { groupCol: nc, groupRow: nr };
+        return { groupCol: gc, groupRow: gr };
       });
 
-      // Show feedback and play sound, then speak the command
+      // Show feedback and play sound
       if (result.command !== "unknown") {
         playDone("A");
         const SPEAK: Record<string, string> = {
           up: "上", down: "下", left: "左", right: "右",
-          cancel: "取消", confirm: "确认", summary: "总结",
+          cancel: "取消", confirm: "确认",
         };
-        setTimeout(() => speak(SPEAK[result.command] ?? "", "zh-CN"), 250);
+        const word = SPEAK[result.command] ?? "";
+        const isEdge = repeat >= 99;
+        const spk = isEdge ? `最${word}` : (repeat > 1 ? `${word}${repeat}次` : word);
+        setTimeout(() => speak(spk, "zh-CN"), 250);
       } else {
         playUnknown();
       }
-      setVoiceFeedback(LABELS[result.command] ?? result.raw);
+      const isEdge = repeat >= 99;
+      const label = isEdge ? `${LABELS[result.command] ?? ""} ⏩` : (repeat > 1 ? `${LABELS[result.command] ?? ""} ×${repeat}` : (LABELS[result.command] ?? result.raw));
+      setVoiceFeedback(label);
       if (voiceFeedbackTimer.current) clearTimeout(voiceFeedbackTimer.current);
       voiceFeedbackTimer.current = setTimeout(() => setVoiceFeedback(null), 1200);
     },

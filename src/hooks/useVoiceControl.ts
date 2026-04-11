@@ -1,4 +1,5 @@
 import { useRef, useState, useCallback, useEffect } from "react";
+import { llmMatchCommand, hasToken, type LLMCommandResult } from "../utils/llmVoice";
 
 export type VoiceCommand =
   | "up"
@@ -8,12 +9,16 @@ export type VoiceCommand =
   | "cancel"
   | "confirm"
   | "summary"
+  | "goto"
   | "unknown";
 
 interface VoiceCommandResult {
   command: VoiceCommand;
   raw: string;
   confidence: number;
+  repeat?: number;       // repeat count for directional commands
+  gotoCol?: number;      // target column for "goto" command
+  gotoRow?: number;      // target row for "goto" command
 }
 
 // ─── Command matching table ──────────────────────────────────────
@@ -155,11 +160,53 @@ export function useVoiceControl({ lang = "zh-CN", onCommand }: UseVoiceControlOp
       const last = event.results[event.results.length - 1];
       if (!last.isFinal) return;
 
-      const result = matchFromAlternatives(last);
-      setLastResult(result);
-      onCommandRef.current(result);
-      // Reset idle timer on valid command
-      if (result.command !== "unknown") {
+      // Skip if this utterance took too long (>3s from previous result)
+      const regexResult = matchFromAlternatives(last);
+      const transcript = regexResult.raw;
+
+      if (hasToken()) {
+        // LLM enabled: let LLM handle all commands (supports complex + simple)
+        // Skip regex execution to avoid double-firing
+
+        const llmPromise = Promise.race([
+          llmMatchCommand(transcript),
+          new Promise<LLMCommandResult>((resolve) =>
+            setTimeout(() => resolve({ command: "unknown", fromLLM: false }), 5000)
+          ),
+        ]);
+
+        llmPromise.then((llmResult) => {
+          if (llmResult.command !== "unknown") {
+            const finalResult: VoiceCommandResult = {
+              command: llmResult.command,
+              raw: transcript + " [AI]",
+              confidence: regexResult.confidence,
+              repeat: llmResult.repeat,
+              gotoCol: llmResult.gotoCol,
+              gotoRow: llmResult.gotoRow,
+            };
+            setLastResult(finalResult);
+            onCommandRef.current(finalResult);
+            resetIdleTimer();
+          } else {
+            // LLM failed — show debug info in raw
+            const finalResult: VoiceCommandResult = {
+              command: "unknown",
+              raw: `${transcript} | ${llmResult.debug ?? "no response"}`,
+              confidence: regexResult.confidence,
+            };
+            setLastResult(finalResult);
+            onCommandRef.current(finalResult);
+          }
+        });
+
+        return;
+      }
+
+      // No LLM token — regex only
+      setLastResult(regexResult);
+      onCommandRef.current(regexResult);
+      if (regexResult.command !== "unknown") {
         resetIdleTimer();
       }
     };
