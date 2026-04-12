@@ -54,7 +54,9 @@ export class TauriAdapter implements PlatformAdapter {
     await invoke("export_preview", { request });
   }
 
-  async importBlueprint(path: string, palette: PaletteColor[]): Promise<BlueprintImportResult> {
-    return await invoke<BlueprintImportResult>("import_blueprint", { request: { path, palette } });
+  async importBlueprint(path: string, palette: PaletteColor[], gridWidth?: number, gridHeight?: number): Promise<BlueprintImportResult> {
+    return await invoke<BlueprintImportResult>("import_blueprint", {
+      request: { path, palette, grid_width: gridWidth ?? null, grid_height: gridHeight ?? null }
+    });
   }
 }

@@ -384,7 +384,7 @@ export class BrowserAdapter implements PlatformAdapter {
     downloadBlob(blob, filename);
   }
 
-  async importBlueprint(_path: string, _palette: PaletteColor[]): Promise<BlueprintImportResult> {
+  async importBlueprint(_path: string, _palette: PaletteColor[], _gridWidth?: number, _gridHeight?: number): Promise<BlueprintImportResult> {
     throw new Error("Blueprint import not yet supported in browser. Use desktop app.");
   }
 }

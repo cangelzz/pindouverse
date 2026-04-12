@@ -38,6 +38,7 @@ function App() {
   const [showSnapshots, setShowSnapshots] = useState(false);
   const [snapshotLabel, setSnapshotLabel] = useState("");
   const [blueprintImporting, setBlueprintImporting] = useState(false);
+  const [blueprintProgress, setBlueprintProgress] = useState("");
   const [rightTab, setRightTab] = useState<"palette" | "stats" | "layers">("palette");
 
   const newCanvas = useEditorStore((s) => s.newCanvas);
@@ -48,6 +49,9 @@ function App() {
   const setAutoSaveEnabled = useEditorStore((s) => s.setAutoSaveEnabled);
   const aiVoiceEnabled = useEditorStore((s) => s.aiVoiceEnabled);
   const setAiVoiceEnabled = useEditorStore((s) => s.setAiVoiceEnabled);
+  const betaFeatures = useEditorStore((s) => s.betaFeatures);
+  const setBetaFeature = useEditorStore((s) => s.setBetaFeature);
+  const [showBetaSettings, setShowBetaSettings] = useState(false);
   const saveProject = useEditorStore((s) => s.saveProject);
   const saveProjectAs = useEditorStore((s) => s.saveProjectAs);
   const openProject = useEditorStore((s) => s.openProject);
@@ -175,6 +179,7 @@ function App() {
         >
           导入图片
         </button>
+        {betaFeatures.blueprintImport && (
         <button
           onClick={async () => {
             const adapter = getAdapter();
@@ -182,13 +187,33 @@ function App() {
               { name: "Image", extensions: ["png", "jpg", "jpeg", "bmp"] },
             ]);
             if (!path) return;
+
+            // Ask user for grid dimensions (optional, improves accuracy)
+            const sizeInput = prompt(
+              "输入图纸网格尺寸（宽x高），留空自动检测：\n例如: 100x100 或 52x52",
+              ""
+            );
+            let gridWidth: number | undefined;
+            let gridHeight: number | undefined;
+            if (sizeInput) {
+              const match = sizeInput.match(/(\d+)\s*[x×,]\s*(\d+)/i);
+              if (match) {
+                gridWidth = parseInt(match[1]);
+                gridHeight = parseInt(match[2]);
+              }
+            }
+
             setBlueprintImporting(true);
+            setBlueprintProgress(gridWidth ? `正在导入 ${gridWidth}×${gridHeight} 图纸...` : "正在自动检测网格...");
             try {
               const palette = MARD_COLORS
                 .filter((c) => c.rgb)
                 .map((c) => ({ code: c.code, r: c.rgb![0], g: c.rgb![1], b: c.rgb![2] }));
-              const result = await adapter.importBlueprint(path, palette);
-              // Convert color codes back to colorIndex
+
+              setBlueprintProgress("正在分析网格结构和识别颜色...");
+              const result = await adapter.importBlueprint(path, palette, gridWidth, gridHeight);
+
+              setBlueprintProgress("正在加载到画布...");
               const codeToIndex = new Map<string, number>();
               MARD_COLORS.forEach((c, i) => codeToIndex.set(c.code, i));
               const canvasData = result.cells.map((row) =>
@@ -205,18 +230,32 @@ function App() {
                 0,
                 0,
               );
-              alert(`图纸导入成功！\n尺寸: ${result.width}×${result.height}\n检测格子大小: ${result.cell_size_detected}px\n置信度: ${Math.round(result.confidence * 100)}%`);
+
+              setBlueprintImporting(false);
+              let msg = `图纸导入成功！\n尺寸: ${result.width}×${result.height}\n格子大小: ${result.cell_size_detected}px\n置信度: ${Math.round(result.confidence * 100)}%`;
+              if (result.mismatch_count > 0) {
+                msg += `\n\n⚠️ 发现 ${result.mismatch_count} 处颜色与文字不一致：`;
+                const show = result.mismatches.slice(0, 10);
+                for (const [r, c, cc, tc] of show) {
+                  msg += `\n  (${r + 1},${c + 1}): 颜色→${cc}, 文字→${tc}`;
+                }
+                if (result.mismatch_count > 10) {
+                  msg += `\n  ...还有 ${result.mismatch_count - 10} 处`;
+                }
+                msg += `\n\n当前使用颜色匹配结果。`;
+              }
+              alert(msg);
             } catch (e) {
               alert(`图纸导入失败: ${e}`);
-            } finally {
               setBlueprintImporting(false);
             }
           }}
           disabled={blueprintImporting}
           className={`px-2 py-1 rounded hover:bg-gray-200 ${blueprintImporting ? "opacity-50" : ""}`}
         >
-          {blueprintImporting ? "导入中..." : "导入图纸"}
+          导入图纸
         </button>
+        )}
         <button
           onClick={() => setShowExport(true)}
           className="px-2 py-1 rounded hover:bg-gray-200"
@@ -510,6 +549,17 @@ function App() {
       {showImport && <ImageImportDialog onClose={() => setShowImport(false)} />}
       {showExport && <ExportDialog onClose={() => setShowExport(false)} />}
 
+      {/* Blueprint Import Progress Modal */}
+      {blueprintImporting && (
+        <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50">
+          <div className="bg-white rounded-lg shadow-xl w-[320px] p-6 flex flex-col items-center gap-3">
+            <div className="w-8 h-8 border-3 border-blue-500 border-t-transparent rounded-full animate-spin" />
+            <h3 className="font-semibold text-sm">导入图纸中</h3>
+            <p className="text-xs text-gray-500 text-center whitespace-pre-line">{blueprintProgress}</p>
+          </div>
+        </div>
+      )}
+
       {/* New Canvas Dialog */}
       {showNewCanvas && (
         <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50">
@@ -671,8 +721,43 @@ function App() {
           />
           AI语音
         </label>
+        <button
+          onClick={() => setShowBetaSettings(true)}
+          className="text-[10px] text-gray-400 hover:text-gray-600 underline"
+        >
+          Beta
+        </button>
         {lastSavedAt && <span className="text-green-600">上次保存: {lastSavedAt}</span>}
       </div>
+
+      {/* Beta Features Settings Dialog */}
+      {showBetaSettings && (
+        <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50">
+          <div className="bg-white rounded-lg shadow-xl w-[320px] p-4">
+            <div className="flex justify-between items-center mb-3">
+              <h2 className="font-semibold text-sm">Beta 功能</h2>
+              <button onClick={() => setShowBetaSettings(false)} className="text-gray-400 hover:text-gray-600 text-lg">×</button>
+            </div>
+            <p className="text-[10px] text-gray-400 mb-3">实验性功能，可能不稳定。开启后在菜单栏中显示对应按钮。</p>
+            <div className="flex flex-col gap-2 text-xs">
+              {Object.entries(betaFeatures).map(([key, value]) => (
+                <label key={key} className="flex items-center gap-2 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={value}
+                    onChange={(e) => setBetaFeature(key, e.target.checked)}
+                    className="w-3 h-3"
+                  />
+                  <span className="text-gray-600">{
+                    key === "blueprintImport" ? "图纸导入（从导出的图纸还原画布）" :
+                    key
+                  }</span>
+                </label>
+              ))}
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

@@ -59,7 +59,11 @@ export interface SnapshotInfo {
 export interface BlueprintImportResult {
   width: number;
   height: number;
-  cells: string[][]; // color codes, empty string = empty cell
+  color_cells: string[][];  // from pixel color matching
+  text_cells: string[][];   // from template OCR
+  cells: string[][];        // merged result
+  mismatch_count: number;
+  mismatches: [number, number, string, string][]; // [row, col, color_code, text_code]
   cell_size_detected: number;
   confidence: number;
 }
@@ -97,7 +101,7 @@ export interface PlatformAdapter {
   exportPreview(request: ExportPreviewRequest): Promise<void>;
 
   // Blueprint import
-  importBlueprint(path: string, palette: PaletteColor[]): Promise<BlueprintImportResult>;
+  importBlueprint(path: string, palette: PaletteColor[], gridWidth?: number, gridHeight?: number): Promise<BlueprintImportResult>;
 }
 
 // ─── Singleton adapter instance ──────────────────────────────────
