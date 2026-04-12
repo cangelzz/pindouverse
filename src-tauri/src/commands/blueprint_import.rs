@@ -152,26 +152,66 @@ pub fn import_blueprint(request: BlueprintImportRequest) -> Result<BlueprintImpo
         return Err("Detected grid is too small".to_string());
     }
 
-    // Step 4: Sample center of each cell and match to palette
+    // Step 4: Sample corners of each cell (avoid center text) and match to palette
     let mut cells: Vec<Vec<String>> = Vec::new();
     let mut total_confidence = 0.0;
     let mut cell_count = 0u32;
 
+    // Sample offsets: 4 corners + 4 edge midpoints, all inset from grid lines
+    let inset = (cell_size / 5).max(2);
+    let sample_offsets: Vec<(u32, u32)> = vec![
+        (inset, inset),                             // top-left
+        (cell_size - inset, inset),                 // top-right
+        (inset, cell_size - inset),                 // bottom-left
+        (cell_size - inset, cell_size - inset),     // bottom-right
+        (cell_size / 2, inset),                     // top-center
+        (cell_size / 2, cell_size - inset),         // bottom-center
+        (inset, cell_size / 2),                     // left-center
+        (cell_size - inset, cell_size / 2),         // right-center
+    ];
+
     for row in 0..grid_h {
         let mut row_cells: Vec<String> = Vec::new();
         for col in 0..grid_w {
-            let cx = margin + col * cell_size + cell_size / 2;
-            let cy = margin + row * cell_size + cell_size / 2;
+            let x0 = margin + col * cell_size;
+            let y0 = margin + row * cell_size;
 
-            if cx >= img_w || cy >= img_h {
+            // Sample multiple points, collect RGB values
+            let mut samples: Vec<(u8, u8, u8)> = Vec::new();
+            for &(dx, dy) in &sample_offsets {
+                let sx = x0 + dx;
+                let sy = y0 + dy;
+                if sx < img_w && sy < img_h {
+                    let p = img.get_pixel(sx, sy);
+                    samples.push((p[0], p[1], p[2]));
+                }
+            }
+
+            if samples.is_empty() {
                 row_cells.push(String::new());
                 continue;
             }
 
-            let pixel = img.get_pixel(cx, cy);
-            let r = pixel[0];
-            let g = pixel[1];
-            let b = pixel[2];
+            // Filter out very dark pixels (likely text) and very light (grid lines on white)
+            let filtered: Vec<(u8, u8, u8)> = samples.iter()
+                .filter(|&&(r, g, b)| {
+                    let lum = 0.299 * r as f64 + 0.587 * g as f64 + 0.114 * b as f64;
+                    lum > 30.0 && lum < 245.0 // reject black text and white background
+                })
+                .copied()
+                .collect();
+
+            // Use filtered samples if available, otherwise fall back to all samples
+            let final_samples = if filtered.len() >= 2 { &filtered } else { &samples };
+
+            // Take median of each channel (robust against outliers)
+            let mut rs: Vec<u8> = final_samples.iter().map(|s| s.0).collect();
+            let mut gs: Vec<u8> = final_samples.iter().map(|s| s.1).collect();
+            let mut bs: Vec<u8> = final_samples.iter().map(|s| s.2).collect();
+            rs.sort(); gs.sort(); bs.sort();
+            let r = rs[rs.len() / 2];
+            let g = gs[gs.len() / 2];
+            let b = bs[bs.len() / 2];
 
             // Skip white/near-white cells (empty)
             if r > 245 && g > 245 && b > 245 {
