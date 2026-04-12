@@ -205,7 +205,19 @@ function App() {
                 0,
                 0,
               );
-              alert(`图纸导入成功！\n尺寸: ${result.width}×${result.height}\n检测格子大小: ${result.cell_size_detected}px\n置信度: ${Math.round(result.confidence * 100)}%`);
+              let msg = `图纸导入成功！\n尺寸: ${result.width}×${result.height}\n格子大小: ${result.cell_size_detected}px\n置信度: ${Math.round(result.confidence * 100)}%`;
+              if (result.mismatch_count > 0) {
+                msg += `\n\n⚠️ 发现 ${result.mismatch_count} 处颜色与文字不一致：`;
+                const show = result.mismatches.slice(0, 10);
+                for (const [r, c, cc, tc] of show) {
+                  msg += `\n  (${r + 1},${c + 1}): 颜色→${cc}, 文字→${tc}`;
+                }
+                if (result.mismatch_count > 10) {
+                  msg += `\n  ...还有 ${result.mismatch_count - 10} 处`;
+                }
+                msg += `\n\n当前使用颜色匹配结果。`;
+              }
+              alert(msg);
             } catch (e) {
               alert(`图纸导入失败: ${e}`);
             } finally {

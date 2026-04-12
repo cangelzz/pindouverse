@@ -1,5 +1,8 @@
 use serde::{Deserialize, Serialize};
+use image::{Rgba, RgbaImage};
 use image::io::Reader as ImageReader;
+use imageproc::drawing::draw_text_mut;
+use ab_glyph::{FontRef, PxScale, Font as AbFont, ScaleFont};
 use std::collections::HashMap;
 
 #[derive(Deserialize)]
@@ -21,8 +24,16 @@ pub struct PaletteColor {
 pub struct BlueprintImportResult {
     pub width: u32,
     pub height: u32,
-    /// Flat array of color codes, row-major. Empty string = empty cell.
+    /// Color-matched codes (from pixel sampling)
+    pub color_cells: Vec<Vec<String>>,
+    /// Text-matched codes (from template OCR)
+    pub text_cells: Vec<Vec<String>>,
+    /// Final merged cells (color_cells by default)
     pub cells: Vec<Vec<String>>,
+    /// Number of cells where color and text disagree
+    pub mismatch_count: u32,
+    /// List of mismatch positions: [row, col, color_code, text_code]
+    pub mismatches: Vec<(u32, u32, String, String)>,
     pub cell_size_detected: u32,
     pub confidence: f64,
 }
@@ -127,6 +138,118 @@ fn match_color(r: u8, g: u8, b: u8, palette: &[PaletteColor]) -> (String, f64) {
     (best_code, confidence)
 }
 
+// ─── Template-based OCR ──────────────────────────────────────────
+
+/// Render a text string into a small grayscale bitmap for template matching.
+fn render_template(code: &str, cell_size: u32) -> Vec<u8> {
+    let font_data = include_bytes!("../../fonts/NotoSansMono-Regular.ttf");
+    let font = FontRef::try_from_slice(font_data).unwrap();
+    let scale = PxScale::from(cell_size as f32 * 0.3);
+
+    let mut img = RgbaImage::new(cell_size, cell_size);
+    // White background
+    for p in img.pixels_mut() { *p = Rgba([255, 255, 255, 255]); }
+    // Draw black text
+    let tx = (cell_size as i32) / 6;
+    let ty = (cell_size as i32) / 3;
+    draw_text_mut(&mut img, Rgba([0, 0, 0, 255]), tx, ty, scale, &font, code);
+
+    // Convert to grayscale bitmap (0-255)
+    img.pixels().map(|p| {
+        (0.299 * p[0] as f64 + 0.587 * p[1] as f64 + 0.114 * p[2] as f64) as u8
+    }).collect()
+}
+
+/// Build template cache for all known color codes at a given cell size.
+fn build_templates(codes: &[String], cell_size: u32) -> Vec<(String, Vec<u8>)> {
+    codes.iter().map(|code| {
+        (code.clone(), render_template(code, cell_size))
+    }).collect()
+}
+
+/// Compare a cell region from the image against a template using normalized cross-correlation.
+/// Returns similarity score 0.0-1.0.
+fn template_similarity(cell_gray: &[u8], template: &[u8], size: usize) -> f64 {
+    if cell_gray.len() != template.len() || cell_gray.is_empty() {
+        return 0.0;
+    }
+
+    // Only compare the text region (middle portion of the cell)
+    let w = (size as f64).sqrt() as usize;
+    if w == 0 { return 0.0; }
+
+    let mut sum_diff = 0.0;
+    let mut count = 0.0;
+
+    for (i, (&c, &t)) in cell_gray.iter().zip(template.iter()).enumerate() {
+        let row = i / w;
+        let col = i % w;
+        // Focus on the center area where text lives (skip edges where color fill is)
+        if row > w / 5 && row < w * 4 / 5 && col > w / 8 && col < w * 7 / 8 {
+            let diff = (c as f64 - t as f64).abs();
+            sum_diff += diff;
+            count += 1.0;
+        }
+    }
+
+    if count == 0.0 { return 0.0; }
+    let avg_diff = sum_diff / count;
+    // Convert to similarity (0 = same, 255 = opposite)
+    1.0 - (avg_diff / 255.0).min(1.0)
+}
+
+/// Extract a cell region as grayscale, normalizing text to black-on-white.
+fn extract_cell_gray(img: &RgbaImage, x0: u32, y0: u32, cell_size: u32) -> Vec<u8> {
+    let (img_w, img_h) = img.dimensions();
+    let mut pixels = Vec::with_capacity((cell_size * cell_size) as usize);
+
+    // Sample background color from corners to determine text polarity
+    let corners = [(x0 + 2, y0 + 2), (x0 + cell_size - 3, y0 + 2)];
+    let mut bg_lum = 0.0;
+    let mut bg_count = 0;
+    for &(cx, cy) in &corners {
+        if cx < img_w && cy < img_h {
+            let p = img.get_pixel(cx, cy);
+            bg_lum += 0.299 * p[0] as f64 + 0.587 * p[1] as f64 + 0.114 * p[2] as f64;
+            bg_count += 1;
+        }
+    }
+    let is_dark_bg = bg_count > 0 && (bg_lum / bg_count as f64) < 128.0;
+
+    for dy in 0..cell_size {
+        for dx in 0..cell_size {
+            let px = x0 + dx;
+            let py = y0 + dy;
+            if px < img_w && py < img_h {
+                let p = img.get_pixel(px, py);
+                let mut lum = 0.299 * p[0] as f64 + 0.587 * p[1] as f64 + 0.114 * p[2] as f64;
+                // Normalize: text should be dark on light
+                if is_dark_bg { lum = 255.0 - lum; }
+                pixels.push(lum as u8);
+            } else {
+                pixels.push(255); // white for out-of-bounds
+            }
+        }
+    }
+    pixels
+}
+
+/// Match a cell image against all templates, return best code and confidence.
+fn ocr_cell(cell_gray: &[u8], templates: &[(String, Vec<u8>)], size: usize) -> (String, f64) {
+    let mut best_code = String::new();
+    let mut best_score = 0.0;
+
+    for (code, tmpl) in templates {
+        let score = template_similarity(cell_gray, tmpl, size);
+        if score > best_score {
+            best_score = score;
+            best_code = code.clone();
+        }
+    }
+
+    (best_code, best_score)
+}
+
 #[tauri::command]
 pub fn import_blueprint(request: BlueprintImportRequest) -> Result<BlueprintImportResult, String> {
     let img = ImageReader::open(&request.path)
@@ -153,7 +276,7 @@ pub fn import_blueprint(request: BlueprintImportRequest) -> Result<BlueprintImpo
     }
 
     // Step 4: Sample corners of each cell (avoid center text) and match to palette
-    let mut cells: Vec<Vec<String>> = Vec::new();
+    let mut color_cells: Vec<Vec<String>> = Vec::new();
     let mut total_confidence = 0.0;
     let mut cell_count = 0u32;
 
@@ -224,7 +347,7 @@ pub fn import_blueprint(request: BlueprintImportRequest) -> Result<BlueprintImpo
             total_confidence += conf;
             cell_count += 1;
         }
-        cells.push(row_cells);
+        color_cells.push(row_cells);
     }
 
     let avg_confidence = if cell_count > 0 {
@@ -233,10 +356,72 @@ pub fn import_blueprint(request: BlueprintImportRequest) -> Result<BlueprintImpo
         1.0
     };
 
+    // Step 5: Template OCR — recognize text in each cell
+    let all_codes: Vec<String> = request.palette.iter().map(|p| p.code.clone()).collect();
+    let templates = build_templates(&all_codes, cell_size);
+    let tmpl_size = (cell_size * cell_size) as usize;
+
+    let mut text_cells: Vec<Vec<String>> = Vec::new();
+    for row in 0..grid_h {
+        let mut row_text: Vec<String> = Vec::new();
+        for col in 0..grid_w {
+            let x0 = margin + col * cell_size;
+            let y0 = margin + row * cell_size;
+
+            // Skip if color says empty
+            if color_cells[row as usize][col as usize].is_empty() {
+                row_text.push(String::new());
+                continue;
+            }
+
+            let cell_gray = extract_cell_gray(&img, x0, y0, cell_size);
+            let (text_code, score) = ocr_cell(&cell_gray, &templates, tmpl_size);
+
+            // Only accept OCR result if confidence is decent
+            if score > 0.7 {
+                row_text.push(text_code);
+            } else {
+                row_text.push(String::new());
+            }
+        }
+        text_cells.push(row_text);
+    }
+
+    // Step 6: Compare color vs text results, detect mismatches
+    let mut mismatches: Vec<(u32, u32, String, String)> = Vec::new();
+    let mut merged_cells: Vec<Vec<String>> = Vec::new();
+
+    for row in 0..grid_h as usize {
+        let mut merged_row: Vec<String> = Vec::new();
+        for col in 0..grid_w as usize {
+            let cc = &color_cells[row][col];
+            let tc = &text_cells[row][col];
+
+            if cc.is_empty() && tc.is_empty() {
+                merged_row.push(String::new());
+            } else if !cc.is_empty() && !tc.is_empty() && cc != tc {
+                // Mismatch! Default to color match
+                mismatches.push((row as u32, col as u32, cc.clone(), tc.clone()));
+                merged_row.push(cc.clone());
+            } else if !tc.is_empty() {
+                merged_row.push(tc.clone());
+            } else {
+                merged_row.push(cc.clone());
+            }
+        }
+        merged_cells.push(merged_row);
+    }
+
+    let mismatch_count = mismatches.len() as u32;
+
     Ok(BlueprintImportResult {
         width: grid_w,
         height: grid_h,
-        cells,
+        color_cells,
+        text_cells,
+        cells: merged_cells,
+        mismatch_count,
+        mismatches,
         cell_size_detected: cell_size,
         confidence: avg_confidence,
     })
