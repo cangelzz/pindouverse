@@ -728,6 +728,7 @@ export function PixelCanvas() {
       {/* Canvas area */}
       <div
         ref={containerRef}
+        data-canvas-container
         className="relative flex-1 overflow-hidden"
         style={{
           cursor,

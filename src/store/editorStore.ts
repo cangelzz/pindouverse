@@ -72,6 +72,7 @@ interface EditorState {
   setTool: (tool: EditorTool) => void;
   setSelectedColor: (index: number | null) => void;
   setZoom: (zoom: number) => void;
+  fitToWindow: (containerW: number, containerH: number) => void;
   setOffset: (x: number, y: number) => void;
   setBlueprintMode: (on: boolean) => void;
   setBlueprintMirror: (on: boolean) => void;
@@ -335,6 +336,19 @@ export const useEditorStore = create<EditorState>((set, get) => ({
   setZoom: (zoom) => {
     const clamped = Math.max(0.5, Math.min(40, zoom));
     set({ zoom: clamped, cellSize: Math.round(16 * clamped) });
+  },
+
+  fitToWindow: (containerW, containerH) => {
+    const state = get();
+    const { width, height } = state.canvasSize;
+    const padding = 20; // px margin
+    const zoomX = (containerW - padding * 2) / (width * 16);
+    const zoomY = (containerH - padding * 2) / (height * 16);
+    const zoom = Math.max(0.5, Math.min(40, Math.min(zoomX, zoomY)));
+    const cellSize = Math.round(16 * zoom);
+    const offsetX = (containerW - width * cellSize) / 2;
+    const offsetY = (containerH - height * cellSize) / 2;
+    set({ zoom, cellSize, offsetX, offsetY });
   },
 
   setOffset: (x, y) => set({ offsetX: x, offsetY: y }),

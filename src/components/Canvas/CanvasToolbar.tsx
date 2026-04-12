@@ -27,6 +27,7 @@ export function CanvasToolbar() {
   const redoStack = useEditorStore((s) => s.redoStack);
   const zoom = useEditorStore((s) => s.zoom);
   const setZoom = useEditorStore((s) => s.setZoom);
+  const fitToWindow = useEditorStore((s) => s.fitToWindow);
   const blueprintMode = useEditorStore((s) => s.blueprintMode);
   const setBlueprintMode = useEditorStore((s) => s.setBlueprintMode);
   const blueprintMirror = useEditorStore((s) => s.blueprintMirror);
@@ -96,6 +97,19 @@ export function CanvasToolbar() {
         title="重置缩放"
       >
         1:1
+      </button>
+      <button
+        onClick={() => {
+          // Find the canvas container to get its dimensions
+          const container = document.querySelector("[data-canvas-container]");
+          if (container) {
+            fitToWindow(container.clientWidth, container.clientHeight);
+          }
+        }}
+        className="w-9 h-7 rounded flex items-center justify-center text-[9px] hover:bg-gray-200"
+        title="适应窗口"
+      >
+        ⊞
       </button>
 
       <div className="border-t my-1 w-full" />
