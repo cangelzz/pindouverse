@@ -1,8 +1,8 @@
 use serde::{Deserialize, Serialize};
 use image::{Rgba, RgbaImage};
-use image::io::Reader as ImageReader;
+use image::ImageReader;
 use imageproc::drawing::draw_text_mut;
-use ab_glyph::{FontRef, PxScale, Font as AbFont, ScaleFont};
+use ab_glyph::{FontRef, PxScale};
 use std::collections::HashMap;
 
 #[derive(Deserialize)]
@@ -70,7 +70,7 @@ fn detect_cell_size(img: &image::RgbaImage) -> Option<u32> {
     let mut i = 0;
     while i < dark_cols.len() {
         // Skip consecutive dark pixels (grid line width)
-        let start = dark_cols[i];
+        let _start = dark_cols[i];
         while i + 1 < dark_cols.len() && dark_cols[i + 1] == dark_cols[i] + 1 {
             i += 1;
         }
@@ -357,11 +357,6 @@ pub fn import_blueprint(request: BlueprintImportRequest) -> Result<BlueprintImpo
     };
 
     // Step 5: Template OCR — only for cells with low color confidence
-    // Build character-level templates (only ~25 unique chars, not 295 codes)
-    let char_set: Vec<char> = "ABCDEFGHMPQRTYZ0123456789".chars().collect();
-    let char_templates: Vec<(char, Vec<u8>)> = char_set.iter().map(|&ch| {
-        (ch, render_template(&ch.to_string(), cell_size))
-    }).collect();
     let tmpl_size = (cell_size * cell_size) as usize;
 
     // Build a set of valid codes for validation
@@ -444,11 +439,6 @@ pub fn import_blueprint(request: BlueprintImportRequest) -> Result<BlueprintImpo
 
             if best_score > 0.7 {
                 row_text.push(best_code);
-            } else {
-                row_text.push(String::new());
-            }
-            if score > 0.7 {
-                row_text.push(text_code);
             } else {
                 row_text.push(String::new());
             }
