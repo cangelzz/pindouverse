@@ -5,6 +5,7 @@ import { hasToken, clearGitHubToken, requestDeviceCode, pollForToken, type Devic
 
 const tools: { id: EditorTool; label: string; icon: string; shortcut: string }[] = [
   { id: "pen", label: "画笔", icon: "✏️", shortcut: "P" },
+  { id: "fill", label: "填充", icon: "🪣", shortcut: "F" },
   { id: "eraser", label: "橡皮", icon: "🧹", shortcut: "E" },
   { id: "eyedropper", label: "取色", icon: "💧", shortcut: "I" },
   { id: "pan", label: "平移", icon: "✋", shortcut: "Space" },
