@@ -264,6 +264,7 @@ export const useEditorStore = create<EditorState>((set, get) => ({
 
   betaFeatures: {
     blueprintImport: false,
+    aiVoice: false,
   },
 
   newCanvas: (width, height) => {

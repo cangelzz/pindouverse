@@ -712,6 +712,7 @@ function App() {
           />
           自动保存
         </label>
+        {betaFeatures.aiVoice && (
         <label className="flex items-center gap-1 cursor-pointer">
           <input
             type="checkbox"
@@ -721,6 +722,7 @@ function App() {
           />
           AI语音
         </label>
+        )}
         <button
           onClick={() => setShowBetaSettings(true)}
           className="text-[10px] text-gray-400 hover:text-gray-600 underline"
@@ -750,6 +752,7 @@ function App() {
                   />
                   <span className="text-gray-600">{
                     key === "blueprintImport" ? "图纸导入（从导出的图纸还原画布）" :
+                    key === "aiVoice" ? "AI 语音增强（GitHub Models LLM）" :
                     key
                   }</span>
                 </label>
