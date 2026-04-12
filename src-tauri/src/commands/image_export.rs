@@ -4,7 +4,7 @@ use imageproc::drawing::draw_text_mut;
 use ab_glyph::{FontRef, PxScale};
 use std::collections::HashMap;
 
-#[derive(Deserialize)]
+#[derive(Deserialize, Clone)]
 pub struct CellData {
     pub color_code: String,
     pub r: u8,

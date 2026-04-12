@@ -18,7 +18,7 @@ pub struct BlueprintImportRequest {
     pub palette: Vec<PaletteColor>,
 }
 
-#[derive(Deserialize)]
+#[derive(Deserialize, Clone)]
 pub struct PaletteColor {
     pub code: String,
     pub r: u8,
@@ -44,71 +44,49 @@ pub struct BlueprintImportResult {
     pub confidence: f64,
 }
 
-/// Detect the grid cell size by scanning for regular vertical grid lines.
-/// Uses edge detection: finds columns where luminance changes sharply from neighbors.
+/// Detect the grid cell size by brute-force trying candidate sizes.
+/// For each candidate cs, assumes margin=cs, checks grid line existence at expected positions.
 fn detect_cell_size(img: &image::RgbaImage) -> Option<u32> {
     let (w, h) = img.dimensions();
-    let sample_row = h / 2;
+    let mut best_cs = 0u32;
+    let mut best_score = 0u32;
 
-    // Compute luminance for each pixel in the sample row
-    let lums: Vec<f64> = (0..w).map(|x| {
-        let p = img.get_pixel(x, sample_row);
-        0.299 * p[0] as f64 + 0.587 * p[1] as f64 + 0.114 * p[2] as f64
-    }).collect();
+    for cs in 15..=80 {
+        let margin = cs;
+        if margin + cs * 3 >= w || margin + cs * 3 >= h { continue; }
 
-    // Find grid line columns: a grid line pixel is significantly darker than
-    // at least one neighbor (cell fill → line transition)
-    let mut line_cols: Vec<u32> = Vec::new();
-    for x in 1..(w - 1) as usize {
-        let l = lums[x];
-        let left = lums[x - 1];
-        let right = lums[x + 1];
-        // This pixel is a grid line if it's darker than at least one neighbor by >= 15
-        if (left - l > 15.0) || (right - l > 15.0) {
-            // Verify vertical consistency (at least 3 consecutive dark rows)
-            let mut vert_ok = true;
-            for dy in 1..4.min(h - sample_row) {
-                let vp = img.get_pixel(x as u32, sample_row + dy);
-                let vl = 0.299 * vp[0] as f64 + 0.587 * vp[1] as f64 + 0.114 * vp[2] as f64;
-                if (left - vl).abs() < 10.0 { vert_ok = false; break; }
-            }
-            if vert_ok {
-                line_cols.push(x as u32);
-            }
+        let mut score = 0u32;
+
+        // Check horizontal grid lines at y = margin + row * cs
+        for row in 0..5 {
+            let y = margin + row * cs;
+            if y >= h { break; }
+            // Sample middle of the line
+            let x = margin + cs / 2;
+            if x >= w { continue; }
+            let p = img.get_pixel(x, y);
+            let lum = 0.299 * p[0] as f64 + 0.587 * p[1] as f64 + 0.114 * p[2] as f64;
+            if lum < 200.0 { score += 1; }
+        }
+
+        // Check vertical grid lines at x = margin + col * cs
+        for col in 0..5 {
+            let x = margin + col * cs;
+            if x >= w { break; }
+            let y = margin + cs / 2;
+            if y >= h { continue; }
+            let p = img.get_pixel(x, y);
+            let lum = 0.299 * p[0] as f64 + 0.587 * p[1] as f64 + 0.114 * p[2] as f64;
+            if lum < 200.0 { score += 1; }
+        }
+
+        if score > best_score {
+            best_score = score;
+            best_cs = cs;
         }
     }
 
-    if line_cols.len() < 3 { return None; }
-
-    // Find gaps between consecutive line columns (these are cell widths)
-    let mut gaps: Vec<u32> = Vec::new();
-    let mut i = 0;
-    while i < line_cols.len() {
-        // Skip consecutive line pixels (grid line width)
-        while i + 1 < line_cols.len() && line_cols[i + 1] <= line_cols[i] + 2 {
-            i += 1;
-        }
-        let end = line_cols[i];
-        if i + 1 < line_cols.len() {
-            let next_start = line_cols[i + 1];
-            let gap = next_start - end;
-            if gap > 5 { // minimum reasonable cell size
-                gaps.push(gap);
-            }
-        }
-        i += 1;
-    }
-
-    if gaps.is_empty() { return None; }
-
-    // Find the most common gap (mode)
-    let mut gap_counts: HashMap<u32, u32> = HashMap::new();
-    for &g in &gaps {
-        // Allow ±1 tolerance
-        let rounded = g;
-        *gap_counts.entry(rounded).or_insert(0) += 1;
-    }
-    gap_counts.into_iter().max_by_key(|&(_, cnt)| cnt).map(|(cs, _)| cs)
+    if best_cs > 0 && best_score >= 6 { Some(best_cs) } else { None }
 }
 
 /// Find the margin (axis area) by detecting where the grid starts.
@@ -282,36 +260,51 @@ pub fn import_blueprint(request: BlueprintImportRequest) -> Result<BlueprintImpo
     let margin = detect_margin(&img, cell_size);
 
     // Step 3: Calculate grid dimensions
-    // For width: simple division works since there's no side legend
+    // Width: use pixel division (no legend on side)
     let grid_w = (img_w.saturating_sub(margin)) / cell_size;
 
-    // For height: detect where grid lines stop (legend area below has no grid)
-    // Scan downward from margin, find the last row that has regular vertical grid lines
+    // For height: find where grid area ends by checking for a gap row
+    // Below the grid there's a gap then the legend. The gap row is all white.
     let grid_h = {
         let max_possible = (img_h.saturating_sub(margin)) / cell_size;
         let mut actual_h = max_possible;
 
-        // Check from bottom up: find first row that still has grid lines
-        for test_row in (1..=max_possible).rev() {
-            let y = margin + test_row * cell_size; // bottom edge of this row
-            if y >= img_h { continue; }
-            // Check if there's a horizontal grid line at this y position
-            // Sample several x positions for the line
-            let mut line_pixels = 0;
-            let mut total_checked = 0;
-            for x_sample in (margin..margin + grid_w * cell_size).step_by(cell_size as usize) {
-                if x_sample < img_w {
-                    let p = img.get_pixel(x_sample, y.min(img_h - 1));
-                    let lum = 0.299 * p[0] as f64 + 0.587 * p[1] as f64 + 0.114 * p[2] as f64;
-                    // Grid lines are darker than pure white (< 200)
-                    if lum < 200.0 { line_pixels += 1; }
-                    total_checked += 1;
+        // Scan each cell row from top. Check if the cell row is "grid" by sampling
+        // pixel color — if an entire row of cells is white/near-white, grid ended
+        for row_idx in 0..max_possible {
+            let y_center = margin + row_idx * cell_size + cell_size / 2;
+            if y_center >= img_h { actual_h = row_idx; break; }
+
+            // Sample several cells in this row
+            let mut all_white = true;
+            for col_idx in 0..grid_w.min(10) {
+                let x_center = margin + col_idx * cell_size + cell_size / 2;
+                if x_center >= img_w { continue; }
+                let p = img.get_pixel(x_center, y_center);
+                let lum = 0.299 * p[0] as f64 + 0.587 * p[1] as f64 + 0.114 * p[2] as f64;
+                // If any cell has content (not white), this row is still grid
+                if lum < 240.0 {
+                    all_white = false;
+                    break;
                 }
             }
-            // If majority of samples are dark, this is still grid area
-            if total_checked > 0 && line_pixels * 2 >= total_checked {
-                actual_h = test_row;
-                break;
+
+            // A fully white row after some non-white rows means grid ended
+            if all_white && row_idx > 0 {
+                // Check if previous row had content
+                let prev_y = margin + (row_idx - 1) * cell_size + cell_size / 2;
+                let mut prev_has_content = false;
+                for col_idx in 0..grid_w.min(10) {
+                    let x = margin + col_idx * cell_size + cell_size / 2;
+                    if x >= img_w || prev_y >= img_h { continue; }
+                    let p = img.get_pixel(x, prev_y);
+                    let l = 0.299 * p[0] as f64 + 0.587 * p[1] as f64 + 0.114 * p[2] as f64;
+                    if l < 240.0 { prev_has_content = true; break; }
+                }
+                if prev_has_content {
+                    actual_h = row_idx;
+                    break;
+                }
             }
         }
         actual_h
