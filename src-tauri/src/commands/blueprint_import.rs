@@ -4,6 +4,12 @@ use image::ImageReader;
 use imageproc::drawing::draw_text_mut;
 use ab_glyph::{FontRef, PxScale};
 use std::collections::HashMap;
+use std::sync::Mutex;
+use once_cell::sync::Lazy;
+
+/// Cache: cell_size -> (code -> grayscale template)
+static TEMPLATE_CACHE: Lazy<Mutex<HashMap<u32, HashMap<String, Vec<u8>>>>> =
+    Lazy::new(|| Mutex::new(HashMap::new()));
 
 #[derive(Deserialize)]
 pub struct BlueprintImportRequest {
@@ -368,12 +374,29 @@ pub fn import_blueprint(request: BlueprintImportRequest) -> Result<BlueprintImpo
     // Build a set of valid codes for validation
     let valid_codes: std::collections::HashSet<String> = request.palette.iter().map(|p| p.code.clone()).collect();
 
-    // Pre-build all code templates ONCE (only if any cells need OCR)
+    // Pre-build all code templates ONCE (cached across calls for same cell_size)
     let needs_ocr = color_confidences.iter().flatten().any(|&c| c <= 0.95);
     let code_templates: Vec<(String, Vec<u8>)> = if needs_ocr {
-        valid_codes.iter().map(|code| {
-            (code.clone(), render_template(code, cell_size))
-        }).collect()
+        let mut cache = TEMPLATE_CACHE.lock().unwrap();
+        let size_cache = cache.entry(cell_size).or_insert_with(|| {
+            let font_data = include_bytes!("../../fonts/NotoSansMono-Regular.ttf");
+            let font = FontRef::try_from_slice(font_data).unwrap();
+            let mut map = HashMap::new();
+            for code in &valid_codes {
+                let scale = PxScale::from(cell_size as f32 * 0.3);
+                let mut img = RgbaImage::new(cell_size, cell_size);
+                for p in img.pixels_mut() { *p = Rgba([255, 255, 255, 255]); }
+                let tx = (cell_size as i32) / 6;
+                let ty = (cell_size as i32) / 3;
+                draw_text_mut(&mut img, Rgba([0, 0, 0, 255]), tx, ty, scale, &font, code);
+                let gray: Vec<u8> = img.pixels().map(|p| {
+                    (0.299 * p[0] as f64 + 0.587 * p[1] as f64 + 0.114 * p[2] as f64) as u8
+                }).collect();
+                map.insert(code.clone(), gray);
+            }
+            map
+        });
+        size_cache.iter().map(|(k, v)| (k.clone(), v.clone())).collect()
     } else {
         Vec::new()
     };
