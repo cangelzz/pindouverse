@@ -37,27 +37,44 @@ mod tests {
 
     #[test]
     fn test_roundtrip_10x10() {
-        roundtrip_test(10, 10, 40);
+        roundtrip_test(10, 10, 40, "png", 0);
     }
 
     #[test]
     fn test_roundtrip_52x52() {
-        roundtrip_test(52, 52, 30);
+        roundtrip_test(52, 52, 30, "png", 0);
     }
 
     #[test]
     fn test_roundtrip_100x100() {
-        roundtrip_test(100, 100, 20);
+        roundtrip_test(100, 100, 20, "png", 0);
     }
 
-    fn roundtrip_test(w: u32, h: u32, cell_size: u32) {
+    #[test]
+    fn test_roundtrip_100x100_jpeg() {
+        roundtrip_test(100, 100, 40, "jpeg", 0);
+    }
+
+    #[test]
+    fn test_roundtrip_52x52_padding1() {
+        roundtrip_test(52, 52, 30, "png", 1);
+    }
+
+    #[test]
+    fn test_roundtrip_100x100_padding2_jpeg() {
+        roundtrip_test(100, 100, 40, "jpeg", 2);
+    }
+
+    fn roundtrip_test(w: u32, h: u32, cell_size: u32, format: &str, edge_padding: u32) {
         let palette = make_test_palette();
         let cells = make_cells(w, h, &palette);
+
+        let ext = if format == "jpeg" { "jpg" } else { "png" };
 
         // Export
         let test_dir = std::env::temp_dir().join("pindouverse_test");
         fs::create_dir_all(&test_dir).unwrap();
-        let export_path = test_dir.join(format!("test_{}x{}.png", w, h));
+        let export_path = test_dir.join(format!("test_{}x{}_p{}.{}", w, h, edge_padding, ext));
         let path_str = export_path.to_string_lossy().to_string();
 
         let request = ExportRequest {
@@ -66,10 +83,10 @@ mod tests {
             cell_size,
             cells: cells.clone(),
             output_path: path_str.clone(),
-            format: "png".to_string(),
+            format: format.to_string(),
             start_x: Some(1),
             start_y: Some(1),
-            edge_padding: Some(0),
+            edge_padding: Some(edge_padding),
         };
         export_image(request).expect("Export failed");
         assert!(export_path.exists(), "Exported file should exist");
@@ -128,9 +145,11 @@ mod tests {
         }
         let total = (w * h) as usize;
         let accuracy = ((total - mismatches) as f64 / total as f64) * 100.0;
-        eprintln!("{}x{} roundtrip: {}/{} correct ({:.1}%), {} mismatches",
-            w, h, total - mismatches, total, accuracy, mismatches);
-        assert!(accuracy > 99.0, "Accuracy too low: {:.1}%", accuracy);
+        eprintln!("{}x{} [{}] pad={}: {}/{} correct ({:.1}%), {} mismatches",
+            w, h, format, edge_padding, total - mismatches, total, accuracy, mismatches);
+
+        let min_accuracy = if format == "jpeg" { 95.0 } else { 99.0 };
+        assert!(accuracy > min_accuracy, "Accuracy too low: {:.1}% (min={:.0}%)", accuracy, min_accuracy);
 
         // Verify confidence
         assert!(result.confidence > 0.9, "Confidence too low: {:.2}", result.confidence);

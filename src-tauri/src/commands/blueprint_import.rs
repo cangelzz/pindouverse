@@ -66,7 +66,7 @@ fn detect_cell_size(img: &image::RgbaImage) -> Option<u32> {
             if x >= w { continue; }
             let p = img.get_pixel(x, y);
             let lum = 0.299 * p[0] as f64 + 0.587 * p[1] as f64 + 0.114 * p[2] as f64;
-            if lum < 200.0 { score += 1; }
+            if lum < 230.0 { score += 1; } // 230 for JPEG tolerance
         }
 
         // Check vertical grid lines at x = margin + col * cs
@@ -77,7 +77,7 @@ fn detect_cell_size(img: &image::RgbaImage) -> Option<u32> {
             if y >= h { continue; }
             let p = img.get_pixel(x, y);
             let lum = 0.299 * p[0] as f64 + 0.587 * p[1] as f64 + 0.114 * p[2] as f64;
-            if lum < 200.0 { score += 1; }
+            if lum < 230.0 { score += 1; }
         }
 
         if score > best_score {
@@ -263,50 +263,42 @@ pub fn import_blueprint(request: BlueprintImportRequest) -> Result<BlueprintImpo
     // Width: use pixel division (no legend on side)
     let grid_w = (img_w.saturating_sub(margin)) / cell_size;
 
-    // For height: find where grid area ends by checking for a gap row
-    // Below the grid there's a gap then the legend. The gap row is all white.
+    // For height: check for horizontal grid lines at expected y positions
+    // A grid line at y = margin + row * cell_size means that row is still in the grid.
+    // Grid lines appear as pixels darker than the white background.
+    // For JPEG: lower threshold since compression blurs lines.
     let grid_h = {
         let max_possible = (img_h.saturating_sub(margin)) / cell_size;
-        let mut actual_h = max_possible;
+        let mut actual_h = 0u32;
 
-        // Scan each cell row from top. Check if the cell row is "grid" by sampling
-        // pixel color — if an entire row of cells is white/near-white, grid ended
-        for row_idx in 0..max_possible {
-            let y_center = margin + row_idx * cell_size + cell_size / 2;
-            if y_center >= img_h { actual_h = row_idx; break; }
+        for row_idx in 1..=max_possible {
+            let y = margin + row_idx * cell_size;
+            if y >= img_h { break; }
 
-            // Sample several cells in this row
-            let mut all_white = true;
-            for col_idx in 0..grid_w.min(10) {
-                let x_center = margin + col_idx * cell_size + cell_size / 2;
-                if x_center >= img_w { continue; }
-                let p = img.get_pixel(x_center, y_center);
+            // Check for a horizontal grid line at y:
+            // Sample several x positions and check if they're darker than pure white
+            let mut dark_count = 0u32;
+            let mut total_count = 0u32;
+            for col_off in 0..grid_w.min(20) {
+                let x = margin + col_off * cell_size + cell_size / 2;
+                if x >= img_w { continue; }
+                let p = img.get_pixel(x, y);
                 let lum = 0.299 * p[0] as f64 + 0.587 * p[1] as f64 + 0.114 * p[2] as f64;
-                // If any cell has content (not white), this row is still grid
-                if lum < 240.0 {
-                    all_white = false;
-                    break;
-                }
+                total_count += 1;
+                if lum < 230.0 { dark_count += 1; } // 230 tolerant for JPEG blur
             }
 
-            // A fully white row after some non-white rows means grid ended
-            if all_white && row_idx > 0 {
-                // Check if previous row had content
-                let prev_y = margin + (row_idx - 1) * cell_size + cell_size / 2;
-                let mut prev_has_content = false;
-                for col_idx in 0..grid_w.min(10) {
-                    let x = margin + col_idx * cell_size + cell_size / 2;
-                    if x >= img_w || prev_y >= img_h { continue; }
-                    let p = img.get_pixel(x, prev_y);
-                    let l = 0.299 * p[0] as f64 + 0.587 * p[1] as f64 + 0.114 * p[2] as f64;
-                    if l < 240.0 { prev_has_content = true; break; }
-                }
-                if prev_has_content {
-                    actual_h = row_idx;
-                    break;
-                }
+            // If most samples show a grid line, this row boundary exists
+            if total_count > 0 && dark_count * 2 >= total_count {
+                actual_h = row_idx;
+            } else {
+                // No grid line found = grid ended
+                break;
             }
         }
+
+        // Fallback: if no lines detected, check from content
+        if actual_h == 0 { actual_h = max_possible; }
         actual_h
     };
 
