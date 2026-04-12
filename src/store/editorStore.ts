@@ -65,6 +65,12 @@ interface EditorState {
   // Snapshots
   snapshots: SnapshotInfo[];
 
+  // Beta feature flags (hidden features, default false)
+  betaFeatures: {
+    blueprintImport: boolean;
+    [key: string]: boolean;
+  };
+
   // Actions
   newCanvas: (width: number, height: number) => void;
   setCell: (row: number, col: number, colorIndex: number | null) => void;
@@ -79,6 +85,7 @@ interface EditorState {
   setGridFocusMode: (on: boolean) => void;
   setVoiceControlEnabled: (on: boolean) => void;
   setAiVoiceEnabled: (on: boolean) => void;
+  setBetaFeature: (key: string, on: boolean) => void;
   setGridStartCoords: (startX: number, startY: number) => void;
   setEdgePadding: (padding: number) => void;
   setGridVisible: (visible: boolean) => void;
@@ -255,6 +262,10 @@ export const useEditorStore = create<EditorState>((set, get) => ({
 
   snapshots: [],
 
+  betaFeatures: {
+    blueprintImport: false,
+  },
+
   newCanvas: (width, height) => {
     const layer = createDefaultLayer(width, height);
     set({
@@ -365,6 +376,10 @@ export const useEditorStore = create<EditorState>((set, get) => ({
   setVoiceControlEnabled: (on) => set({ voiceControlEnabled: on }),
 
   setAiVoiceEnabled: (on) => set({ aiVoiceEnabled: on }),
+
+  setBetaFeature: (key, on) => set((state) => ({
+    betaFeatures: { ...state.betaFeatures, [key]: on },
+  })),
 
   setGridStartCoords: (startX, startY) => set((state) => ({
     gridConfig: { ...state.gridConfig, startX, startY },

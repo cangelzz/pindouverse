@@ -49,6 +49,9 @@ function App() {
   const setAutoSaveEnabled = useEditorStore((s) => s.setAutoSaveEnabled);
   const aiVoiceEnabled = useEditorStore((s) => s.aiVoiceEnabled);
   const setAiVoiceEnabled = useEditorStore((s) => s.setAiVoiceEnabled);
+  const betaFeatures = useEditorStore((s) => s.betaFeatures);
+  const setBetaFeature = useEditorStore((s) => s.setBetaFeature);
+  const [showBetaSettings, setShowBetaSettings] = useState(false);
   const saveProject = useEditorStore((s) => s.saveProject);
   const saveProjectAs = useEditorStore((s) => s.saveProjectAs);
   const openProject = useEditorStore((s) => s.openProject);
@@ -176,6 +179,7 @@ function App() {
         >
           导入图片
         </button>
+        {betaFeatures.blueprintImport && (
         <button
           onClick={async () => {
             const adapter = getAdapter();
@@ -251,6 +255,7 @@ function App() {
         >
           导入图纸
         </button>
+        )}
         <button
           onClick={() => setShowExport(true)}
           className="px-2 py-1 rounded hover:bg-gray-200"
@@ -716,8 +721,43 @@ function App() {
           />
           AI语音
         </label>
+        <button
+          onClick={() => setShowBetaSettings(true)}
+          className="text-[10px] text-gray-400 hover:text-gray-600 underline"
+        >
+          Beta
+        </button>
         {lastSavedAt && <span className="text-green-600">上次保存: {lastSavedAt}</span>}
       </div>
+
+      {/* Beta Features Settings Dialog */}
+      {showBetaSettings && (
+        <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50">
+          <div className="bg-white rounded-lg shadow-xl w-[320px] p-4">
+            <div className="flex justify-between items-center mb-3">
+              <h2 className="font-semibold text-sm">Beta 功能</h2>
+              <button onClick={() => setShowBetaSettings(false)} className="text-gray-400 hover:text-gray-600 text-lg">×</button>
+            </div>
+            <p className="text-[10px] text-gray-400 mb-3">实验性功能，可能不稳定。开启后在菜单栏中显示对应按钮。</p>
+            <div className="flex flex-col gap-2 text-xs">
+              {Object.entries(betaFeatures).map(([key, value]) => (
+                <label key={key} className="flex items-center gap-2 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={value}
+                    onChange={(e) => setBetaFeature(key, e.target.checked)}
+                    className="w-3 h-3"
+                  />
+                  <span className="text-gray-600">{
+                    key === "blueprintImport" ? "图纸导入（从导出的图纸还原画布）" :
+                    key
+                  }</span>
+                </label>
+              ))}
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
