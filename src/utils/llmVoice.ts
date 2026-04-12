@@ -17,8 +17,9 @@ export interface LLMCommandResult {
   debug?: string;  // raw LLM response for debugging
 }
 
-const GITHUB_MODELS_ENDPOINT = "https://models.inference.ai.azure.com/chat/completions";
-const MODEL = "gpt-4o-mini";
+// GitHub Models API config (used via Rust invoke)
+// Endpoint: https://models.inference.ai.azure.com/chat/completions
+// Model: gpt-4o-mini
 
 const SYSTEM_PROMPT = `You are a voice command parser for a pixel bead art editor.
 The user speaks Chinese or English voice commands to control grid navigation.
@@ -65,7 +66,8 @@ Always respond with valid JSON only.`;
 
 let _token: string | null = null;
 
-const GITHUB_CLIENT_ID = "Ov23libthPsNlBTIBZHs";
+// Client ID used in GitHub Device Flow (handled in CanvasToolbar)
+// const GITHUB_CLIENT_ID = "Ov23libthPsNlBTIBZHs";
 
 export function setGitHubToken(token: string) {
   _token = token;

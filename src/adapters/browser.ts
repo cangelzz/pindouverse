@@ -56,18 +56,6 @@ function idbPut(store: string, key: string, value: unknown): Promise<void> {
   );
 }
 
-function idbDelete(store: string, key: string): Promise<void> {
-  return openDB().then(
-    (db) =>
-      new Promise((resolve, reject) => {
-        const tx = db.transaction(store, "readwrite");
-        tx.objectStore(store).delete(key);
-        tx.oncomplete = () => resolve();
-        tx.onerror = () => reject(tx.error);
-      })
-  );
-}
-
 function idbAllKeys(store: string): Promise<string[]> {
   return openDB().then(
     (db) =>
@@ -165,7 +153,7 @@ export class BrowserAdapter implements PlatformAdapter {
   private _pendingFile: File | null = null;
   private _pendingImageEl: HTMLImageElement | null = null;
 
-  async showSaveDialog(filters: FileFilter[], defaultPath?: string): Promise<string | null> {
+  async showSaveDialog(_filters: FileFilter[], defaultPath?: string): Promise<string | null> {
     // In browser we don't pick a path; return the suggested filename
     const name = defaultPath?.split(/[/\\]/).pop() ?? "download";
     return name;
@@ -224,7 +212,7 @@ export class BrowserAdapter implements PlatformAdapter {
 
   // ─── Image import (Canvas API) ───
 
-  async previewImage(path: string): Promise<ImagePreview> {
+  async previewImage(_path: string): Promise<ImagePreview> {
     if (!this._pendingFile) throw new Error("No file selected");
     const img = await loadImageFromFile(this._pendingFile);
     this._pendingImageEl = img;

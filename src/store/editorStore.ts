@@ -235,6 +235,9 @@ export const useEditorStore = create<EditorState>((set, get) => ({
   voiceControlEnabled: false,
   aiVoiceEnabled: false,
 
+  beadLayerVisible: true,
+  beadLayerOpacity: 1,
+
   currentTool: "pen",
   selectedColorIndex: 0,
   highlightColorIndex: null,

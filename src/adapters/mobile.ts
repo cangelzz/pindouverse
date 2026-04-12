@@ -16,7 +16,7 @@ export class MobileAdapter extends TauriAdapter {
    * On mobile, "Save" dialog is replaced by saving to app-local storage
    * and returning a generated path. The user shares/exports via share sheet.
    */
-  async showSaveDialog(filters: FileFilter[], defaultPath?: string): Promise<string | null> {
+  async showSaveDialog(_filters: FileFilter[], defaultPath?: string): Promise<string | null> {
     // Generate a path in app-local documents directory
     const dir = await invoke<string>("get_mobile_documents_dir");
     const filename = defaultPath?.split(/[/\\]/).pop() ?? "untitled";

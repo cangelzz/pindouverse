@@ -23,7 +23,6 @@ export function PixelCanvas() {
   const currentTool = useEditorStore((s) => s.currentTool);
   const selectedColorIndex = useEditorStore((s) => s.selectedColorIndex);
   const setCell = useEditorStore((s) => s.setCell);
-  const setZoom = useEditorStore((s) => s.setZoom);
   const setOffset = useEditorStore((s) => s.setOffset);
   const setSelectedColor = useEditorStore((s) => s.setSelectedColor);
   const setTool = useEditorStore((s) => s.setTool);

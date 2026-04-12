@@ -110,7 +110,6 @@ export function detectPixelGrid(
 
     // Find the peak gap
     const peakGap = sorted[0].gap;
-    const peakCount = sorted[0].count;
 
     // Cluster: include gaps within ±2 of the peak (accounts for sub-pixel variance)
     let weightedSum = 0;
