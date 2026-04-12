@@ -135,6 +135,7 @@ fn match_color(r: u8, g: u8, b: u8, palette: &[PaletteColor]) -> (String, f64) {
 // ─── Template-based OCR ──────────────────────────────────────────
 
 /// Render a text string into a small grayscale bitmap for template matching.
+#[allow(dead_code)]
 fn render_template(code: &str, cell_size: u32) -> Vec<u8> {
     let font_data = include_bytes!("../../fonts/NotoSansMono-Regular.ttf");
     let font = FontRef::try_from_slice(font_data).unwrap();
@@ -155,6 +156,7 @@ fn render_template(code: &str, cell_size: u32) -> Vec<u8> {
 }
 
 /// Build template cache for all known color codes at a given cell size.
+#[allow(dead_code)]
 fn build_templates(codes: &[String], cell_size: u32) -> Vec<(String, Vec<u8>)> {
     codes.iter().map(|code| {
         (code.clone(), render_template(code, cell_size))
@@ -229,6 +231,7 @@ fn extract_cell_gray(img: &RgbaImage, x0: u32, y0: u32, cell_size: u32) -> Vec<u
 }
 
 /// Match a cell image against all templates, return best code and confidence.
+#[allow(dead_code)]
 fn ocr_cell(cell_gray: &[u8], templates: &[(String, Vec<u8>)], size: usize) -> (String, f64) {
     let mut best_code = String::new();
     let mut best_score = 0.0;
@@ -436,7 +439,7 @@ pub fn import_blueprint(request: BlueprintImportRequest) -> Result<BlueprintImpo
     };
 
     let mut text_cells: Vec<Vec<String>> = Vec::new();
-    let mut ocr_count = 0u32;
+    let mut _ocr_count = 0u32;
     for row in 0..grid_h {
         let mut row_text: Vec<String> = Vec::new();
         for col in 0..grid_w {
@@ -452,7 +455,7 @@ pub fn import_blueprint(request: BlueprintImportRequest) -> Result<BlueprintImpo
                 continue;
             }
 
-            ocr_count += 1;
+            _ocr_count += 1;
             let x0 = margin + col * cell_size;
             let y0 = margin + row * cell_size;
             let cell_gray = extract_cell_gray(&img, x0, y0, cell_size);
