@@ -45,44 +45,52 @@ pub struct BlueprintImportResult {
 }
 
 /// Detect the grid cell size by scanning for regular vertical grid lines.
-/// Look for columns of pixels where luminance changes sharply (grid line vs cell fill).
+/// Uses edge detection: finds columns where luminance changes sharply from neighbors.
 fn detect_cell_size(img: &image::RgbaImage) -> Option<u32> {
     let (w, h) = img.dimensions();
-    let sample_row = h / 2; // sample from middle row
+    let sample_row = h / 2;
 
-    // Collect column positions where dark pixels appear (potential grid lines)
-    let mut dark_cols: Vec<u32> = Vec::new();
-    for x in 0..w {
+    // Compute luminance for each pixel in the sample row
+    let lums: Vec<f64> = (0..w).map(|x| {
         let p = img.get_pixel(x, sample_row);
-        let lum = 0.299 * p[0] as f64 + 0.587 * p[1] as f64 + 0.114 * p[2] as f64;
-        if lum < 140.0 {
-            // Check if this is a vertical line (several consecutive dark pixels vertically)
-            let mut vert_count = 0;
-            for dy in 0..10.min(h - sample_row) {
-                let vp = img.get_pixel(x, sample_row + dy);
+        0.299 * p[0] as f64 + 0.587 * p[1] as f64 + 0.114 * p[2] as f64
+    }).collect();
+
+    // Find grid line columns: a grid line pixel is significantly darker than
+    // at least one neighbor (cell fill → line transition)
+    let mut line_cols: Vec<u32> = Vec::new();
+    for x in 1..(w - 1) as usize {
+        let l = lums[x];
+        let left = lums[x - 1];
+        let right = lums[x + 1];
+        // This pixel is a grid line if it's darker than at least one neighbor by >= 15
+        if (left - l > 15.0) || (right - l > 15.0) {
+            // Verify vertical consistency (at least 3 consecutive dark rows)
+            let mut vert_ok = true;
+            for dy in 1..4.min(h - sample_row) {
+                let vp = img.get_pixel(x as u32, sample_row + dy);
                 let vl = 0.299 * vp[0] as f64 + 0.587 * vp[1] as f64 + 0.114 * vp[2] as f64;
-                if vl < 140.0 { vert_count += 1; }
+                if (left - vl).abs() < 10.0 { vert_ok = false; break; }
             }
-            if vert_count >= 5 {
-                dark_cols.push(x);
+            if vert_ok {
+                line_cols.push(x as u32);
             }
         }
     }
 
-    if dark_cols.len() < 3 { return None; }
+    if line_cols.len() < 3 { return None; }
 
-    // Find gaps between consecutive dark columns (these are cell widths)
+    // Find gaps between consecutive line columns (these are cell widths)
     let mut gaps: Vec<u32> = Vec::new();
     let mut i = 0;
-    while i < dark_cols.len() {
-        // Skip consecutive dark pixels (grid line width)
-        let _start = dark_cols[i];
-        while i + 1 < dark_cols.len() && dark_cols[i + 1] == dark_cols[i] + 1 {
+    while i < line_cols.len() {
+        // Skip consecutive line pixels (grid line width)
+        while i + 1 < line_cols.len() && line_cols[i + 1] <= line_cols[i] + 2 {
             i += 1;
         }
-        let end = dark_cols[i];
-        if i + 1 < dark_cols.len() {
-            let next_start = dark_cols[i + 1];
+        let end = line_cols[i];
+        if i + 1 < line_cols.len() {
+            let next_start = line_cols[i + 1];
             let gap = next_start - end;
             if gap > 5 { // minimum reasonable cell size
                 gaps.push(gap);
