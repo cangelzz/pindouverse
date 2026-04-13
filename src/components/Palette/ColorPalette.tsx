@@ -257,7 +257,7 @@ export function ColorPalette() {
               {highlightColorIndex === selectedColorIndex ? "取消高亮" : "高亮"}
             </button>
             <button
-              onClick={() => { setShowReplace(!showReplace); setReplaceTargetIndex(null); }}
+              onClick={() => { setShowReplace(!showReplace); setReplaceTargetIndex(null); if (showReplace) setHighlightColor(null); }}
               className={`flex-1 px-1 py-0.5 rounded text-[10px] border ${
                 showReplace
                   ? "bg-blue-100 border-blue-400 text-blue-700"
@@ -272,7 +272,7 @@ export function ColorPalette() {
           {showReplace && (
             <div className="mt-1.5 border rounded p-1.5 bg-white">
               <p className="text-[10px] text-gray-500 mb-1">
-                将画布中所有 {MARD_COLORS[selectedColorIndex]?.code} 替换为:
+                将画布中所有 {MARD_COLORS[selectedColorIndex]?.code} ({selectedCount} 颗) ��换为:
               </p>
               <div className="flex flex-wrap gap-0.5 max-h-20 overflow-y-auto">
                 {MARD_COLORS.map((c, i) => {
@@ -280,7 +280,11 @@ export function ColorPalette() {
                   return (
                     <button
                       key={c.code}
-                      onClick={() => setReplaceTargetIndex(i)}
+                      onClick={() => {
+                        setReplaceTargetIndex(i);
+                        // Auto-highlight source color for preview
+                        setHighlightColor(selectedColorIndex);
+                      }}
                       className={`w-5 h-5 rounded-sm border ${
                         replaceTargetIndex === i
                           ? "ring-2 ring-blue-500"
@@ -293,20 +297,43 @@ export function ColorPalette() {
                 })}
               </div>
               {replaceTargetIndex !== null && (
-                <div className="flex items-center gap-1 mt-1">
-                  <span className="text-[10px] text-gray-600">
-                    → {MARD_COLORS[replaceTargetIndex]?.code}
-                  </span>
-                  <button
-                    onClick={() => {
-                      replaceColor(selectedColorIndex, replaceTargetIndex);
-                      setShowReplace(false);
-                      setReplaceTargetIndex(null);
-                    }}
-                    className="px-2 py-0.5 bg-blue-500 text-white text-[10px] rounded hover:bg-blue-600"
-                  >
-                    确认替换
-                  </button>
+                <div className="mt-1.5 p-1.5 bg-gray-50 rounded border">
+                  {/* Preview: before → after */}
+                  <div className="flex items-center gap-2 mb-1.5">
+                    <div className="flex items-center gap-1">
+                      <div className="w-6 h-6 rounded border" style={{ backgroundColor: MARD_COLORS[selectedColorIndex]?.hex }} />
+                      <span className="text-[10px] font-medium">{MARD_COLORS[selectedColorIndex]?.code}</span>
+                    </div>
+                    <span className="text-gray-400 text-xs">→</span>
+                    <div className="flex items-center gap-1">
+                      <div className="w-6 h-6 rounded border" style={{ backgroundColor: MARD_COLORS[replaceTargetIndex]?.hex }} />
+                      <span className="text-[10px] font-medium">{MARD_COLORS[replaceTargetIndex]?.code}</span>
+                    </div>
+                    <span className="text-[10px] text-gray-400 ml-auto">{selectedCount} 颗</span>
+                  </div>
+                  <p className="text-[9px] text-gray-400 mb-1">画布中已高亮显示将被替换的格子</p>
+                  <div className="flex gap-1">
+                    <button
+                      onClick={() => {
+                        replaceColor(selectedColorIndex, replaceTargetIndex);
+                        setShowReplace(false);
+                        setReplaceTargetIndex(null);
+                        setHighlightColor(null);
+                      }}
+                      className="flex-1 px-2 py-1 bg-blue-500 text-white text-[10px] rounded hover:bg-blue-600"
+                    >
+                      确认替换
+                    </button>
+                    <button
+                      onClick={() => {
+                        setReplaceTargetIndex(null);
+                        setHighlightColor(null);
+                      }}
+                      className="px-2 py-1 text-[10px] rounded border hover:bg-gray-100"
+                    >
+                      取消
+                    </button>
+                  </div>
                 </div>
               )}
             </div>
