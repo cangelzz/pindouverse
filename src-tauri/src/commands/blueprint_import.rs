@@ -1,15 +1,20 @@
 use serde::{Deserialize, Serialize};
-use image::{Rgba, RgbaImage};
+use image::{RgbaImage};
 use image::ImageReader;
-use imageproc::drawing::draw_text_mut;
-use ab_glyph::{FontRef, PxScale};
-use std::collections::HashMap;
-use std::sync::Mutex;
-use once_cell::sync::Lazy;
+use rayon::prelude::*;
 
-/// Cache: cell_size -> (code -> grayscale template)
-static TEMPLATE_CACHE: Lazy<Mutex<HashMap<u32, HashMap<String, Vec<u8>>>>> =
-    Lazy::new(|| Mutex::new(HashMap::new()));
+// ─── Request / Response types ───────────────────────────────────
+
+#[derive(Deserialize, Clone, Copy, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum ImportMode {
+    ColorPriority,
+    TextPriority,
+}
+
+impl Default for ImportMode {
+    fn default() -> Self { ImportMode::ColorPriority }
+}
 
 #[derive(Deserialize)]
 pub struct BlueprintImportRequest {
@@ -18,6 +23,8 @@ pub struct BlueprintImportRequest {
     /// Optional: if user knows the grid dimensions, provide them for accurate import
     pub grid_width: Option<u32>,
     pub grid_height: Option<u32>,
+    /// Import mode (reserved for future use)
+    pub mode: Option<ImportMode>,
 }
 
 #[derive(Deserialize, Clone)]
@@ -28,27 +35,133 @@ pub struct PaletteColor {
     pub b: u8,
 }
 
+#[derive(Serialize, Clone)]
+#[serde(rename_all = "snake_case")]
+pub enum CellSource {
+    Color,
+    Text,
+    ColorFallback,
+}
+
+#[derive(Serialize, Clone)]
+pub struct CellResult {
+    pub color_code: String,
+    pub color_confidence: f64,
+    pub text_code: String,
+    pub text_confidence: f64,
+    pub final_code: String,
+    pub source: CellSource,
+}
+
+#[derive(Serialize, Clone)]
+#[serde(rename_all = "snake_case")]
+pub enum MismatchSeverity {
+    Low,
+    Medium,
+    High,
+}
+
+#[derive(Serialize, Clone)]
+#[serde(rename_all = "snake_case")]
+pub enum MismatchRecommendation {
+    TrustColor,
+    TrustText,
+    ManualReview,
+}
+
+#[derive(Serialize, Clone)]
+pub struct Mismatch {
+    pub row: u32,
+    pub col: u32,
+    pub color_code: String,
+    pub color_confidence: f64,
+    pub text_code: String,
+    pub text_confidence: f64,
+    pub severity: MismatchSeverity,
+    pub recommendation: MismatchRecommendation,
+}
+
+#[derive(Serialize, Clone)]
+pub struct SeveritySummary {
+    pub high: u32,
+    pub medium: u32,
+    pub low: u32,
+}
+
 #[derive(Serialize)]
 pub struct BlueprintImportResult {
     pub width: u32,
     pub height: u32,
-    /// Color-matched codes (from pixel sampling)
+    pub cells: Vec<Vec<CellResult>>,
     pub color_cells: Vec<Vec<String>>,
-    /// Text-matched codes (from template OCR)
     pub text_cells: Vec<Vec<String>>,
-    /// Final merged cells (color_cells by default)
-    pub cells: Vec<Vec<String>>,
-    /// Number of cells where color and text disagree
     pub mismatch_count: u32,
-    /// List of mismatch positions: [row, col, color_code, text_code]
-    pub mismatches: Vec<(u32, u32, String, String)>,
+    pub mismatches: Vec<Mismatch>,
+    pub severity_summary: SeveritySummary,
     pub cell_size_detected: u32,
     pub confidence: f64,
+    pub mode: ImportMode,
 }
 
-/// Detect the grid cell size by brute-force trying candidate sizes.
-/// For each candidate cs, assumes margin=cs, checks grid line existence at expected positions.
-fn detect_cell_size(img: &image::RgbaImage) -> Option<u32> {
+impl Serialize for ImportMode {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where S: serde::Serializer {
+        match self {
+            ImportMode::ColorPriority => serializer.serialize_str("color_priority"),
+            ImportMode::TextPriority => serializer.serialize_str("text_priority"),
+        }
+    }
+}
+
+// ─── Image format detection ─────────────────────────────────────
+
+#[derive(Clone, Copy, PartialEq)]
+enum ImageFormat {
+    Png,
+    Jpeg,
+    Other,
+}
+
+fn detect_format(path: &str) -> ImageFormat {
+    match path.rsplit('.').next().map(|s| s.to_lowercase()).as_deref() {
+        Some("jpg") | Some("jpeg") => ImageFormat::Jpeg,
+        Some("png") => ImageFormat::Png,
+        _ => ImageFormat::Other,
+    }
+}
+
+/// Sampling configuration that adapts to image format
+struct SamplingConfig {
+    inset_ratio: f64,
+    extra_samples: u32,
+    grid_lum_threshold: f64,
+}
+
+impl SamplingConfig {
+    fn for_format(format: ImageFormat) -> Self {
+        match format {
+            ImageFormat::Png => SamplingConfig {
+                inset_ratio: 0.2,
+                extra_samples: 0,
+                grid_lum_threshold: 230.0,
+            },
+            ImageFormat::Jpeg => SamplingConfig {
+                inset_ratio: 0.25,
+                extra_samples: 8,
+                grid_lum_threshold: 210.0,
+            },
+            ImageFormat::Other => SamplingConfig {
+                inset_ratio: 0.2,
+                extra_samples: 4,
+                grid_lum_threshold: 220.0,
+            },
+        }
+    }
+}
+
+// ─── Grid detection ─────────────────────────────────────────────
+
+fn detect_cell_size(img: &RgbaImage, lum_threshold: f64) -> Option<u32> {
     let (w, h) = img.dimensions();
     let mut best_cs = 0u32;
     let mut best_score = 0u32;
@@ -58,20 +171,15 @@ fn detect_cell_size(img: &image::RgbaImage) -> Option<u32> {
         if margin + cs * 3 >= w || margin + cs * 3 >= h { continue; }
 
         let mut score = 0u32;
-
-        // Check horizontal grid lines at y = margin + row * cs
         for row in 0..5 {
             let y = margin + row * cs;
             if y >= h { break; }
-            // Sample middle of the line
             let x = margin + cs / 2;
             if x >= w { continue; }
             let p = img.get_pixel(x, y);
             let lum = 0.299 * p[0] as f64 + 0.587 * p[1] as f64 + 0.114 * p[2] as f64;
-            if lum < 230.0 { score += 1; } // 230 for JPEG tolerance
+            if lum < lum_threshold { score += 1; }
         }
-
-        // Check vertical grid lines at x = margin + col * cs
         for col in 0..5 {
             let x = margin + col * cs;
             if x >= w { break; }
@@ -79,24 +187,17 @@ fn detect_cell_size(img: &image::RgbaImage) -> Option<u32> {
             if y >= h { continue; }
             let p = img.get_pixel(x, y);
             let lum = 0.299 * p[0] as f64 + 0.587 * p[1] as f64 + 0.114 * p[2] as f64;
-            if lum < 230.0 { score += 1; }
+            if lum < lum_threshold { score += 1; }
         }
 
-        if score > best_score {
-            best_score = score;
-            best_cs = cs;
-        }
+        if score > best_score { best_score = score; best_cs = cs; }
     }
 
     if best_cs > 0 && best_score >= 6 { Some(best_cs) } else { None }
 }
 
-/// Find the margin (axis area) by detecting where the grid starts.
-fn detect_margin(img: &image::RgbaImage, cell_size: u32) -> u32 {
+fn detect_margin(img: &RgbaImage, cell_size: u32) -> u32 {
     let (w, _h) = img.dimensions();
-    // Scan top-left area for the first major grid line
-    // The margin = cell_size (axis numbers area)
-    // Verify by checking for a grid line at x=cell_size
     let test_margin = cell_size;
     if test_margin < w {
         let p = img.get_pixel(test_margin, test_margin);
@@ -106,111 +207,114 @@ fn detect_margin(img: &image::RgbaImage, cell_size: u32) -> u32 {
     cell_size
 }
 
-/// Match an RGB color to the closest palette color by exact or near match.
+fn detect_grid_height(img: &RgbaImage, margin: u32, cell_size: u32, grid_w: u32, lum_threshold: f64) -> u32 {
+    let (img_w, img_h) = img.dimensions();
+    let max_possible = (img_h.saturating_sub(margin)) / cell_size;
+    let mut actual_h = 0u32;
+
+    for row_idx in 1..=max_possible {
+        let y = margin + row_idx * cell_size;
+        if y >= img_h { break; }
+
+        let mut dark_count = 0u32;
+        let mut total_count = 0u32;
+        for col_off in 0..grid_w.min(20) {
+            let x = margin + col_off * cell_size + cell_size / 2;
+            if x >= img_w { continue; }
+            let p = img.get_pixel(x, y);
+            let lum = 0.299 * p[0] as f64 + 0.587 * p[1] as f64 + 0.114 * p[2] as f64;
+            total_count += 1;
+            if lum < lum_threshold { dark_count += 1; }
+        }
+
+        if total_count > 0 && dark_count * 2 >= total_count {
+            actual_h = row_idx;
+        } else {
+            break;
+        }
+    }
+
+    if actual_h == 0 { max_possible } else { actual_h }
+}
+
+// ─── CIELAB color distance ──────────────────────────────────────
+
+pub fn rgb_to_lab(r: u8, g: u8, b: u8) -> (f64, f64, f64) {
+    let linearize = |c: u8| -> f64 {
+        let c = c as f64 / 255.0;
+        if c > 0.04045 { ((c + 0.055) / 1.055).powf(2.4) } else { c / 12.92 }
+    };
+    let (rl, gl, bl) = (linearize(r), linearize(g), linearize(b));
+
+    let x = rl * 0.4124564 + gl * 0.3575761 + bl * 0.1804375;
+    let y = rl * 0.2126729 + gl * 0.7151522 + bl * 0.0721750;
+    let z = rl * 0.0193339 + gl * 0.1191920 + bl * 0.9503041;
+
+    let f = |t: f64| -> f64 { if t > 0.008856 { t.cbrt() } else { 7.787 * t + 16.0 / 116.0 } };
+    let (fx, fy, fz) = (f(x / 0.95047), f(y / 1.00000), f(z / 1.08883));
+
+    (116.0 * fy - 16.0, 500.0 * (fx - fy), 200.0 * (fy - fz))
+}
+
+pub fn delta_e76(r1: u8, g1: u8, b1: u8, r2: u8, g2: u8, b2: u8) -> f64 {
+    let (l1, a1, b1_lab) = rgb_to_lab(r1, g1, b1);
+    let (l2, a2, b2_lab) = rgb_to_lab(r2, g2, b2);
+    ((l1 - l2).powi(2) + (a1 - a2).powi(2) + (b1_lab - b2_lab).powi(2)).sqrt()
+}
+
 fn match_color(r: u8, g: u8, b: u8, palette: &[PaletteColor]) -> (String, f64) {
-    // Try exact match first
     for pc in palette {
         if pc.r == r && pc.g == g && pc.b == b {
             return (pc.code.clone(), 1.0);
         }
     }
-    // Nearest match by Euclidean distance
     let mut best_code = String::new();
     let mut best_dist = f64::MAX;
     for pc in palette {
-        let dr = r as f64 - pc.r as f64;
-        let dg = g as f64 - pc.g as f64;
-        let db = b as f64 - pc.b as f64;
-        let dist = (dr * dr + dg * dg + db * db).sqrt();
-        if dist < best_dist {
-            best_dist = dist;
-            best_code = pc.code.clone();
-        }
+        let dist = delta_e76(r, g, b, pc.r, pc.g, pc.b);
+        if dist < best_dist { best_dist = dist; best_code = pc.code.clone(); }
     }
-    // Confidence based on distance (0 = exact, 442 = max possible)
-    let confidence = 1.0 - (best_dist / 442.0).min(1.0);
+    let confidence = (1.0 - best_dist / 100.0).max(0.0);
     (best_code, confidence)
 }
 
-// ─── Template-based OCR ──────────────────────────────────────────
+// ─── Text presence detection (for white/empty cell distinction) ─
 
-/// Render a text string into a small grayscale bitmap for template matching.
-#[allow(dead_code)]
-fn render_template(code: &str, cell_size: u32) -> Vec<u8> {
-    let font_data = include_bytes!("../../fonts/NotoSansMono-Regular.ttf");
-    let font = FontRef::try_from_slice(font_data).unwrap();
-    let scale = PxScale::from(cell_size as f32 * 0.3);
+fn binarize(gray: &[u8]) -> Vec<u8> {
+    if gray.is_empty() { return vec![]; }
 
-    let mut img = RgbaImage::new(cell_size, cell_size);
-    // White background
-    for p in img.pixels_mut() { *p = Rgba([255, 255, 255, 255]); }
-    // Draw black text
-    let tx = (cell_size as i32) / 6;
-    let ty = (cell_size as i32) / 3;
-    draw_text_mut(&mut img, Rgba([0, 0, 0, 255]), tx, ty, scale, &font, code);
+    let mut hist = [0u32; 256];
+    for &v in gray { hist[v as usize] += 1; }
 
-    // Convert to grayscale bitmap (0-255)
-    img.pixels().map(|p| {
-        (0.299 * p[0] as f64 + 0.587 * p[1] as f64 + 0.114 * p[2] as f64) as u8
-    }).collect()
-}
+    let total = gray.len() as f64;
+    let mut sum_total = 0.0;
+    for i in 0..256 { sum_total += i as f64 * hist[i] as f64; }
 
-/// Build template cache for all known color codes at a given cell size.
-#[allow(dead_code)]
-fn build_templates(codes: &[String], cell_size: u32) -> Vec<(String, Vec<u8>)> {
-    codes.iter().map(|code| {
-        (code.clone(), render_template(code, cell_size))
-    }).collect()
-}
+    let mut sum_bg = 0.0;
+    let mut weight_bg = 0.0;
+    let mut best_thresh = 128u8;
+    let mut best_variance = 0.0;
 
-/// Compare a cell region from the image against a template using normalized cross-correlation.
-/// Returns similarity score 0.0-1.0.
-fn template_similarity(cell_gray: &[u8], template: &[u8], size: usize) -> f64 {
-    if cell_gray.len() != template.len() || cell_gray.is_empty() {
-        return 0.0;
+    for t in 0..256 {
+        weight_bg += hist[t] as f64;
+        if weight_bg == 0.0 { continue; }
+        let weight_fg = total - weight_bg;
+        if weight_fg == 0.0 { break; }
+
+        sum_bg += t as f64 * hist[t] as f64;
+        let mean_bg = sum_bg / weight_bg;
+        let mean_fg = (sum_total - sum_bg) / weight_fg;
+
+        let variance = weight_bg * weight_fg * (mean_bg - mean_fg).powi(2);
+        if variance > best_variance { best_variance = variance; best_thresh = t as u8; }
     }
 
-    // Only compare the text region (middle portion of the cell)
-    let w = (size as f64).sqrt() as usize;
-    if w == 0 { return 0.0; }
-
-    let mut sum_diff = 0.0;
-    let mut count = 0.0;
-
-    for (i, (&c, &t)) in cell_gray.iter().zip(template.iter()).enumerate() {
-        let row = i / w;
-        let col = i % w;
-        // Focus on the center area where text lives (skip edges where color fill is)
-        if row > w / 5 && row < w * 4 / 5 && col > w / 8 && col < w * 7 / 8 {
-            let diff = (c as f64 - t as f64).abs();
-            sum_diff += diff;
-            count += 1.0;
-        }
-    }
-
-    if count == 0.0 { return 0.0; }
-    let avg_diff = sum_diff / count;
-    // Convert to similarity (0 = same, 255 = opposite)
-    1.0 - (avg_diff / 255.0).min(1.0)
+    gray.iter().map(|&v| if v <= best_thresh { 0 } else { 255 }).collect()
 }
 
-/// Extract a cell region as grayscale, normalizing text to black-on-white.
-fn extract_cell_gray(img: &RgbaImage, x0: u32, y0: u32, cell_size: u32) -> Vec<u8> {
+fn extract_cell_binary(img: &RgbaImage, x0: u32, y0: u32, cell_size: u32) -> Vec<u8> {
     let (img_w, img_h) = img.dimensions();
-    let mut pixels = Vec::with_capacity((cell_size * cell_size) as usize);
-
-    // Sample background color from corners to determine text polarity
-    let corners = [(x0 + 2, y0 + 2), (x0 + cell_size - 3, y0 + 2)];
-    let mut bg_lum = 0.0;
-    let mut bg_count = 0;
-    for &(cx, cy) in &corners {
-        if cx < img_w && cy < img_h {
-            let p = img.get_pixel(cx, cy);
-            bg_lum += 0.299 * p[0] as f64 + 0.587 * p[1] as f64 + 0.114 * p[2] as f64;
-            bg_count += 1;
-        }
-    }
-    let is_dark_bg = bg_count > 0 && (bg_lum / bg_count as f64) < 128.0;
+    let mut gray = Vec::with_capacity((cell_size * cell_size) as usize);
 
     for dy in 0..cell_size {
         for dx in 0..cell_size {
@@ -218,96 +322,147 @@ fn extract_cell_gray(img: &RgbaImage, x0: u32, y0: u32, cell_size: u32) -> Vec<u
             let py = y0 + dy;
             if px < img_w && py < img_h {
                 let p = img.get_pixel(px, py);
-                let mut lum = 0.299 * p[0] as f64 + 0.587 * p[1] as f64 + 0.114 * p[2] as f64;
-                // Normalize: text should be dark on light
-                if is_dark_bg { lum = 255.0 - lum; }
-                pixels.push(lum as u8);
+                gray.push((0.299 * p[0] as f64 + 0.587 * p[1] as f64 + 0.114 * p[2] as f64) as u8);
             } else {
-                pixels.push(255); // white for out-of-bounds
+                gray.push(255);
             }
         }
     }
-    pixels
-}
 
-/// Match a cell image against all templates, return best code and confidence.
-#[allow(dead_code)]
-fn ocr_cell(cell_gray: &[u8], templates: &[(String, Vec<u8>)], size: usize) -> (String, f64) {
-    let mut best_code = String::new();
-    let mut best_score = 0.0;
+    let mut binary = binarize(&gray);
 
-    for (code, tmpl) in templates {
-        let score = template_similarity(cell_gray, tmpl, size);
-        if score > best_score {
-            best_score = score;
-            best_code = code.clone();
+    // Normalize polarity: edges should be background (255)
+    let w = cell_size as usize;
+    let edge_inset = w / 5;
+    let mut edge_sum = 0u64;
+    let mut edge_count = 0u64;
+
+    for (i, &v) in binary.iter().enumerate() {
+        let row = i / w;
+        let col = i % w;
+        if row < edge_inset || row >= w - edge_inset || col < edge_inset || col >= w - edge_inset {
+            edge_sum += v as u64;
+            edge_count += 1;
         }
     }
 
-    (best_code, best_score)
+    if edge_count > 0 && (edge_sum as f64 / edge_count as f64) < 128.0 {
+        for v in binary.iter_mut() { *v = 255 - *v; }
+    }
+
+    binary
 }
+
+fn cell_has_text(cell_bin: &[u8], cell_size: u32) -> bool {
+    let w = cell_size as usize;
+    if cell_bin.is_empty() { return false; }
+
+    let mut text_pixels = 0u32;
+    let mut region_pixels = 0u32;
+
+    for (i, &v) in cell_bin.iter().enumerate() {
+        let row = i / w;
+        let col = i % w;
+        if row > w / 4 && row < w * 3 / 4 && col > w / 6 && col < w * 5 / 6 {
+            region_pixels += 1;
+            if v == 0 { text_pixels += 1; }
+        }
+    }
+
+    if region_pixels == 0 { return false; }
+    let text_ratio = text_pixels as f64 / region_pixels as f64;
+    text_ratio > 0.03 && text_ratio < 0.50
+}
+
+// ─── Cell sampling ──────────────────────────────────────────────
+
+fn sample_cell_color(
+    img: &RgbaImage, x0: u32, y0: u32, cell_size: u32, config: &SamplingConfig,
+) -> Option<(u8, u8, u8)> {
+    let (img_w, img_h) = img.dimensions();
+    let inset = (cell_size as f64 * config.inset_ratio).max(2.0) as u32;
+
+    let mut offsets: Vec<(u32, u32)> = vec![
+        (inset, inset), (cell_size - inset, inset),
+        (inset, cell_size - inset), (cell_size - inset, cell_size - inset),
+        (cell_size / 2, inset), (cell_size / 2, cell_size - inset),
+        (inset, cell_size / 2), (cell_size - inset, cell_size / 2),
+    ];
+
+    if config.extra_samples > 0 {
+        let inner = cell_size - 2 * inset;
+        if inner > 4 {
+            let step = inner / ((config.extra_samples as f64).sqrt().ceil() as u32 + 1);
+            if step > 0 {
+                let mut dx = inset + step;
+                while dx < cell_size - inset {
+                    let mut dy = inset + step;
+                    while dy < cell_size - inset { offsets.push((dx, dy)); dy += step; }
+                    dx += step;
+                }
+            }
+        }
+    }
+
+    let mut samples: Vec<(u8, u8, u8)> = Vec::new();
+    for &(dx, dy) in &offsets {
+        let sx = x0 + dx;
+        let sy = y0 + dy;
+        if sx < img_w && sy < img_h {
+            let p = img.get_pixel(sx, sy);
+            samples.push((p[0], p[1], p[2]));
+        }
+    }
+
+    if samples.is_empty() { return None; }
+
+    let filtered: Vec<(u8, u8, u8)> = samples.iter()
+        .filter(|&&(r, g, b)| {
+            let lum = 0.299 * r as f64 + 0.587 * g as f64 + 0.114 * b as f64;
+            let is_text = lum < 15.0 && r < 20 && g < 20 && b < 20;
+            let is_white = lum > 245.0;
+            !is_text && !is_white
+        })
+        .copied()
+        .collect();
+
+    let final_samples = if filtered.len() >= 2 { &filtered } else { &samples };
+
+    let mut rs: Vec<u8> = final_samples.iter().map(|s| s.0).collect();
+    let mut gs: Vec<u8> = final_samples.iter().map(|s| s.1).collect();
+    let mut bs: Vec<u8> = final_samples.iter().map(|s| s.2).collect();
+    rs.sort(); gs.sort(); bs.sort();
+
+    Some((rs[rs.len() / 2], gs[gs.len() / 2], bs[bs.len() / 2]))
+}
+
+// ─── Main import function ───────────────────────────────────────
 
 #[tauri::command]
 pub fn import_blueprint(request: BlueprintImportRequest) -> Result<BlueprintImportResult, String> {
+    let mode = request.mode.unwrap_or_default();
+    let format = detect_format(&request.path);
+    let config = SamplingConfig::for_format(format);
+
     let img = ImageReader::open(&request.path)
         .map_err(|e| format!("Failed to open image: {}", e))?
         .decode()
         .map_err(|e| format!("Failed to decode image: {}", e))?
         .to_rgba8();
 
-    let (img_w, img_h) = img.dimensions();
+    let (img_w, _img_h) = img.dimensions();
 
-    // If user provided dimensions, use cell_size detection but trust user's w/h
+    // Step 1-3: Detect grid structure
     let (cell_size, margin, grid_w, grid_h) = if let (Some(gw), Some(gh)) = (request.grid_width, request.grid_height) {
-        // Still detect cell_size from grid lines (robust)
-        // But use user's grid dimensions directly (avoids height detection issues)
-        let cs = detect_cell_size(&img)
-            .unwrap_or_else(|| {
-                // Fallback: estimate from image width
-                img_w / (gw + 1)
-            });
-        let m = cs;
-        (cs, m, gw, gh)
+        let cs = detect_cell_size(&img, config.grid_lum_threshold)
+            .unwrap_or_else(|| img_w / (gw + 1));
+        (cs, cs, gw, gh)
     } else {
-        // Auto-detect
-        let cs = detect_cell_size(&img)
+        let cs = detect_cell_size(&img, config.grid_lum_threshold)
             .ok_or("Could not detect grid structure. Is this a blueprint image?")?;
         let m = detect_margin(&img, cs);
         let w = (img_w.saturating_sub(m)) / cs;
-
-        // Height detection with tolerance for JPEG
-        let h = {
-            let max_possible = (img_h.saturating_sub(m)) / cs;
-            let mut actual_h = 0u32;
-
-        for row_idx in 1..=max_possible {
-            let y = m + row_idx * cs;
-            if y >= img_h { break; }
-
-            let mut dark_count = 0u32;
-            let mut total_count = 0u32;
-            for col_off in 0..w.min(20) {
-                let x = m + col_off * cs + cs / 2;
-                if x >= img_w { continue; }
-                let p = img.get_pixel(x, y);
-                let lum = 0.299 * p[0] as f64 + 0.587 * p[1] as f64 + 0.114 * p[2] as f64;
-                total_count += 1;
-                if lum < 230.0 { dark_count += 1; } // 230 tolerant for JPEG blur
-            }
-
-            // If most samples show a grid line, this row boundary exists
-            if total_count > 0 && dark_count * 2 >= total_count {
-                actual_h = row_idx;
-            } else {
-                // No grid line found = grid ended
-                break;
-            }
-        }
-
-        // Fallback: if no lines detected, check from content
-        if actual_h == 0 { actual_h = max_possible; }
-            actual_h
-        };
+        let h = detect_grid_height(&img, m, cs, w, config.grid_lum_threshold);
         (cs, m, w, h)
     };
 
@@ -315,207 +470,106 @@ pub fn import_blueprint(request: BlueprintImportRequest) -> Result<BlueprintImpo
         return Err("Detected grid is too small".to_string());
     }
 
-    // Step 4: Sample corners of each cell (avoid center text) and match to palette
-    let mut color_cells: Vec<Vec<String>> = Vec::new();
-    let mut color_confidences: Vec<Vec<f64>> = Vec::new();
+    // Step 4: Color sampling for all cells
+    let mut color_results: Vec<Vec<(String, f64)>> = Vec::new();
     let mut total_confidence = 0.0;
     let mut cell_count = 0u32;
 
-    // Sample offsets: 4 corners + 4 edge midpoints, all inset from grid lines
-    let inset = (cell_size / 5).max(2);
-    let sample_offsets: Vec<(u32, u32)> = vec![
-        (inset, inset),                             // top-left
-        (cell_size - inset, inset),                 // top-right
-        (inset, cell_size - inset),                 // bottom-left
-        (cell_size - inset, cell_size - inset),     // bottom-right
-        (cell_size / 2, inset),                     // top-center
-        (cell_size / 2, cell_size - inset),         // bottom-center
-        (inset, cell_size / 2),                     // left-center
-        (cell_size - inset, cell_size / 2),         // right-center
-    ];
-
     for row in 0..grid_h {
-        let mut row_cells: Vec<String> = Vec::new();
-        let mut row_conf: Vec<f64> = Vec::new();
+        let mut row_results: Vec<(String, f64)> = Vec::new();
         for col in 0..grid_w {
             let x0 = margin + col * cell_size;
             let y0 = margin + row * cell_size;
 
-            // Sample multiple points, collect RGB values
-            let mut samples: Vec<(u8, u8, u8)> = Vec::new();
-            for &(dx, dy) in &sample_offsets {
-                let sx = x0 + dx;
-                let sy = y0 + dy;
-                if sx < img_w && sy < img_h {
-                    let p = img.get_pixel(sx, sy);
-                    samples.push((p[0], p[1], p[2]));
+            match sample_cell_color(&img, x0, y0, cell_size, &config) {
+                Some((r, g, b)) => {
+                    let (code, conf) = match_color(r, g, b, &request.palette);
+                    row_results.push((code, conf));
+                    total_confidence += conf;
+                    cell_count += 1;
+                }
+                None => {
+                    row_results.push((String::new(), 1.0));
                 }
             }
-
-            if samples.is_empty() {
-                row_cells.push(String::new());
-                row_conf.push(1.0);
-                continue;
-            }
-
-            // Filter out very dark pixels (likely text) and very light (grid lines on white)
-            let filtered: Vec<(u8, u8, u8)> = samples.iter()
-                .filter(|&&(r, g, b)| {
-                    let lum = 0.299 * r as f64 + 0.587 * g as f64 + 0.114 * b as f64;
-                    lum > 30.0 && lum < 245.0 // reject black text and white background
-                })
-                .copied()
-                .collect();
-
-            // Use filtered samples if available, otherwise fall back to all samples
-            let final_samples = if filtered.len() >= 2 { &filtered } else { &samples };
-
-            // Take median of each channel (robust against outliers)
-            let mut rs: Vec<u8> = final_samples.iter().map(|s| s.0).collect();
-            let mut gs: Vec<u8> = final_samples.iter().map(|s| s.1).collect();
-            let mut bs: Vec<u8> = final_samples.iter().map(|s| s.2).collect();
-            rs.sort(); gs.sort(); bs.sort();
-            let r = rs[rs.len() / 2];
-            let g = gs[gs.len() / 2];
-            let b = bs[bs.len() / 2];
-
-            // Skip empty cells: pure white or very near white
-            // Use strict threshold: only truly empty cells (exported as 255,255,255)
-            // Distance from pure white must be < 5 to be considered empty
-            let white_dist = ((255.0 - r as f64).powi(2) + (255.0 - g as f64).powi(2) + (255.0 - b as f64).powi(2)).sqrt();
-            if white_dist < 8.0 {
-                row_cells.push(String::new());
-                row_conf.push(1.0);
-                continue;
-            }
-
-            let (code, conf) = match_color(r, g, b, &request.palette);
-            row_cells.push(code);
-            row_conf.push(conf);
-            total_confidence += conf;
-            cell_count += 1;
         }
-        color_cells.push(row_cells);
-        color_confidences.push(row_conf);
+        color_results.push(row_results);
     }
 
-    let avg_confidence = if cell_count > 0 {
-        total_confidence / cell_count as f64
-    } else {
-        1.0
-    };
+    let avg_confidence = if cell_count > 0 { total_confidence / cell_count as f64 } else { 1.0 };
 
-    // Step 5: Template OCR — only for cells with low color confidence
-    let tmpl_size = (cell_size * cell_size) as usize;
+    // Step 5: Detect which cells have text (to distinguish empty vs white/H2)
+    let mut has_text_grid: Vec<Vec<bool>> = vec![vec![false; grid_w as usize]; grid_h as usize];
+    let text_detect_tasks: Vec<(u32, u32, u32, u32)> = (0..grid_h)
+        .flat_map(|row| (0..grid_w).map(move |col| (row, col, margin + col * cell_size, margin + row * cell_size)))
+        .collect();
 
-    // Build a set of valid codes for validation
-    let valid_codes: std::collections::HashSet<String> = request.palette.iter().map(|p| p.code.clone()).collect();
+    let text_detect_results: Vec<(u32, u32, bool)> = text_detect_tasks.par_iter()
+        .map(|&(row, col, x0, y0)| {
+            let cell_bin = extract_cell_binary(&img, x0, y0, cell_size);
+            (row, col, cell_has_text(&cell_bin, cell_size))
+        })
+        .collect();
 
-    // Pre-build all code templates ONCE (cached across calls for same cell_size)
-    let needs_ocr = color_confidences.iter().flatten().any(|&c| c <= 0.95);
-    let code_templates: Vec<(String, Vec<u8>)> = if needs_ocr {
-        let mut cache = TEMPLATE_CACHE.lock().unwrap();
-        let size_cache = cache.entry(cell_size).or_insert_with(|| {
-            let font_data = include_bytes!("../../fonts/NotoSansMono-Regular.ttf");
-            let font = FontRef::try_from_slice(font_data).unwrap();
-            let mut map = HashMap::new();
-            for code in &valid_codes {
-                let scale = PxScale::from(cell_size as f32 * 0.3);
-                let mut img = RgbaImage::new(cell_size, cell_size);
-                for p in img.pixels_mut() { *p = Rgba([255, 255, 255, 255]); }
-                let tx = (cell_size as i32) / 6;
-                let ty = (cell_size as i32) / 3;
-                draw_text_mut(&mut img, Rgba([0, 0, 0, 255]), tx, ty, scale, &font, code);
-                let gray: Vec<u8> = img.pixels().map(|p| {
-                    (0.299 * p[0] as f64 + 0.587 * p[1] as f64 + 0.114 * p[2] as f64) as u8
-                }).collect();
-                map.insert(code.clone(), gray);
-            }
-            map
-        });
-        size_cache.iter().map(|(k, v)| (k.clone(), v.clone())).collect()
-    } else {
-        Vec::new()
-    };
-
-    let mut text_cells: Vec<Vec<String>> = Vec::new();
-    let mut _ocr_count = 0u32;
-    for row in 0..grid_h {
-        let mut row_text: Vec<String> = Vec::new();
-        for col in 0..grid_w {
-            // Skip empty cells
-            if color_cells[row as usize][col as usize].is_empty() {
-                row_text.push(String::new());
-                continue;
-            }
-
-            // Only OCR if color confidence is below threshold
-            if color_confidences[row as usize][col as usize] > 0.95 {
-                row_text.push(color_cells[row as usize][col as usize].clone());
-                continue;
-            }
-
-            _ocr_count += 1;
-            let x0 = margin + col * cell_size;
-            let y0 = margin + row * cell_size;
-            let cell_gray = extract_cell_gray(&img, x0, y0, cell_size);
-
-            let mut best_code = String::new();
-            let mut best_score = 0.0;
-
-            for (code, tmpl) in &code_templates {
-                let score = template_similarity(&cell_gray, tmpl, tmpl_size);
-                if score > best_score {
-                    best_score = score;
-                    best_code = code.clone();
-                }
-            }
-
-            if best_score > 0.7 {
-                row_text.push(best_code);
-            } else {
-                row_text.push(String::new());
-            }
-        }
-        text_cells.push(row_text);
+    for (row, col, has_text) in text_detect_results {
+        has_text_grid[row as usize][col as usize] = has_text;
     }
 
-    // Step 6: Compare color vs text results, detect mismatches
-    let mut mismatches: Vec<(u32, u32, String, String)> = Vec::new();
-    let mut merged_cells: Vec<Vec<String>> = Vec::new();
+    // Step 6: Build results
+    let mut cells: Vec<Vec<CellResult>> = Vec::new();
+    let mut color_cells: Vec<Vec<String>> = Vec::new();
+    let mut text_cells_flat: Vec<Vec<String>> = Vec::new();
 
     for row in 0..grid_h as usize {
-        let mut merged_row: Vec<String> = Vec::new();
-        for col in 0..grid_w as usize {
-            let cc = &color_cells[row][col];
-            let tc = &text_cells[row][col];
+        let mut cell_row: Vec<CellResult> = Vec::new();
+        let mut color_row: Vec<String> = Vec::new();
+        let mut text_row: Vec<String> = Vec::new();
 
-            if cc.is_empty() && tc.is_empty() {
-                merged_row.push(String::new());
-            } else if !cc.is_empty() && !tc.is_empty() && cc != tc {
-                // Mismatch! Default to color match
-                mismatches.push((row as u32, col as u32, cc.clone(), tc.clone()));
-                merged_row.push(cc.clone());
-            } else if !tc.is_empty() {
-                merged_row.push(tc.clone());
+        for col in 0..grid_w as usize {
+            let (ref cc, cc_conf) = color_results[row][col];
+            let has_text = has_text_grid[row][col];
+
+            let is_white_color = if let Some(pc) = request.palette.iter().find(|p| p.code == *cc) {
+                pc.r > 248 && pc.g > 248 && pc.b > 248
             } else {
-                merged_row.push(cc.clone());
+                cc.is_empty()
+            };
+            let is_empty = cc.is_empty() || (is_white_color && !has_text);
+
+            if is_empty {
+                cell_row.push(CellResult {
+                    color_code: String::new(), color_confidence: 1.0,
+                    text_code: String::new(), text_confidence: 0.0,
+                    final_code: String::new(), source: CellSource::Color,
+                });
+                color_row.push(String::new());
+                text_row.push(String::new());
+            } else {
+                cell_row.push(CellResult {
+                    color_code: cc.clone(), color_confidence: cc_conf,
+                    text_code: String::new(), text_confidence: 0.0,
+                    final_code: cc.clone(), source: CellSource::Color,
+                });
+                color_row.push(cc.clone());
+                text_row.push(String::new());
             }
         }
-        merged_cells.push(merged_row);
+        cells.push(cell_row);
+        color_cells.push(color_row);
+        text_cells_flat.push(text_row);
     }
-
-    let mismatch_count = mismatches.len() as u32;
 
     Ok(BlueprintImportResult {
         width: grid_w,
         height: grid_h,
+        cells,
         color_cells,
-        text_cells,
-        cells: merged_cells,
-        mismatch_count,
-        mismatches,
+        text_cells: text_cells_flat,
+        mismatch_count: 0,
+        mismatches: Vec::new(),
+        severity_summary: SeveritySummary { high: 0, medium: 0, low: 0 },
         cell_size_detected: cell_size,
         confidence: avg_confidence,
+        mode,
     })
 }

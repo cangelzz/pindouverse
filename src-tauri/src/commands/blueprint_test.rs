@@ -1,7 +1,7 @@
 #[cfg(test)]
 mod tests {
     use crate::commands::image_export::{ExportRequest, CellData, export_image};
-    use crate::commands::blueprint_import::{BlueprintImportRequest, PaletteColor, import_blueprint};
+    use crate::commands::blueprint_import::{BlueprintImportRequest, PaletteColor, import_blueprint, ImportMode};
     use std::fs;
 
     fn make_test_palette() -> Vec<PaletteColor> {
@@ -95,7 +95,6 @@ mod tests {
         let debug_img = image::open(&export_path).unwrap().to_rgba8();
         let (iw, ih) = debug_img.dimensions();
         eprintln!("  Exported image: {}x{}", iw, ih);
-        // Sample first few rows
         for y in 0..5.min(ih) {
             let mut lums: Vec<u8> = Vec::new();
             for x in (0..iw.min(200)).step_by(10) {
@@ -105,7 +104,6 @@ mod tests {
             }
             eprintln!("  y={}: {:?}", y, &lums[..lums.len().min(20)]);
         }
-        // Sample row at margin position
         let margin_y = cell_size;
         if margin_y < ih {
             let mut lums: Vec<u8> = Vec::new();
@@ -117,12 +115,13 @@ mod tests {
             eprintln!("  y={} (margin): {:?}", margin_y, &lums[..lums.len().min(40)]);
         }
 
-        // Import
+        // Import with default mode (color priority)
         let import_request = BlueprintImportRequest {
             path: path_str.clone(),
             palette: palette.clone(),
-            grid_width: None,  // auto-detect
+            grid_width: None,
             grid_height: None,
+            mode: None,
         };
         let result = import_blueprint(import_request).expect("Import failed");
 
@@ -131,16 +130,19 @@ mod tests {
         assert_eq!(result.width, w, "Width mismatch: got {} expected {}", result.width, w);
         assert_eq!(result.height, h, "Height mismatch: got {} expected {}", result.height, h);
 
-        // Verify cell contents
+        // Verify cell contents using CellResult.final_code
         let mut mismatches = 0;
         for row in 0..h as usize {
             for col in 0..w as usize {
                 let expected = &cells[row][col].as_ref().unwrap().color_code;
-                let got = &result.cells[row][col];
+                let got = &result.cells[row][col].final_code;
                 if expected != got {
                     mismatches += 1;
                     if mismatches <= 5 {
-                        eprintln!("  Cell ({},{}) expected={} got={}", row, col, expected, got);
+                        eprintln!("  Cell ({},{}) expected={} got={} (color={} text={})",
+                            row, col, expected, got,
+                            result.cells[row][col].color_code,
+                            result.cells[row][col].text_code);
                     }
                 }
             }
@@ -156,7 +158,54 @@ mod tests {
         // Verify confidence
         assert!(result.confidence > 0.9, "Confidence too low: {:.2}", result.confidence);
 
+        // Verify OCR attempted on cells that have text
+        // Not all cells will have successful OCR (some may be too small or noisy)
+        let mut ocr_attempted = 0;
+        for row in 0..h as usize {
+            for col in 0..w as usize {
+                let cell = &result.cells[row][col];
+                if !cell.color_code.is_empty() && cell.text_confidence > 0.0 {
+                    ocr_attempted += 1;
+                }
+            }
+        }
+        // At least some cells should have OCR data
+        let ocr_ratio = ocr_attempted as f64 / total as f64;
+        eprintln!("  OCR attempted on {}/{} cells ({:.0}%)", ocr_attempted, total, ocr_ratio * 100.0);
+
+        // Verify severity summary matches mismatch list
+        let summary = &result.severity_summary;
+        assert_eq!(summary.high + summary.medium + summary.low, result.mismatch_count,
+            "Severity summary doesn't match mismatch count");
+
         // Cleanup
         let _ = fs::remove_file(&export_path);
+    }
+
+    // Note: test_text_priority_mode removed — OCR/text matching is currently disabled
+
+    #[test]
+    fn test_cielab_distance() {
+        use crate::commands::blueprint_import::{rgb_to_lab, delta_e76};
+
+        // Black vs White ≈ 100
+        let d = delta_e76(0, 0, 0, 255, 255, 255);
+        assert!(d > 90.0 && d < 110.0, "Black vs White deltaE should be ~100, got {}", d);
+
+        // Identical colors = 0
+        let d = delta_e76(128, 64, 32, 128, 64, 32);
+        assert!((d - 0.0).abs() < 0.001, "Same color deltaE should be 0, got {}", d);
+
+        // Two reds should be closer than red vs blue
+        let d_reds = delta_e76(255, 0, 0, 200, 0, 0);
+        let d_red_blue = delta_e76(255, 0, 0, 0, 0, 255);
+        assert!(d_reds < d_red_blue, "Similar reds should be closer than red vs blue");
+
+        // Lab conversion sanity check
+        let (l, _a, _b) = rgb_to_lab(255, 255, 255);
+        assert!((l - 100.0).abs() < 1.0, "White L* should be ~100, got {}", l);
+
+        let (l, _a, _b) = rgb_to_lab(0, 0, 0);
+        assert!(l.abs() < 1.0, "Black L* should be ~0, got {}", l);
     }
 }

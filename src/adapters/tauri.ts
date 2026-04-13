@@ -1,6 +1,6 @@
 import { invoke } from "@tauri-apps/api/core";
 import { save, open as dialogOpen } from "@tauri-apps/plugin-dialog";
-import type { PlatformAdapter, FileFilter, ImagePreview, PixelData, CropRect, ExportImageRequest, ExportPreviewRequest, SnapshotInfo, PaletteColor, BlueprintImportResult } from "./index";
+import type { PlatformAdapter, FileFilter, ImagePreview, PixelData, CropRect, ExportImageRequest, ExportPreviewRequest, SnapshotInfo, PaletteColor, BlueprintImportResult, ImportMode } from "./index";
 import type { ProjectFile } from "../types";
 
 export class TauriAdapter implements PlatformAdapter {
@@ -54,9 +54,9 @@ export class TauriAdapter implements PlatformAdapter {
     await invoke("export_preview", { request });
   }
 
-  async importBlueprint(path: string, palette: PaletteColor[], gridWidth?: number, gridHeight?: number): Promise<BlueprintImportResult> {
+  async importBlueprint(path: string, palette: PaletteColor[], gridWidth?: number, gridHeight?: number, mode?: ImportMode): Promise<BlueprintImportResult> {
     return await invoke<BlueprintImportResult>("import_blueprint", {
-      request: { path, palette, grid_width: gridWidth ?? null, grid_height: gridHeight ?? null }
+      request: { path, palette, grid_width: gridWidth ?? null, grid_height: gridHeight ?? null, mode: mode ?? "color_priority" }
     });
   }
 }

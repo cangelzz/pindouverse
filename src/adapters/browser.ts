@@ -9,6 +9,7 @@ import type {
   SnapshotInfo,
   PaletteColor,
   BlueprintImportResult,
+  ImportMode,
 } from "./index";
 import type { ProjectFile } from "../types";
 
@@ -384,7 +385,7 @@ export class BrowserAdapter implements PlatformAdapter {
     downloadBlob(blob, filename);
   }
 
-  async importBlueprint(_path: string, _palette: PaletteColor[], _gridWidth?: number, _gridHeight?: number): Promise<BlueprintImportResult> {
+  async importBlueprint(_path: string, _palette: PaletteColor[], _gridWidth?: number, _gridHeight?: number, _mode?: ImportMode): Promise<BlueprintImportResult> {
     throw new Error("Blueprint import not yet supported in browser. Use desktop app.");
   }
 }

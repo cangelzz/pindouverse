@@ -4,9 +4,11 @@ import { CanvasToolbar } from "./components/Canvas/CanvasToolbar";
 import { ColorPalette } from "./components/Palette/ColorPalette";
 import { BeadCounter } from "./components/Stats/BeadCounter";
 import { ImageImportDialog } from "./components/Import/ImageImportDialog";
+import { BlueprintImportDialog } from "./components/Import/BlueprintImportDialog";
 import { ExportDialog } from "./components/Export/ExportDialog";
 import { useEditorStore } from "./store/editorStore";
 import { getAdapter } from "./adapters";
+import type { BlueprintImportResult } from "./adapters";
 import { MARD_COLORS } from "./data/mard221";
 
 /** Extract hex color (#RRGGBB) from an rgba() string */
@@ -39,6 +41,7 @@ function App() {
   const [snapshotLabel, setSnapshotLabel] = useState("");
   const [blueprintImporting, setBlueprintImporting] = useState(false);
   const [blueprintProgress, setBlueprintProgress] = useState("");
+  const [blueprintResult, setBlueprintResult] = useState<BlueprintImportResult | null>(null);
   const [rightTab, setRightTab] = useState<"palette" | "stats" | "layers">("palette");
 
   const newCanvas = useEditorStore((s) => s.newCanvas);
@@ -179,7 +182,6 @@ function App() {
         >
           导入图片
         </button>
-        {betaFeatures.blueprintImport && (
         <button
           onClick={async () => {
             const adapter = getAdapter();
@@ -213,38 +215,8 @@ function App() {
               setBlueprintProgress("正在分析网格结构和识别颜色...");
               const result = await adapter.importBlueprint(path, palette, gridWidth, gridHeight);
 
-              setBlueprintProgress("正在加载到画布...");
-              const codeToIndex = new Map<string, number>();
-              MARD_COLORS.forEach((c, i) => codeToIndex.set(c.code, i));
-              const canvasData = result.cells.map((row) =>
-                row.map((code) => ({
-                  colorIndex: code ? (codeToIndex.get(code) ?? null) : null,
-                }))
-              );
-              useEditorStore.getState().placeImageOnCanvas(
-                canvasData,
-                result.width,
-                result.height,
-                result.width,
-                result.height,
-                0,
-                0,
-              );
-
               setBlueprintImporting(false);
-              let msg = `图纸导入成功！\n尺寸: ${result.width}×${result.height}\n格子大小: ${result.cell_size_detected}px\n置信度: ${Math.round(result.confidence * 100)}%`;
-              if (result.mismatch_count > 0) {
-                msg += `\n\n⚠️ 发现 ${result.mismatch_count} 处颜色与文字不一致：`;
-                const show = result.mismatches.slice(0, 10);
-                for (const [r, c, cc, tc] of show) {
-                  msg += `\n  (${r + 1},${c + 1}): 颜色→${cc}, 文字→${tc}`;
-                }
-                if (result.mismatch_count > 10) {
-                  msg += `\n  ...还有 ${result.mismatch_count - 10} 处`;
-                }
-                msg += `\n\n当前使用颜色匹配结果。`;
-              }
-              alert(msg);
+              setBlueprintResult(result);
             } catch (e) {
               alert(`图纸导入失败: ${e}`);
               setBlueprintImporting(false);
@@ -255,7 +227,6 @@ function App() {
         >
           导入图纸
         </button>
-        )}
         <button
           onClick={() => setShowExport(true)}
           className="px-2 py-1 rounded hover:bg-gray-200"
@@ -558,6 +529,33 @@ function App() {
             <p className="text-xs text-gray-500 text-center whitespace-pre-line">{blueprintProgress}</p>
           </div>
         </div>
+      )}
+
+      {/* Blueprint Import Preview Dialog */}
+      {blueprintResult && (
+        <BlueprintImportDialog
+          result={blueprintResult}
+          onClose={() => setBlueprintResult(null)}
+          onConfirm={(result) => {
+            const codeToIndex = new Map<string, number>();
+            MARD_COLORS.forEach((c, i) => codeToIndex.set(c.code, i));
+            const canvasData = result.cells.map((row) =>
+              row.map((cell) => ({
+                colorIndex: cell.final_code ? (codeToIndex.get(cell.final_code) ?? null) : null,
+              }))
+            );
+            useEditorStore.getState().placeImageOnCanvas(
+              canvasData,
+              result.width,
+              result.height,
+              result.width,
+              result.height,
+              0,
+              0,
+            );
+            setBlueprintResult(null);
+          }}
+        />
       )}
 
       {/* New Canvas Dialog */}
