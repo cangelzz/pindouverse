@@ -38,6 +38,7 @@ function App() {
   const [showExport, setShowExport] = useState(false);
   const [showNewCanvas, setShowNewCanvas] = useState(false);
   const [showResize, setShowResize] = useState(false);
+  const [showHistory, setShowHistory] = useState(false);
   const [resizeW, setResizeW] = useState(52);
   const [resizeH, setResizeH] = useState(52);
   const [resizeAnchorRow, setResizeAnchorRow] = useState(0);
@@ -96,6 +97,10 @@ function App() {
   const createSnapshot = useEditorStore((s) => s.createSnapshot);
   const loadSnapshots = useEditorStore((s) => s.loadSnapshots);
   const restoreSnapshot = useEditorStore((s) => s.restoreSnapshot);
+  const undoStack = useEditorStore((s) => s.undoStack);
+  const redoStack = useEditorStore((s) => s.redoStack);
+  const undo = useEditorStore((s) => s.undo);
+  const redo = useEditorStore((s) => s.redo);
 
   const [newW, setNewW] = useState(52);
   const [newH, setNewH] = useState(52);
@@ -253,6 +258,13 @@ function App() {
           导出
         </button>
         <div className="border-l mx-1 h-4" />
+        <button
+          onClick={() => setShowHistory(true)}
+          className="px-2 py-1 rounded hover:bg-gray-200"
+          title="操作历史"
+        >
+          历史记录
+        </button>
         <button
           onClick={() => { loadSnapshots(); setShowSnapshots(true); }}
           className="px-2 py-1 rounded hover:bg-gray-200"
@@ -807,6 +819,80 @@ function App() {
                   ))}
                 </div>
               )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* History Dialog */}
+      {showHistory && (
+        <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50">
+          <div className="bg-white rounded-lg shadow-xl w-[360px] max-h-[70vh] flex flex-col">
+            <div className="px-4 py-3 border-b flex justify-between items-center">
+              <h2 className="font-semibold text-sm">历史记录</h2>
+              <button
+                onClick={() => setShowHistory(false)}
+                className="text-gray-400 hover:text-gray-600 text-lg leading-none"
+              >
+                ×
+              </button>
+            </div>
+            <div className="flex-1 overflow-y-auto p-2">
+              {undoStack.length === 0 && redoStack.length === 0 ? (
+                <p className="text-xs text-gray-400 text-center py-4">暂无操作记录</p>
+              ) : (
+                <div className="flex flex-col gap-0.5">
+                  {/* Redo entries (future states, shown on top, grayed out) */}
+                  {[...redoStack].reverse().map((action, i) => {
+                    const stepsForward = redoStack.length - i;
+                    return (
+                      <button
+                        key={`redo-${i}`}
+                        onClick={() => {
+                          for (let s = 0; s < stepsForward; s++) redo();
+                        }}
+                        className="flex items-center gap-2 px-2 py-1.5 text-xs rounded hover:bg-blue-50 text-gray-400"
+                      >
+                        <span className="w-5 text-center text-[10px]">↪</span>
+                        <span>{action.length} 个像素变更</span>
+                      </button>
+                    );
+                  })}
+
+                  {/* Current state marker */}
+                  <div className="flex items-center gap-2 px-2 py-1.5 text-xs rounded bg-blue-100 text-blue-700 font-semibold">
+                    <span className="w-5 text-center">●</span>
+                    <span>当前状态</span>
+                  </div>
+
+                  {/* Undo entries (past states, shown below current) */}
+                  {[...undoStack].reverse().map((action, i) => {
+                    const stepsBack = i + 1;
+                    return (
+                      <button
+                        key={`undo-${i}`}
+                        onClick={() => {
+                          for (let s = 0; s < stepsBack; s++) undo();
+                          setShowHistory(false);
+                        }}
+                        className="flex items-center gap-2 px-2 py-1.5 text-xs rounded hover:bg-orange-50 text-gray-600"
+                      >
+                        <span className="w-5 text-center text-[10px]">↩</span>
+                        <span>{action.length} 个像素变更</span>
+                        <span className="text-gray-400 ml-auto text-[10px]">-{stepsBack}步</span>
+                      </button>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+            <div className="px-4 py-2 border-t flex justify-end">
+              <button
+                onClick={() => setShowHistory(false)}
+                className="px-3 py-1.5 text-xs rounded border hover:bg-gray-100"
+              >
+                关闭
+              </button>
             </div>
           </div>
         </div>
