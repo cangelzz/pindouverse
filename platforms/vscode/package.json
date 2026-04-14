@@ -50,8 +50,8 @@
         "title": "PindouVerse: New Project"
       },
       {
-        "command": "pindouverse.openBlank",
-        "title": "PindouVerse: Open Blank Canvas"
+        "command": "pindouverse.openProject",
+        "title": "PindouVerse: Open Project"
       }
     ]
   },

@@ -7,36 +7,9 @@ export function activate(context: vscode.ExtensionContext) {
     PindouEditorProvider.register(context)
   );
 
-  // Command: new project (save to disk)
+  // Command: new project (opens blank canvas immediately, no save dialog)
   context.subscriptions.push(
     vscode.commands.registerCommand("pindouverse.newProject", async () => {
-      const uri = await vscode.window.showSaveDialog({
-        filters: { "PindouVerse Project": ["pindou"] },
-        saveLabel: "Create",
-      });
-      if (!uri) return;
-
-      const emptyProject = {
-        version: 1,
-        canvasSize: { width: 52, height: 52 },
-        canvasData: Array.from({ length: 52 }, () =>
-          Array.from({ length: 52 }, () => ({ colorIndex: null }))
-        ),
-        createdAt: new Date().toISOString(),
-        updatedAt: new Date().toISOString(),
-      };
-
-      await vscode.workspace.fs.writeFile(
-        uri,
-        Buffer.from(JSON.stringify(emptyProject, null, 2))
-      );
-      await vscode.commands.executeCommand("vscode.openWith", uri, "pindouverse.editor");
-    })
-  );
-
-  // Command: open blank canvas (no file required, for cloud access)
-  context.subscriptions.push(
-    vscode.commands.registerCommand("pindouverse.openBlank", async () => {
       const tmpDir = context.globalStorageUri;
       await vscode.workspace.fs.createDirectory(tmpDir);
       const tmpUri = vscode.Uri.joinPath(tmpDir, `untitled_${Date.now()}.pindou`);
@@ -56,6 +29,18 @@ export function activate(context: vscode.ExtensionContext) {
         Buffer.from(JSON.stringify(emptyProject, null, 2))
       );
       await vscode.commands.executeCommand("vscode.openWith", tmpUri, "pindouverse.editor");
+    })
+  );
+
+  // Command: open existing .pindou file
+  context.subscriptions.push(
+    vscode.commands.registerCommand("pindouverse.openProject", async () => {
+      const uris = await vscode.window.showOpenDialog({
+        filters: { "PindouVerse Project": ["pindou"] },
+        canSelectMany: false,
+      });
+      if (!uris || uris.length === 0) return;
+      await vscode.commands.executeCommand("vscode.openWith", uris[0], "pindouverse.editor");
     })
   );
 }
