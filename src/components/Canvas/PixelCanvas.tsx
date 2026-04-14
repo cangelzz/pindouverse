@@ -28,6 +28,7 @@ export function PixelCanvas() {
   const setOffset = useEditorStore((s) => s.setOffset);
   const setSelectedColor = useEditorStore((s) => s.setSelectedColor);
   const setTool = useEditorStore((s) => s.setTool);
+  const fitToWindow = useEditorStore((s) => s.fitToWindow);
 
   // Reference image layer
   const refImagePixels = useEditorStore((s) => s.refImagePixels);
@@ -270,6 +271,20 @@ export function PixelCanvas() {
     window.addEventListener("resize", resize);
     return () => window.removeEventListener("resize", resize);
   }, [resize]);
+
+  // Auto-fit canvas to window on initial mount and when canvas size changes
+  const hasFittedRef = useRef(false);
+  useEffect(() => {
+    hasFittedRef.current = false;
+  }, [canvasSize.width, canvasSize.height]);
+
+  useEffect(() => {
+    if (hasFittedRef.current) return;
+    const container = containerRef.current;
+    if (!container || container.clientWidth === 0) return;
+    hasFittedRef.current = true;
+    fitToWindow(container.clientWidth, container.clientHeight);
+  }, [canvasSize.width, canvasSize.height, fitToWindow, resizeCount]);
 
   // Clear focus group when leaving blueprint mode or grid focus mode
   useEffect(() => {
