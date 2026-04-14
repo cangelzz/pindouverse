@@ -147,6 +147,18 @@ function App() {
     return () => clearInterval(id);
   }, [autoSaveEnabled]);
 
+  // Warn before closing with unsaved changes
+  useEffect(() => {
+    const onBeforeUnload = (e: BeforeUnloadEvent) => {
+      if (useEditorStore.getState().isDirty) {
+        e.preventDefault();
+        e.returnValue = "";
+      }
+    };
+    window.addEventListener("beforeunload", onBeforeUnload);
+    return () => window.removeEventListener("beforeunload", onBeforeUnload);
+  }, []);
+
   // Ctrl+S shortcut
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -1056,7 +1068,14 @@ function App() {
         >
           Beta
         </button>
-        {lastSavedAt && <span className="text-green-600">上次保存: {lastSavedAt}</span>}
+        {lastSavedAt && (
+          <span
+            className={lastSavedAt.startsWith("自动备份") ? "text-blue-500" : "text-green-600"}
+            title={lastSavedAt.startsWith("自动备份") ? "自动备份保存在项目目录的 .pindou_autosave 文件夹中" : undefined}
+          >
+            {lastSavedAt}
+          </span>
+        )}
       </div>
 
       {/* Beta Features Settings Dialog */}
