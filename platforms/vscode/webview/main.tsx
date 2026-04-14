@@ -4,7 +4,7 @@ import App from "../../../src/App";
 import { setAdapter } from "../../../src/adapters";
 import { VScodeAdapter, setDocumentLoadHandler, signalReady } from "../src/vscodeAdapter";
 import { useEditorStore } from "../../../src/store/editorStore";
-import "../../../src/styles.css";
+import "./styles.css";
 
 // Initialize VS Code adapter
 const adapter = new VScodeAdapter();
@@ -29,11 +29,10 @@ setDocumentLoadHandler((content: string, _path: string) => {
   }
 });
 
-// Wrapper that signals ready AFTER React has mounted
+// Wrapper that signals ready AFTER React has mounted,
+// so all Zustand store subscriptions are established before data arrives.
 function WebviewApp() {
   useEffect(() => {
-    // Signal ready only after the component tree is mounted,
-    // so all Zustand store subscriptions are established
     signalReady();
   }, []);
   return <App />;

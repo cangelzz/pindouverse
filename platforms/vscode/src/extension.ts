@@ -219,13 +219,14 @@ class PindouEditorProvider implements vscode.CustomTextEditorProvider {
     const nonce = getNonce();
 
     return `<!DOCTYPE html>
-<html lang="zh">
+<html lang="zh" style="height:100%;margin:0;padding:0;overflow:hidden">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src ${webview.cspSource} 'unsafe-inline'; script-src 'nonce-${nonce}'; img-src ${webview.cspSource} data:; font-src ${webview.cspSource};">
   <link rel="stylesheet" href="${styleUri}">
   <title>PindouVerse</title>
+  <style>html,body{height:100%;margin:0;padding:0;overflow:hidden}#root{height:100%;overflow:hidden}#root>div{height:100%!important;max-height:100%!important}</style>
 </head>
 <body>
   <div id="root"></div>

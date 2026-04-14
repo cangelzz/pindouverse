@@ -1,9 +1,15 @@
 <!DOCTYPE html>
-<html lang="zh">
+<html lang="zh" style="height:100%;margin:0;padding:0;overflow:hidden">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>PindouVerse</title>
+  <style>
+    html, body { height: 100%; margin: 0; padding: 0; overflow: hidden; }
+    #root { height: 100%; overflow: hidden; }
+    /* Override Tailwind h-screen (100vh) which is broken in VS Code webviews */
+    #root > div { height: 100% !important; max-height: 100% !important; }
+  </style>
 </head>
 <body>
   <div id="root"></div>

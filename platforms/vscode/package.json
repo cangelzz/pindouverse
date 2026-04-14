@@ -8,7 +8,9 @@
     "vscode": "^1.85.0"
   },
   "icon": "icons/icon.png",
-  "categories": ["Other"],
+  "categories": [
+    "Other"
+  ],
   "activationEvents": [],
   "main": "./dist/extension.js",
   "contributes": {
@@ -17,7 +19,9 @@
         "viewType": "pindouverse.editor",
         "displayName": "PindouVerse Editor",
         "selector": [
-          { "filenamePattern": "*.pindou" }
+          {
+            "filenamePattern": "*.pindou"
+          }
         ],
         "priority": "default"
       }
@@ -40,12 +44,14 @@
   },
   "devDependencies": {
     "@anthropic-ai/sdk": "latest",
+    "@playwright/test": "^1.59.1",
+    "@tailwindcss/vite": "^4.2.2",
     "@types/vscode": "^1.85.0",
+    "@vitejs/plugin-react": "^4.3.0",
+    "concurrently": "^8.2.0",
     "esbuild": "^0.20.0",
     "typescript": "^5.6.0",
-    "vite": "^6.0.0",
-    "@vitejs/plugin-react": "^4.3.0",
-    "concurrently": "^8.2.0"
+    "vite": "^6.0.0"
   },
   "dependencies": {
     "react": "^19.0.0",
