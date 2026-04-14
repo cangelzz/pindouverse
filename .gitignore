@@ -4,6 +4,10 @@ node_modules/
 # Build outputs
 dist/
 src-tauri/target/
+*.vsix
+
+# Test artifacts
+test-results/
 
 # IDE
 .vscode/
