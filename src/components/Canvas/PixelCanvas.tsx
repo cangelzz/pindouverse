@@ -28,6 +28,7 @@ export function PixelCanvas() {
   const setOffset = useEditorStore((s) => s.setOffset);
   const setSelectedColor = useEditorStore((s) => s.setSelectedColor);
   const setTool = useEditorStore((s) => s.setTool);
+  const fitToWindow = useEditorStore((s) => s.fitToWindow);
 
   // Reference image layer
   const refImagePixels = useEditorStore((s) => s.refImagePixels);
@@ -247,14 +248,17 @@ export function PixelCanvas() {
     const rc = refCanvasRef.current;
     const gc = gridCanvasRef.current;
     const ac = axisCanvasRef.current;
-    const selc = selectionCanvasRef.current;
-    if (!container || !pc || !rc || !gc || !ac || !selc) return;
+    if (!container || !pc || !rc || !gc || !ac) return;
 
     const w = container.clientWidth;
     const h = container.clientHeight;
     const dpr = window.devicePixelRatio || 1;
 
-    for (const c of [pc, rc, gc, ac, selc]) {
+    const canvases = [pc, rc, gc, ac];
+    const selc = selectionCanvasRef.current;
+    if (selc) canvases.push(selc);
+
+    for (const c of canvases) {
       c.width = w * dpr;
       c.height = h * dpr;
       c.style.width = `${w}px`;
@@ -270,6 +274,20 @@ export function PixelCanvas() {
     window.addEventListener("resize", resize);
     return () => window.removeEventListener("resize", resize);
   }, [resize]);
+
+  // Auto-fit canvas to window on initial mount and when canvas size changes
+  const hasFittedRef = useRef(false);
+  useEffect(() => {
+    hasFittedRef.current = false;
+  }, [canvasSize.width, canvasSize.height]);
+
+  useEffect(() => {
+    if (hasFittedRef.current) return;
+    const container = containerRef.current;
+    if (!container || container.clientWidth === 0) return;
+    hasFittedRef.current = true;
+    fitToWindow(container.clientWidth, container.clientHeight);
+  }, [canvasSize.width, canvasSize.height, fitToWindow, resizeCount]);
 
   // Clear focus group when leaving blueprint mode or grid focus mode
   useEffect(() => {
@@ -888,6 +906,10 @@ export function PixelCanvas() {
   // Keyboard shortcuts
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
+      // Skip shortcuts when typing in input/textarea/select elements
+      const tag = (e.target as HTMLElement)?.tagName;
+      if (tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT") return;
+
       const mod = e.ctrlKey || e.metaKey;
       if (mod && e.key === "z" && !e.shiftKey && !e.repeat) {
         e.preventDefault();
@@ -1063,6 +1085,7 @@ export function PixelCanvas() {
         />
         <canvas ref={gridCanvasRef} className="absolute inset-0 pointer-events-none" />
         <canvas ref={shapeCanvasRef} className="absolute inset-0 pointer-events-none" />
+        <canvas ref={selectionCanvasRef} className="absolute inset-0 pointer-events-none" />
         <canvas ref={axisCanvasRef} className="absolute inset-0 pointer-events-none" />
         {showThumbnail && containerDims.w > 0 && (
           <PreviewThumbnail

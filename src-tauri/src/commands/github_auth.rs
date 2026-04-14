@@ -31,7 +31,7 @@ pub async fn github_request_device_code() -> Result<DeviceCodeResponse, String> 
         .header("Accept", "application/json")
         .json(&serde_json::json!({
             "client_id": GITHUB_CLIENT_ID,
-            "scope": ""
+            "scope": "gist"
         }))
         .send()
         .await

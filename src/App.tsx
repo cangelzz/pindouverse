@@ -6,10 +6,12 @@ import { BeadCounter } from "./components/Stats/BeadCounter";
 import { ImageImportDialog } from "./components/Import/ImageImportDialog";
 import { BlueprintImportDialog } from "./components/Import/BlueprintImportDialog";
 import { ExportDialog } from "./components/Export/ExportDialog";
+import { CloudDialog } from "./components/Cloud/CloudDialog";
 import { useEditorStore } from "./store/editorStore";
 import { getAdapter } from "./adapters";
 import type { BlueprintImportResult } from "./adapters";
 import { MARD_COLORS } from "./data/mard221";
+import { hasToken, clearGitHubToken, requestDeviceCode, pollForToken, type DeviceCodeInfo } from "./utils/llmVoice";
 
 /** Extract hex color (#RRGGBB) from an rgba() string */
 function rgbaToHex(rgba: string): string {
@@ -39,6 +41,7 @@ function App() {
   const [showNewCanvas, setShowNewCanvas] = useState(false);
   const [showResize, setShowResize] = useState(false);
   const [showHistory, setShowHistory] = useState(false);
+  const [showCloud, setShowCloud] = useState(false);
   const [resizeW, setResizeW] = useState(52);
   const [resizeH, setResizeH] = useState(52);
   const [resizeAnchorRow, setResizeAnchorRow] = useState(0);
@@ -50,8 +53,16 @@ function App() {
   const [blueprintResult, setBlueprintResult] = useState<BlueprintImportResult | null>(null);
   const [rightTab, setRightTab] = useState<"palette" | "stats" | "layers">("palette");
 
+  // GitHub login state
+  const [isLoggedIn, setIsLoggedIn] = useState(hasToken());
+  const [showLoginDialog, setShowLoginDialog] = useState(false);
+  const [loginDeviceInfo, setLoginDeviceInfo] = useState<DeviceCodeInfo | null>(null);
+  const [loginStatus, setLoginStatus] = useState("");
+  const [loginPolling, setLoginPolling] = useState(false);
+
   const newCanvas = useEditorStore((s) => s.newCanvas);
   const isDirty = useEditorStore((s) => s.isDirty);
+  const cloudGistId = useEditorStore((s) => s.cloudGistId);
   const projectPath = useEditorStore((s) => s.projectPath);
   const lastSavedAt = useEditorStore((s) => s.lastSavedAt);
   const autoSaveEnabled = useEditorStore((s) => s.autoSaveEnabled);
@@ -265,12 +276,69 @@ function App() {
         >
           历史记录
         </button>
+        {isLoggedIn && (
+          <>
+            <button
+              onClick={() => setShowCloud(true)}
+              className="px-2 py-1 rounded hover:bg-gray-200"
+            >
+              云端
+            </button>
+            {cloudGistId && (
+              <span className={`text-xs ${isDirty ? "text-orange-500" : "text-green-600"}`}>
+                {isDirty ? "☁️●" : "☁️✓"}
+              </span>
+            )}
+          </>
+        )}
         <button
           onClick={() => { loadSnapshots(); setShowSnapshots(true); }}
           className="px-2 py-1 rounded hover:bg-gray-200"
         >
           版本管理
         </button>
+        <div className="flex-1" />
+        {/* GitHub login/logout */}
+        {isLoggedIn ? (
+          <button
+            onClick={() => {
+              clearGitHubToken();
+              setIsLoggedIn(false);
+            }}
+            className="px-2 py-1 rounded hover:bg-gray-200 text-green-600 text-xs"
+            title="点击登出 GitHub"
+          >
+            ✓ GitHub 已登录
+          </button>
+        ) : (
+          <button
+            onClick={() => {
+              setShowLoginDialog(true);
+              setLoginStatus("正在请求验证码...");
+              setLoginDeviceInfo(null);
+              requestDeviceCode().then((info) => {
+                setLoginDeviceInfo(info);
+                setLoginStatus("请在浏览器中输入验证码");
+                import("@tauri-apps/plugin-shell").then(({ open }) => open(info.verification_uri)).catch(() => {
+                  window.open(info.verification_uri, "_blank");
+                });
+                setLoginPolling(true);
+                pollForToken(info.device_code, info.interval, info.expires_in, setLoginStatus).then((ok) => {
+                  setLoginPolling(false);
+                  if (ok) {
+                    setIsLoggedIn(true);
+                    setTimeout(() => setShowLoginDialog(false), 1000);
+                  }
+                });
+              }).catch((e) => {
+                setLoginStatus(`请求失败: ${e}`);
+              });
+            }}
+            className="px-2 py-1 rounded hover:bg-gray-200 text-gray-500 text-xs"
+          >
+            登录 GitHub
+          </button>
+        )}
       </div>
 
       {/* Main content */}
@@ -892,6 +960,51 @@ function App() {
                 className="px-3 py-1.5 text-xs rounded border hover:bg-gray-100"
               >
                 关闭
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {showCloud && <CloudDialog onClose={() => setShowCloud(false)} />}
+
+      {/* GitHub Login Dialog */}
+      {showLoginDialog && (
+        <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50">
+          <div className="bg-white rounded-lg shadow-xl w-[360px] p-4">
+            <h3 className="font-semibold text-sm mb-2">登录 GitHub</h3>
+            {loginDeviceInfo ? (
+              <>
+                <p className="text-xs text-gray-500 mb-3">
+                  请在浏览器中打开下方链接，输入验证码完成授权：
+                </p>
+                <div className="flex flex-col items-center gap-2 mb-3">
+                  <a
+                    href={loginDeviceInfo.verification_uri}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="text-blue-500 text-xs underline"
+                  >
+                    {loginDeviceInfo.verification_uri}
+                  </a>
+                  <div className="text-2xl font-mono font-bold tracking-widest bg-gray-100 px-4 py-2 rounded select-all">
+                    {loginDeviceInfo.user_code}
+                  </div>
+                </div>
+                <p className="text-xs text-center text-gray-500">
+                  {loginPolling && <span className="inline-block w-2 h-2 bg-blue-500 rounded-full animate-pulse mr-1" />}
+                  {loginStatus}
+                </p>
+              </>
+            ) : (
+              <p className="text-xs text-gray-500 text-center py-4">{loginStatus}</p>
+            )}
+            <div className="flex justify-end mt-3">
+              <button
+                onClick={() => { setShowLoginDialog(false); setLoginDeviceInfo(null); }}
+                className="px-3 py-1.5 text-xs rounded border hover:bg-gray-100"
+              >
+                {loginPolling ? "取消" : "关闭"}
               </button>
             </div>
           </div>

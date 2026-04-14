@@ -58,6 +58,11 @@ interface EditorState {
   isDirty: boolean;
   importedFileName: string | null;
 
+  // Cloud sync
+  cloudGistId: string | null;
+  cloudUpdatedAt: string | null;
+  cloudProjectName: string | null;
+
   // Auto-save state
   lastSavedAt: string | null;
   autoSaveEnabled: boolean;
@@ -111,6 +116,7 @@ interface EditorState {
   redo: () => void;
   beginStroke: () => void;
   endStroke: () => void;
+  setCloudSync: (gistId: string | null, updatedAt: string | null, name: string | null) => void;
   loadCanvasData: (data: CanvasData, size: CanvasSize) => void;
   resizeCanvas: (newWidth: number, newHeight: number, anchorRow: number, anchorCol: number) => void;
   countLostPixels: (newWidth: number, newHeight: number, anchorRow: number, anchorCol: number) => number;
@@ -319,6 +325,9 @@ export const useEditorStore = create<EditorState>((set, get) => ({
   projectPath: null,
   isDirty: false,
   importedFileName: null,
+  cloudGistId: null,
+  cloudUpdatedAt: null,
+  cloudProjectName: null,
 
   lastSavedAt: null,
   autoSaveEnabled: true,
@@ -350,6 +359,9 @@ export const useEditorStore = create<EditorState>((set, get) => ({
       isDirty: false,
       offsetX: 0,
       offsetY: 0,
+      cloudGistId: null,
+      cloudUpdatedAt: null,
+      cloudProjectName: null,
     });
   },
 
@@ -606,6 +618,12 @@ export const useEditorStore = create<EditorState>((set, get) => ({
     set({ undoStack: newStack });
     _strokeStartIdx = -1;
   },
+
+  setCloudSync: (gistId, updatedAt, name) => set({
+    cloudGistId: gistId,
+    cloudUpdatedAt: updatedAt,
+    cloudProjectName: name,
+  }),
 
   loadCanvasData: (data, size) => {
     const layer = createDefaultLayer(size.width, size.height);
@@ -895,6 +913,9 @@ export const useEditorStore = create<EditorState>((set, get) => ({
       refImageHeight: 0,
       refImageVisible: true,
       refImageOpacity: 0.3,
+      cloudGistId: null,
+      cloudUpdatedAt: null,
+      cloudProjectName: null,
     });
   },
 
