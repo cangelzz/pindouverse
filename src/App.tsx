@@ -161,16 +161,19 @@ function App() {
     // Tauri desktop: listen for window close request
     let unlisten: (() => void) | null = null;
     import("@tauri-apps/api/window").then(({ getCurrentWindow }) => {
-      getCurrentWindow().onCloseRequested(async (event) => {
-        if (useEditorStore.getState().isDirty) {
-          const { ask } = await import("@tauri-apps/plugin-dialog");
-          const confirmed = await ask("有未保存的修改，确定要退出吗？", {
-            title: "退出确认",
-            kind: "warning",
-          });
-          if (!confirmed) {
-            event.preventDefault();
-          }
+      const win = getCurrentWindow();
+      win.onCloseRequested(async (event) => {
+        if (!useEditorStore.getState().isDirty) return; // not dirty → close normally
+        // Prevent close first, then ask
+        event.preventDefault();
+        const { ask } = await import("@tauri-apps/plugin-dialog");
+        const shouldExit = await ask("有未保存的修改，确定要退出吗？", {
+          title: "退出确认",
+          kind: "warning",
+        });
+        if (shouldExit) {
+          // User confirmed — force close
+          win.destroy();
         }
       }).then((fn) => { unlisten = fn; });
     }).catch(() => {
