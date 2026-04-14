@@ -930,7 +930,8 @@ export const useEditorStore = create<EditorState>((set, get) => ({
       const project = buildProjectFile(state);
       await adapter.saveProject(path, project);
       const now = new Date().toLocaleTimeString();
-      set({ lastSavedAt: now, isDirty: false });
+      // Don't clear isDirty — autosave is a backup, not a real save to the original file
+      set({ lastSavedAt: `自动备份 ${now}` });
     } catch {
       // Silent fail for auto-save
     }
