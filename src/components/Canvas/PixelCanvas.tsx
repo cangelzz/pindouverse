@@ -6,6 +6,7 @@ import { useVoiceControl, type VoiceCommand } from "../../hooks/useVoiceControl"
 import { playDone, playUnknown, playListenStart, speak, warmupAudio } from "../../utils/audioFeedback";
 import { PreviewThumbnail } from "./PreviewThumbnail";
 import { lineCells, rectCells, circleCells, constrainLine, constrainRect } from "../../utils/shapeDrawing";
+import { renderMarchingAnts, renderResizeHandles, renderFloatingSelection } from "../../utils/selectionRenderer";
 
 export function PixelCanvas() {
   const pixelCanvasRef = useRef<HTMLCanvasElement>(null);
@@ -46,15 +47,28 @@ export function PixelCanvas() {
   const setVoiceControlEnabled = useEditorStore((s) => s.setVoiceControlEnabled);
   const aiVoiceEnabled = useEditorStore((s) => s.aiVoiceEnabled);
 
+  const selection = useEditorStore((s) => s.selection);
+  const selectionBounds = useEditorStore((s) => s.selectionBounds);
+  const floatingSelectionState = useEditorStore((s) => s.floatingSelection);
+  const setSelection = useEditorStore((s) => s.setSelection);
+  const clearSelection = useEditorStore((s) => s.clearSelection);
+  const commitFloatingSelection = useEditorStore((s) => s.commitFloatingSelection);
+  const moveSelectionCells = useEditorStore((s) => s.moveSelectionCells);
+
   // Track dragging state
   const isDragging = useRef(false);
   const dragStart = useRef({ x: 0, y: 0, ox: 0, oy: 0 });
   const isPanning = useRef(false);
 
+  const selectionStart = useRef<{ row: number; col: number } | null>(null);
+  const isDraggingSelection = useRef(false);
+  const selectionDragStart = useRef<{ row: number; col: number; mouseX: number; mouseY: number } | null>(null);
+
   // Shape tool state: track start cell and current preview cells
   const shapeStart = useRef<{ row: number; col: number } | null>(null);
   const [shapePreview, setShapePreview] = useState<[number, number][] | null>(null);
   const shapeCanvasRef = useRef<HTMLCanvasElement>(null);
+  const selectionCanvasRef = useRef<HTMLCanvasElement>(null);
 
   // Resize counter to trigger re-renders after canvas resize
   const [resizeCount, setResizeCount] = useState(0);
@@ -233,13 +247,14 @@ export function PixelCanvas() {
     const rc = refCanvasRef.current;
     const gc = gridCanvasRef.current;
     const ac = axisCanvasRef.current;
-    if (!container || !pc || !rc || !gc || !ac) return;
+    const selc = selectionCanvasRef.current;
+    if (!container || !pc || !rc || !gc || !ac || !selc) return;
 
     const w = container.clientWidth;
     const h = container.clientHeight;
     const dpr = window.devicePixelRatio || 1;
 
-    for (const c of [pc, rc, gc, ac]) {
+    for (const c of [pc, rc, gc, ac, selc]) {
       c.width = w * dpr;
       c.height = h * dpr;
       c.style.width = `${w}px`;
@@ -410,6 +425,44 @@ export function PixelCanvas() {
       ctx.fillRect(x0 + gw, y0, w - x0 - gw, gh);
     }
   }, [canvasSize, canvasData, cellSize, offsetX, offsetY, gridConfig, blueprintMode, gridFocusMode, focusGroup, resizeCount]);
+
+  // Render selection overlay (marching ants + handles + floating)
+  const [antOffset, setAntOffset] = useState(0);
+  useEffect(() => {
+    if (!selection && !floatingSelectionState) return;
+    let animId: number;
+    const animate = () => {
+      setAntOffset((prev) => (prev + 0.5) % 16);
+      animId = requestAnimationFrame(animate);
+    };
+    animId = requestAnimationFrame(animate);
+    return () => cancelAnimationFrame(animId);
+  }, [selection, floatingSelectionState]);
+
+  useEffect(() => {
+    const ctx = selectionCanvasRef.current?.getContext("2d");
+    if (!ctx || !containerRef.current) return;
+    const w = containerRef.current.clientWidth;
+    const h = containerRef.current.clientHeight;
+    ctx.clearRect(0, 0, w, h);
+
+    if (floatingSelectionState) {
+      renderFloatingSelection(
+        ctx,
+        floatingSelectionState.cells,
+        floatingSelectionState.offsetRow,
+        floatingSelectionState.offsetCol,
+        cellSize, offsetX, offsetY,
+      );
+    }
+
+    if (selection && selection.size > 0) {
+      renderMarchingAnts(ctx, selection, cellSize, offsetX, offsetY, antOffset);
+      if (selectionBounds) {
+        renderResizeHandles(ctx, selectionBounds, cellSize, offsetX, offsetY);
+      }
+    }
+  }, [selection, selectionBounds, floatingSelectionState, cellSize, offsetX, offsetY, antOffset, resizeCount]);
 
   // Render shape preview overlay
   useEffect(() => {
@@ -637,6 +690,57 @@ export function PixelCanvas() {
         const cell = screenToCell(e.clientX, e.clientY);
         if (!cell) return;
 
+        // Selection tool: start rectangle drag
+        if (currentTool === "select") {
+          const cell = screenToCell(e.clientX, e.clientY);
+          if (!cell) return;
+          const { row, col } = cell;
+          if (selection && selection.has(`${row},${col}`)) {
+            isDraggingSelection.current = true;
+            selectionDragStart.current = { row, col, mouseX: e.clientX, mouseY: e.clientY };
+            return;
+          }
+          if (floatingSelectionState) {
+            commitFloatingSelection();
+          }
+          selectionStart.current = { row, col };
+          setSelection(new Set([`${row},${col}`]));
+          return;
+        }
+
+        // Magic wand tool: flood select on click
+        if (currentTool === "wand") {
+          const cell = screenToCell(e.clientX, e.clientY);
+          if (!cell) return;
+          const { row, col } = cell;
+          const state = useEditorStore.getState();
+          const layerIdx = state.layers.findIndex((l) => l.id === state.activeLayerId);
+          if (layerIdx === -1) return;
+          const layerData = state.layers[layerIdx].data;
+          const { width, height } = state.canvasSize;
+          const targetColor = layerData[row]?.[col]?.colorIndex ?? null;
+          const visited = new Set<string>();
+          const queue: [number, number][] = [[row, col]];
+          while (queue.length > 0) {
+            const [r, c] = queue.pop()!;
+            const key = `${r},${c}`;
+            if (visited.has(key)) continue;
+            if (r < 0 || r >= height || c < 0 || c >= width) continue;
+            const cellColor = layerData[r]?.[c]?.colorIndex ?? null;
+            if (cellColor !== targetColor) continue;
+            visited.add(key);
+            queue.push([r - 1, c], [r + 1, c], [r, c - 1], [r, c + 1]);
+          }
+          if (e.shiftKey && selection) {
+            const merged = new Set(selection);
+            for (const k of visited) merged.add(k);
+            setSelection(merged);
+          } else {
+            setSelection(visited);
+          }
+          return;
+        }
+
         if (isShapeTool) {
           // Shape tools: record start point, begin preview
           shapeStart.current = cell;
@@ -647,7 +751,7 @@ export function PixelCanvas() {
         }
       }
     },
-    [currentTool, offsetX, offsetY, screenToCell, applyTool, isShapeTool]
+    [currentTool, offsetX, offsetY, screenToCell, applyTool, isShapeTool, selection, floatingSelectionState, commitFloatingSelection, setSelection]
   );
 
   const handleMouseMove = useCallback(
@@ -656,6 +760,28 @@ export function PixelCanvas() {
         const dx = e.clientX - dragStart.current.x;
         const dy = e.clientY - dragStart.current.y;
         setOffset(dragStart.current.ox + dx, dragStart.current.oy + dy);
+        return;
+      }
+
+      // Selection rectangle drag
+      if (currentTool === "select" && selectionStart.current && !isDraggingSelection.current) {
+        const cell = screenToCell(e.clientX, e.clientY);
+        if (!cell) return;
+        const sr = selectionStart.current.row;
+        const sc = selectionStart.current.col;
+        const er = cell.row;
+        const ec = cell.col;
+        const r1 = Math.min(sr, er);
+        const c1 = Math.min(sc, ec);
+        const r2 = Math.max(sr, er);
+        const c2 = Math.max(sc, ec);
+        const cells = new Set<string>();
+        for (let r = r1; r <= r2; r++) {
+          for (let c = c1; c <= c2; c++) {
+            cells.add(`${r},${c}`);
+          }
+        }
+        setSelection(cells);
         return;
       }
 
@@ -677,11 +803,30 @@ export function PixelCanvas() {
         if (cell) applyTool(cell.row, cell.col);
       }
     },
-    [screenToCell, applyTool, setOffset, isShapeTool, computeShapeCells]
+    [screenToCell, applyTool, setOffset, isShapeTool, computeShapeCells, currentTool, setSelection]
   );
 
   const handleMouseUp = useCallback(
-    (_e: React.MouseEvent) => {
+    (e: React.MouseEvent) => {
+      // Finish selection rectangle
+      if (currentTool === "select" && selectionStart.current) {
+        selectionStart.current = null;
+      }
+
+      // Finish moving selection cells
+      if (isDraggingSelection.current && selectionDragStart.current) {
+        const cell = screenToCell(e.clientX, e.clientY);
+        if (cell) {
+          const dRow = cell.row - selectionDragStart.current.row;
+          const dCol = cell.col - selectionDragStart.current.col;
+          if (dRow !== 0 || dCol !== 0) {
+            moveSelectionCells(dRow, dCol);
+          }
+        }
+        isDraggingSelection.current = false;
+        selectionDragStart.current = null;
+      }
+
       // Shape tool: commit the shape
       if (shapeStart.current && isShapeTool && shapePreview && shapePreview.length > 0) {
         const entries = shapePreview
@@ -696,7 +841,7 @@ export function PixelCanvas() {
       isDragging.current = false;
       isPanning.current = false;
     },
-    [isShapeTool, shapePreview, canvasSize, selectedColorIndex]
+    [isShapeTool, shapePreview, canvasSize, selectedColorIndex, currentTool, screenToCell, moveSelectionCells]
   );
 
   // Double-click to set/toggle grid focus (works in any tool mode including pan)
@@ -743,6 +888,23 @@ export function PixelCanvas() {
       } else if (e.ctrlKey && e.key === "y") {
         e.preventDefault();
         useEditorStore.getState().redo();
+      } else if (e.ctrlKey && e.key === "c") {
+        e.preventDefault();
+        useEditorStore.getState().copySelection();
+      } else if (e.ctrlKey && e.key === "x") {
+        e.preventDefault();
+        useEditorStore.getState().cutSelection();
+      } else if (e.ctrlKey && e.key === "v") {
+        e.preventDefault();
+        useEditorStore.getState().pasteClipboard();
+      } else if (e.ctrlKey && e.key === "a") {
+        e.preventDefault();
+        useEditorStore.getState().selectAll();
+      } else if (e.key === "Delete" || e.key === "Backspace") {
+        if (useEditorStore.getState().selection) {
+          e.preventDefault();
+          useEditorStore.getState().deleteSelection();
+        }
       } else if (e.key === " ") {
         e.preventDefault();
         useEditorStore.getState().setTool("pan");
@@ -751,6 +913,7 @@ export function PixelCanvas() {
         const toolMap: Record<string, import("../../types").EditorTool> = {
           p: "pen", l: "line", r: "rect", c: "circle",
           f: "fill", e: "eraser", i: "eyedropper",
+          s: "select", w: "wand",
         };
         const tool = toolMap[e.key.toLowerCase()];
         if (tool) {
@@ -762,6 +925,12 @@ export function PixelCanvas() {
         if (shapeStart.current) {
           shapeStart.current = null;
           setShapePreview(null);
+        }
+        const state = useEditorStore.getState();
+        if (state.floatingSelection) {
+          state.commitFloatingSelection();
+        } else if (state.selection) {
+          state.clearSelection();
         }
         setFocusGroup(null);
       } else if (["ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight"].includes(e.key)) {
@@ -811,7 +980,9 @@ export function PixelCanvas() {
       ? "grab"
       : currentTool === "eyedropper" || currentTool === "fill"
         ? "crosshair"
-        : "default";
+        : currentTool === "select" || currentTool === "wand"
+          ? "crosshair"
+          : "default";
 
   return (
     <div className="flex flex-col flex-1 min-w-0 min-h-0">
