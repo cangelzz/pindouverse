@@ -6,10 +6,12 @@ import { BeadCounter } from "./components/Stats/BeadCounter";
 import { ImageImportDialog } from "./components/Import/ImageImportDialog";
 import { BlueprintImportDialog } from "./components/Import/BlueprintImportDialog";
 import { ExportDialog } from "./components/Export/ExportDialog";
+import { CloudDialog } from "./components/Cloud/CloudDialog";
 import { useEditorStore } from "./store/editorStore";
 import { getAdapter } from "./adapters";
 import type { BlueprintImportResult } from "./adapters";
 import { MARD_COLORS } from "./data/mard221";
+import { hasToken } from "./utils/llmVoice";
 
 /** Extract hex color (#RRGGBB) from an rgba() string */
 function rgbaToHex(rgba: string): string {
@@ -39,6 +41,7 @@ function App() {
   const [showNewCanvas, setShowNewCanvas] = useState(false);
   const [showResize, setShowResize] = useState(false);
   const [showHistory, setShowHistory] = useState(false);
+  const [showCloud, setShowCloud] = useState(false);
   const [resizeW, setResizeW] = useState(52);
   const [resizeH, setResizeH] = useState(52);
   const [resizeAnchorRow, setResizeAnchorRow] = useState(0);
@@ -52,6 +55,7 @@ function App() {
 
   const newCanvas = useEditorStore((s) => s.newCanvas);
   const isDirty = useEditorStore((s) => s.isDirty);
+  const cloudGistId = useEditorStore((s) => s.cloudGistId);
   const projectPath = useEditorStore((s) => s.projectPath);
   const lastSavedAt = useEditorStore((s) => s.lastSavedAt);
   const autoSaveEnabled = useEditorStore((s) => s.autoSaveEnabled);
@@ -265,6 +269,21 @@ function App() {
         >
           历史记录
         </button>
+        {hasToken() && (
+          <>
+            <button
+              onClick={() => setShowCloud(true)}
+              className="px-2 py-1 rounded hover:bg-gray-200"
+            >
+              云端
+            </button>
+            {cloudGistId && (
+              <span className={`text-xs ${isDirty ? "text-orange-500" : "text-green-600"}`}>
+                {isDirty ? "☁️●" : "☁️✓"}
+              </span>
+            )}
+          </>
+        )}
         <button
           onClick={() => { loadSnapshots(); setShowSnapshots(true); }}
           className="px-2 py-1 rounded hover:bg-gray-200"
@@ -897,6 +916,8 @@ function App() {
           </div>
         </div>
       )}
+
+      {showCloud && <CloudDialog onClose={() => setShowCloud(false)} />}
 
       {/* Bottom status bar */}
       <div className="flex items-center gap-3 px-3 py-0.5 bg-gray-100 border-t text-[10px] text-gray-500 select-none">
