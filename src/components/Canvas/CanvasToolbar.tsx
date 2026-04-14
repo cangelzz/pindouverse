@@ -6,15 +6,15 @@ import { hasToken, clearGitHubToken, requestDeviceCode, pollForToken, type Devic
 const tools: { id: EditorTool; label: string; icon: string; shortcut: string }[] = [
   { id: "pen", label: "画笔", icon: "✏️", shortcut: "P" },
   { id: "fill", label: "填充", icon: "🪣", shortcut: "F" },
-  { id: "eraser", label: "橡皮擦", icon: "⌫", shortcut: "E" },
+  { id: "eraser", label: "橡皮擦", icon: "🩹", shortcut: "E" },
   { id: "eyedropper", label: "取色", icon: "💧", shortcut: "I" },
   { id: "pan", label: "平移", icon: "✋", shortcut: "Space" },
 ];
 
 const shapeTools: { id: EditorTool; label: string; icon: string; shortcut: string }[] = [
-  { id: "line", label: "直线", icon: "╱", shortcut: "L" },
-  { id: "rect", label: "矩形", icon: "▭", shortcut: "R" },
-  { id: "circle", label: "圆形", icon: "◯", shortcut: "C" },
+  { id: "line", label: "直线", icon: "⟋", shortcut: "L" },
+  { id: "rect", label: "矩形", icon: "⬜", shortcut: "R" },
+  { id: "circle", label: "圆形", icon: "⭕", shortcut: "C" },
 ];
 
 export function CanvasToolbar() {
@@ -48,20 +48,7 @@ export function CanvasToolbar() {
 
   return (
     <div className="flex flex-col gap-1 p-2 bg-gray-50 border-r w-12 items-center select-none">
-      {/* Tools */}
-      {tools.map((t) => (
-        <button
-          key={t.id}
-          onClick={() => setTool(t.id)}
-          className={`w-9 h-9 rounded flex items-center justify-center text-lg transition-colors
-            ${currentTool === t.id ? "bg-blue-500 text-white shadow" : "hover:bg-gray-200"}`}
-          title={`${t.label} (${t.shortcut})`}
-        >
-          {t.icon}
-        </button>
-      ))}
-
-      {/* Shape tools flyout */}
+      {/* Shape tools flyout — at top */}
       <div className="relative">
         <button
           onClick={() => setShowShapeMenu(!showShapeMenu)}
@@ -69,7 +56,7 @@ export function CanvasToolbar() {
             ${shapeTools.some((t) => t.id === currentTool) ? "bg-blue-500 text-white shadow" : "hover:bg-gray-200"}`}
           title="形状工具"
         >
-          {shapeTools.find((t) => t.id === currentTool)?.icon || "△"}
+          {shapeTools.find((t) => t.id === currentTool)?.icon || "📐"}
         </button>
         {showShapeMenu && (
           <div className="absolute left-full top-0 ml-1 bg-white border rounded shadow-lg flex flex-col gap-0.5 p-1 z-50">
@@ -91,6 +78,19 @@ export function CanvasToolbar() {
           </div>
         )}
       </div>
+
+      {/* Basic tools */}
+      {tools.map((t) => (
+        <button
+          key={t.id}
+          onClick={() => setTool(t.id)}
+          className={`w-9 h-9 rounded flex items-center justify-center text-lg transition-colors
+            ${currentTool === t.id ? "bg-blue-500 text-white shadow" : "hover:bg-gray-200"}`}
+          title={`${t.label} (${t.shortcut})`}
+        >
+          {t.icon}
+        </button>
+      ))}
 
       <div className="border-t my-1 w-full" />
 
