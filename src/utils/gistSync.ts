@@ -25,6 +25,18 @@ function headers(token: string): HeadersInit {
   };
 }
 
+async function throwOnError(res: Response, action: string): Promise<void> {
+  if (res.ok) return;
+  let detail = "";
+  try {
+    const body = await res.json();
+    detail = body.message || JSON.stringify(body);
+  } catch {
+    detail = res.statusText;
+  }
+  throw new Error(`${action}: ${res.status} ${detail}`);
+}
+
 export function toFilename(name: string): string {
   return `${PREFIX}${name}${SUFFIX}`;
 }
@@ -41,7 +53,7 @@ export async function listProjects(token: string): Promise<GistProject[]> {
     const res = await fetch(`${GIST_API}/gists?per_page=100&page=${page}`, {
       headers: headers(token),
     });
-    if (!res.ok) throw new Error(`GitHub API error: ${res.status} ${res.statusText}`);
+    if (!res.ok) await throwOnError(res, "获取项目列表失败");
     const gists: any[] = await res.json();
     if (gists.length === 0) break;
     for (const gist of gists) {
@@ -84,7 +96,7 @@ export async function uploadProject(
         files: { [filename]: { content } },
       }),
     });
-    if (!res.ok) throw new Error(`Upload failed: ${res.status} ${res.statusText}`);
+    if (!res.ok) await throwOnError(res, "上传失败");
     const data = await res.json();
     return { gistId: data.id, updatedAt: data.updated_at };
   } else {
@@ -97,7 +109,7 @@ export async function uploadProject(
         files: { [filename]: { content } },
       }),
     });
-    if (!res.ok) throw new Error(`Upload failed: ${res.status} ${res.statusText}`);
+    if (!res.ok) await throwOnError(res, "上传失败");
     const data = await res.json();
     return { gistId: data.id, updatedAt: data.updated_at };
   }
@@ -110,7 +122,7 @@ export async function downloadProject(
   const res = await fetch(`${GIST_API}/gists/${gistId}`, {
     headers: headers(token),
   });
-  if (!res.ok) throw new Error(`Download failed: ${res.status} ${res.statusText}`);
+  if (!res.ok) await throwOnError(res, "下载失败");
   const data = await res.json();
   const files = data.files || {};
   for (const fname of Object.keys(files)) {
@@ -127,14 +139,14 @@ export async function deleteProject(token: string, gistId: string): Promise<void
     method: "DELETE",
     headers: headers(token),
   });
-  if (!res.ok) throw new Error(`Delete failed: ${res.status} ${res.statusText}`);
+  if (!res.ok) await throwOnError(res, "删除失败");
 }
 
 export async function listRevisions(token: string, gistId: string): Promise<GistRevision[]> {
   const res = await fetch(`${GIST_API}/gists/${gistId}/commits`, {
     headers: headers(token),
   });
-  if (!res.ok) throw new Error(`List revisions failed: ${res.status} ${res.statusText}`);
+  if (!res.ok) await throwOnError(res, "获取版本历史失败");
   const commits: any[] = await res.json();
   return commits.map((c) => ({
     sha: c.version,
@@ -150,7 +162,7 @@ export async function downloadRevision(
   const res = await fetch(`${GIST_API}/gists/${gistId}/${sha}`, {
     headers: headers(token),
   });
-  if (!res.ok) throw new Error(`Download revision failed: ${res.status} ${res.statusText}`);
+  if (!res.ok) await throwOnError(res, "下载版本失败");
   const data = await res.json();
   const files = data.files || {};
   for (const fname of Object.keys(files)) {
@@ -165,7 +177,7 @@ export async function getGistUpdatedAt(token: string, gistId: string): Promise<s
   const res = await fetch(`${GIST_API}/gists/${gistId}`, {
     headers: headers(token),
   });
-  if (!res.ok) throw new Error(`Fetch failed: ${res.status} ${res.statusText}`);
+  if (!res.ok) await throwOnError(res, "获取Gist状态失败");
   const data = await res.json();
   return data.updated_at;
 }

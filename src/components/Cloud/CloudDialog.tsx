@@ -68,7 +68,10 @@ export function CloudDialog({ onClose }: CloudDialogProps) {
   }
 
   const handleUpload = async (name: string, gistId?: string) => {
-    if (!token || !name.trim()) return;
+    if (!token || !name.trim()) {
+      if (!token) setError("未登录 GitHub，请先登录");
+      return;
+    }
     setLoading(true);
     setError(null);
     try {
@@ -94,7 +97,10 @@ export function CloudDialog({ onClose }: CloudDialogProps) {
   };
 
   const doUpload = async (name: string, gistId?: string) => {
-    if (!token) return;
+    if (!token) {
+      setError("未登录 GitHub，请先登录");
+      return;
+    }
     setLoading(true);
     try {
       const state = useEditorStore.getState();
