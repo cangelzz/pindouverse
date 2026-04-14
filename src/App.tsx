@@ -1049,7 +1049,7 @@ function App() {
             onChange={(e) => setAutoSaveEnabled(e.target.checked)}
             className="w-3 h-3"
           />
-          自动保存
+          自动备份
         </label>
         {betaFeatures.aiVoice && (
         <label className="flex items-center gap-1 cursor-pointer">
