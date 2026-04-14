@@ -312,7 +312,15 @@ function App() {
           </button>
         ) : (
           <button
-            onClick={() => {
+            onClick={async () => {
+              // VS Code webview provides a native login via window.__pindouLoginGitHub
+              const nativeLogin = (window as any).__pindouLoginGitHub;
+              if (nativeLogin) {
+                const ok = await nativeLogin();
+                if (ok) setIsLoggedIn(true);
+                return;
+              }
+              // Tauri/desktop: use device code flow
               setShowLoginDialog(true);
               setLoginStatus("正在请求验证码...");
               setLoginDeviceInfo(null);

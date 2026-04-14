@@ -74,6 +74,19 @@ export function signalReady() {
   vscode.postMessage({ type: "ready" });
 }
 
+/**
+ * Request a GitHub token from VS Code's built-in authentication.
+ * Uses vscode.authentication.getSession('github', ['gist']) on the extension host side.
+ * @param createIfNone If true, prompts user to sign in if not already authenticated.
+ */
+export async function requestGitHubToken(createIfNone = false): Promise<{
+  token: string | null;
+  account: { label: string; id: string } | null;
+}> {
+  const result = await sendRequest("getGitHubToken", { createIfNone });
+  return { token: result.token || null, account: result.account || null };
+}
+
 export class VScodeAdapter implements PlatformAdapter {
   async showSaveDialog(filters: FileFilter[], defaultPath?: string): Promise<string | null> {
     const result = await sendRequest("showSaveDialog", { filters, defaultPath });

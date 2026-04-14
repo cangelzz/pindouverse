@@ -202,6 +202,42 @@ class PindouEditorProvider implements vscode.CustomTextEditorProvider {
         case "error":
           vscode.window.showErrorMessage(msg.message);
           break;
+
+        case "getGitHubToken": {
+          try {
+            // Use VS Code's built-in GitHub authentication
+            // createIfNone: true prompts user to sign in if not already
+            const session = await vscode.authentication.getSession(
+              "github",
+              ["gist"],
+              { createIfNone: msg.createIfNone ?? false },
+            );
+            webviewPanel.webview.postMessage({
+              type: "githubToken",
+              requestId: msg.requestId,
+              token: session?.accessToken || null,
+              account: session ? { label: session.account.label, id: session.account.id } : null,
+            });
+          } catch (e: any) {
+            webviewPanel.webview.postMessage({
+              type: "githubToken",
+              requestId: msg.requestId,
+              token: null,
+              account: null,
+              error: e.message,
+            });
+          }
+          break;
+        }
+
+        case "clearGitHubToken": {
+          // VS Code doesn't have a direct "logout" — we just tell the webview to clear
+          webviewPanel.webview.postMessage({
+            type: "githubTokenCleared",
+            requestId: msg.requestId,
+          });
+          break;
+        }
       }
     });
 
