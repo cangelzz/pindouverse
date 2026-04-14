@@ -4,6 +4,8 @@ import type { EditorTool } from "../../types";
 import { hasToken, clearGitHubToken, requestDeviceCode, pollForToken, type DeviceCodeInfo } from "../../utils/llmVoice";
 
 const tools: { id: EditorTool; label: string; icon: string; shortcut: string }[] = [
+  { id: "select", label: "选区", icon: "⬚", shortcut: "S" },
+  { id: "wand", label: "魔棒", icon: "✦", shortcut: "W" },
   { id: "pen", label: "画笔", icon: "✏️", shortcut: "P" },
   { id: "fill", label: "填充", icon: "🪣", shortcut: "F" },
   { id: "eraser", label: "橡皮擦", icon: "🩹", shortcut: "E" },
