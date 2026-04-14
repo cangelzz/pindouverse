@@ -135,8 +135,14 @@ pub fn export_image(request: ExportRequest) -> Result<String, String> {
                 } else {
                     Rgba([255, 255, 255, 255])
                 };
-                let text_x = x0 as i32 + cs as i32 / 6;
-                let text_y = y0 as i32 + cs as i32 / 3;
+                // Center text in cell
+                // Approximate text width: each char ~0.6 * font_size for monospace
+                let font_size = cs as f32 * 0.3;
+                let char_count = cell_data.color_code.len() as f32;
+                let text_w = (char_count * font_size * 0.6) as i32;
+                let text_h = font_size as i32;
+                let text_x = x0 as i32 + (cs as i32 - text_w) / 2;
+                let text_y = y0 as i32 + (cs as i32 - text_h) / 2;
                 draw_text_mut(&mut img, text_color, text_x, text_y, code_scale, &font, &cell_data.color_code);
             }
         }

@@ -10,7 +10,7 @@ export function ExportDialog({ onClose }: { onClose: () => void }) {
   const projectPath = useEditorStore((s) => s.projectPath);
   const gridConfig = useEditorStore((s) => s.gridConfig);
 
-  const [cellSize, setCellSize] = useState(40);
+  const [cellSize, setCellSize] = useState(30);
   const [format, setFormat] = useState<"png" | "jpeg">("png");
   const [isExporting, setIsExporting] = useState(false);
   const [exportBlueprint, setExportBlueprint] = useState(true);
