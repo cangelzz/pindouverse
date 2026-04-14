@@ -7,7 +7,7 @@ export function activate(context: vscode.ExtensionContext) {
     PindouEditorProvider.register(context)
   );
 
-  // Command: new project
+  // Command: new project (save to disk)
   context.subscriptions.push(
     vscode.commands.registerCommand("pindouverse.newProject", async () => {
       const uri = await vscode.window.showSaveDialog({
@@ -31,6 +31,31 @@ export function activate(context: vscode.ExtensionContext) {
         Buffer.from(JSON.stringify(emptyProject, null, 2))
       );
       await vscode.commands.executeCommand("vscode.openWith", uri, "pindouverse.editor");
+    })
+  );
+
+  // Command: open blank canvas (no file required, for cloud access)
+  context.subscriptions.push(
+    vscode.commands.registerCommand("pindouverse.openBlank", async () => {
+      const tmpDir = context.globalStorageUri;
+      await vscode.workspace.fs.createDirectory(tmpDir);
+      const tmpUri = vscode.Uri.joinPath(tmpDir, `untitled_${Date.now()}.pindou`);
+
+      const emptyProject = {
+        version: 1,
+        canvasSize: { width: 52, height: 52 },
+        canvasData: Array.from({ length: 52 }, () =>
+          Array.from({ length: 52 }, () => ({ colorIndex: null }))
+        ),
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+      };
+
+      await vscode.workspace.fs.writeFile(
+        tmpUri,
+        Buffer.from(JSON.stringify(emptyProject, null, 2))
+      );
+      await vscode.commands.executeCommand("vscode.openWith", tmpUri, "pindouverse.editor");
     })
   );
 }
@@ -259,7 +284,7 @@ class PindouEditorProvider implements vscode.CustomTextEditorProvider {
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src ${webview.cspSource} 'unsafe-inline'; script-src 'nonce-${nonce}'; img-src ${webview.cspSource} data:; font-src ${webview.cspSource};">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src ${webview.cspSource} 'unsafe-inline'; script-src 'nonce-${nonce}'; img-src ${webview.cspSource} data:; font-src ${webview.cspSource}; connect-src https://api.github.com;">
   <link rel="stylesheet" href="${styleUri}">
   <title>PindouVerse</title>
   <style>html,body{height:100%;margin:0;padding:0;overflow:hidden}#root{height:100%;overflow:hidden}#root>div{height:100%!important;max-height:100%!important}</style>

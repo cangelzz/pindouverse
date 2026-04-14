@@ -48,6 +48,10 @@
       {
         "command": "pindouverse.newProject",
         "title": "PindouVerse: New Project"
+      },
+      {
+        "command": "pindouverse.openBlank",
+        "title": "PindouVerse: Open Blank Canvas"
       }
     ]
   },
