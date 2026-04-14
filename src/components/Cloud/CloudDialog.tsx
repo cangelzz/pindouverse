@@ -39,8 +39,13 @@ export function CloudDialog({ onClose }: CloudDialogProps) {
   const cloudGistId = useEditorStore((s) => s.cloudGistId);
   const cloudUpdatedAt = useEditorStore((s) => s.cloudUpdatedAt);
   const cloudProjectName = useEditorStore((s) => s.cloudProjectName);
+  const projectPath = useEditorStore((s) => s.projectPath);
   const loadCanvasData = useEditorStore((s) => s.loadCanvasData);
   const setCloudSync = useEditorStore((s) => s.setCloudSync);
+
+  // Derive project name: cloud name > local filename > empty
+  const derivedName = cloudProjectName
+    || (projectPath ? projectPath.replace(/\\/g, "/").split("/").pop()?.replace(/\.pindou$/, "") || "" : "");
 
   const token = getGitHubToken();
 
@@ -334,10 +339,16 @@ export function CloudDialog({ onClose }: CloudDialogProps) {
             <>
               <button
                 onClick={() => {
-                  if (cloudGistId && cloudProjectName) {
-                    handleUpload(cloudProjectName, cloudGistId);
+                  if (cloudGistId && derivedName) {
+                    // Already linked — sync directly
+                    handleUpload(derivedName, cloudGistId);
+                  } else if (derivedName) {
+                    // Has a name from local file — check if cloud has it, then upload
+                    const existing = projects?.find((p) => p.name === derivedName);
+                    handleUpload(derivedName, existing?.gistId);
                   } else {
-                    setUploadName(cloudProjectName || "");
+                    // No name at all — ask user
+                    setUploadName("");
                     setShowUploadInput(true);
                   }
                 }}
