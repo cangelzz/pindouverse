@@ -149,6 +149,7 @@ function App() {
 
   // Warn before closing with unsaved changes
   useEffect(() => {
+    // Browser/webview: beforeunload
     const onBeforeUnload = (e: BeforeUnloadEvent) => {
       if (useEditorStore.getState().isDirty) {
         e.preventDefault();
@@ -156,7 +157,30 @@ function App() {
       }
     };
     window.addEventListener("beforeunload", onBeforeUnload);
-    return () => window.removeEventListener("beforeunload", onBeforeUnload);
+
+    // Tauri desktop: listen for window close request
+    let unlisten: (() => void) | null = null;
+    import("@tauri-apps/api/window").then(({ getCurrentWindow }) => {
+      getCurrentWindow().onCloseRequested(async (event) => {
+        if (useEditorStore.getState().isDirty) {
+          const { ask } = await import("@tauri-apps/plugin-dialog");
+          const confirmed = await ask("有未保存的修改，确定要退出吗？", {
+            title: "退出确认",
+            kind: "warning",
+          });
+          if (!confirmed) {
+            event.preventDefault();
+          }
+        }
+      }).then((fn) => { unlisten = fn; });
+    }).catch(() => {
+      // Not in Tauri environment — beforeunload handles it
+    });
+
+    return () => {
+      window.removeEventListener("beforeunload", onBeforeUnload);
+      unlisten?.();
+    };
   }, []);
 
   // Ctrl+S shortcut
