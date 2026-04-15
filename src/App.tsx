@@ -170,19 +170,23 @@ function App() {
         if (isShowingDialog) { event.preventDefault(); return; }
         event.preventDefault();
         isShowingDialog = true;
+        let shouldClose = false;
         try {
           const { ask } = await import("@tauri-apps/plugin-dialog");
-          const shouldExit = await ask("有未保存的修改，确定要退出吗？", {
+          shouldClose = await ask("有未保存的修改，确定要退出吗？", {
             title: "退出确认",
             kind: "warning",
           });
-          if (shouldExit) {
-            unlisten?.();
-            unlisten = null;
-            await win.close();
-          }
+        } catch {
+          // Dialog failed — allow close rather than leaving the window stuck
+          shouldClose = true;
         } finally {
           isShowingDialog = false;
+        }
+        if (shouldClose) {
+          unlisten?.();
+          unlisten = null;
+          await win.close();
         }
       }).then((fn) => { unlisten = fn; });
     }).catch(() => {
