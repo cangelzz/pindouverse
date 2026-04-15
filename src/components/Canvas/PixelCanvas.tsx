@@ -937,18 +937,6 @@ export function PixelCanvas() {
       } else if (e.key === " ") {
         e.preventDefault();
         useEditorStore.getState().setTool("pan");
-      } else if (!e.ctrlKey && !e.metaKey) {
-        // Tool shortcuts (single key, no modifier)
-        const toolMap: Record<string, import("../../types").EditorTool> = {
-          p: "pen", l: "line", r: "rect", c: "circle",
-          f: "fill", e: "eraser", i: "eyedropper",
-          s: "select", w: "wand",
-        };
-        const tool = toolMap[e.key.toLowerCase()];
-        if (tool) {
-          e.preventDefault();
-          useEditorStore.getState().setTool(tool);
-        }
       } else if (e.key === "Escape") {
         // Cancel shape in progress
         if (shapeStart.current) {
@@ -988,6 +976,18 @@ export function PixelCanvas() {
           return { groupCol: nc, groupRow: nr };
         });
         e.preventDefault();
+      } else if (!e.ctrlKey && !e.metaKey) {
+        // Tool shortcuts (single key, no modifier)
+        const toolMap: Record<string, import("../../types").EditorTool> = {
+          p: "pen", l: "line", r: "rect", c: "circle",
+          f: "fill", e: "eraser", i: "eyedropper",
+          s: "select", w: "wand",
+        };
+        const tool = toolMap[e.key.toLowerCase()];
+        if (tool) {
+          e.preventDefault();
+          useEditorStore.getState().setTool(tool);
+        }
       }
     };
     const onKeyUp = (e: KeyboardEvent) => {
