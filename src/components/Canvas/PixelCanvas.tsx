@@ -54,7 +54,6 @@ export function PixelCanvas() {
   const setSelection = useEditorStore((s) => s.setSelection);
   const clearSelection = useEditorStore((s) => s.clearSelection);
   const commitFloatingSelection = useEditorStore((s) => s.commitFloatingSelection);
-  const moveSelectionCells = useEditorStore((s) => s.moveSelectionCells);
 
   // Track dragging state
   const isDragging = useRef(false);
@@ -63,7 +62,7 @@ export function PixelCanvas() {
 
   const selectionStart = useRef<{ row: number; col: number } | null>(null);
   const isDraggingSelection = useRef(false);
-  const selectionDragStart = useRef<{ row: number; col: number; mouseX: number; mouseY: number } | null>(null);
+  const selectionDragStart = useRef<{ row: number; col: number; mouseX: number; mouseY: number; initialOffsetRow: number; initialOffsetCol: number } | null>(null);
 
   // Shape tool state: track start cell and current preview cells
   const shapeStart = useRef<{ row: number; col: number } | null>(null);
@@ -715,7 +714,12 @@ export function PixelCanvas() {
           const { row, col } = cell;
           if (selection && selection.has(`${row},${col}`)) {
             isDraggingSelection.current = true;
-            selectionDragStart.current = { row, col, mouseX: e.clientX, mouseY: e.clientY };
+            const bounds = useEditorStore.getState().selectionBounds;
+            selectionDragStart.current = {
+              row, col, mouseX: e.clientX, mouseY: e.clientY,
+              initialOffsetRow: bounds?.r1 ?? row,
+              initialOffsetCol: bounds?.c1 ?? col,
+            };
             return;
           }
           if (floatingSelectionState) {
@@ -785,9 +789,25 @@ export function PixelCanvas() {
         return;
       }
 
-      // Selection rectangle drag
-      if (currentTool === "select" && selectionStart.current && !isDraggingSelection.current) {
+      // Selection move drag — lift on first move, then update floating offset
+      if (isDraggingSelection.current && selectionDragStart.current && e.buttons === 1) {
+        if (useEditorStore.getState().selection) {
+          useEditorStore.getState().liftSelectionToFloat();
+        }
         const cell = screenToCell(e.clientX, e.clientY);
+        if (cell) {
+          const dRow = cell.row - selectionDragStart.current.row;
+          const dCol = cell.col - selectionDragStart.current.col;
+          useEditorStore.getState().setFloatingSelectionOffset(
+            selectionDragStart.current.initialOffsetRow + dRow,
+            selectionDragStart.current.initialOffsetCol + dCol,
+          );
+        }
+        return;
+      }
+
+      // Selection rectangle drag
+      if (currentTool === "select" && selectionStart.current && !isDraggingSelection.current) {        const cell = screenToCell(e.clientX, e.clientY);
         if (!cell) return;
         const sr = selectionStart.current.row;
         const sc = selectionStart.current.col;
@@ -829,21 +849,16 @@ export function PixelCanvas() {
   );
 
   const handleMouseUp = useCallback(
-    (e: React.MouseEvent) => {
+    (_e: React.MouseEvent) => {
       // Finish selection rectangle
       if (currentTool === "select" && selectionStart.current) {
         selectionStart.current = null;
       }
 
       // Finish moving selection cells
-      if (isDraggingSelection.current && selectionDragStart.current) {
-        const cell = screenToCell(e.clientX, e.clientY);
-        if (cell) {
-          const dRow = cell.row - selectionDragStart.current.row;
-          const dCol = cell.col - selectionDragStart.current.col;
-          if (dRow !== 0 || dCol !== 0) {
-            moveSelectionCells(dRow, dCol);
-          }
+      if (isDraggingSelection.current) {
+        if (useEditorStore.getState().floatingSelection) {
+          useEditorStore.getState().commitFloatingSelection();
         }
         isDraggingSelection.current = false;
         selectionDragStart.current = null;
@@ -865,7 +880,7 @@ export function PixelCanvas() {
       // End stroke batching for pen/eraser
       useEditorStore.getState().endStroke();
     },
-    [isShapeTool, shapePreview, canvasSize, selectedColorIndex, currentTool, screenToCell, moveSelectionCells]
+    [isShapeTool, shapePreview, canvasSize, selectedColorIndex, currentTool]
   );
 
   // Double-click to set/toggle grid focus (works in any tool mode including pan)

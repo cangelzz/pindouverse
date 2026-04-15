@@ -128,6 +128,8 @@ interface EditorState {
   pasteClipboard: () => void;
   deleteSelection: () => void;
   commitFloatingSelection: () => void;
+  liftSelectionToFloat: () => void;
+  setFloatingSelectionOffset: (row: number, col: number) => void;
   moveSelectionCells: (dRow: number, dCol: number) => void;
   placeImageOnCanvas: (
     imageData: CanvasData,
@@ -824,6 +826,42 @@ export const useEditorStore = create<EditorState>((set, get) => ({
       selection: null,
       selectionBounds: null,
     });
+  },
+
+  liftSelectionToFloat: () => {
+    const state = get();
+    if (!state.selection || !state.selectionBounds) return;
+    const { r1, c1 } = state.selectionBounds;
+    const layerIdx = state.layers.findIndex((l) => l.id === state.activeLayerId);
+    if (layerIdx === -1) return;
+    const layerData = state.layers[layerIdx].data;
+    const floatingCells = new Map<string, CanvasCell>();
+    for (const key of state.selection) {
+      const [r, c] = key.split(",").map(Number);
+      const cell = layerData[r]?.[c];
+      if (cell && cell.colorIndex !== null) {
+        floatingCells.set(`${r - r1},${c - c1}`, { ...cell });
+      }
+    }
+    const clearEntries: { row: number; col: number; colorIndex: number | null }[] = [];
+    for (const key of state.selection) {
+      const [r, c] = key.split(",").map(Number);
+      clearEntries.push({ row: r, col: c, colorIndex: null });
+    }
+    if (clearEntries.length > 0) {
+      get().batchSetCells(clearEntries);
+    }
+    set({
+      floatingSelection: { cells: floatingCells, offsetRow: r1, offsetCol: c1 },
+      selection: null,
+      selectionBounds: null,
+    });
+  },
+
+  setFloatingSelectionOffset: (row, col) => {
+    const state = get();
+    if (!state.floatingSelection) return;
+    set({ floatingSelection: { ...state.floatingSelection, offsetRow: row, offsetCol: col } });
   },
 
   placeImageOnCanvas: (imageData, imageW, imageH, canvasW, canvasH, startRow, startCol) => {
