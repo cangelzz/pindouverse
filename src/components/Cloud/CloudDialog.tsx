@@ -21,8 +21,11 @@ interface CloudDialogProps {
 
 export function CloudDialog({ onClose }: CloudDialogProps) {
   const [projects, setProjects] = useState<GistProject[] | null>(null);
+  const [recentUploads, setRecentUploads] = useState<GistProject[]>([]);
+  const [deletedGistIds, setDeletedGistIds] = useState<Set<string>>(new Set());
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [successMsg, setSuccessMsg] = useState<string | null>(null);
   const [selectedGist, setSelectedGist] = useState<string | null>(null);
   const [revisions, setRevisions] = useState<GistRevision[] | null>(null);
   const [uploadName, setUploadName] = useState("");
@@ -53,15 +56,30 @@ export function CloudDialog({ onClose }: CloudDialogProps) {
     if (!token) return;
     setLoading(true);
     setError(null);
+    setSuccessMsg(null);
     try {
-      const list = await listProjects(token);
-      setProjects(list);
+      let list = await listProjects(token);
+      // Filter out recently deleted gists that GitHub's list API still returns
+      if (deletedGistIds.size > 0) {
+        const beforeCount = list.length;
+        list = list.filter((p) => !deletedGistIds.has(p.gistId));
+        // Clear deleted IDs that are no longer in the API response
+        if (list.length === beforeCount) {
+          setDeletedGistIds(new Set());
+        }
+      }
+      // Merge in recent uploads that GitHub's list API hasn't propagated yet
+      const listIds = new Set(list.map((p) => p.gistId));
+      const missing = recentUploads.filter((r) => !listIds.has(r.gistId));
+      setProjects(missing.length > 0 ? [...missing, ...list] : list);
+      // Clear recent uploads that are now in the API response
+      setRecentUploads((prev) => prev.filter((r) => !listIds.has(r.gistId)));
     } catch (e: any) {
       setError(e.message || "Failed to load projects");
     } finally {
       setLoading(false);
     }
-  }, [token]);
+  }, [token, recentUploads, deletedGistIds]);
 
   if (projects === null && !loading && !error) {
     refresh();
@@ -74,6 +92,7 @@ export function CloudDialog({ onClose }: CloudDialogProps) {
     }
     setLoading(true);
     setError(null);
+    setSuccessMsg(null);
     try {
       if (gistId && cloudUpdatedAt) {
         const currentCloudUpdatedAt = await getGistUpdatedAt(token, gistId);
@@ -116,8 +135,31 @@ export function CloudDialog({ onClose }: CloudDialogProps) {
       setCloudSync(result.gistId, result.updatedAt, name);
       useEditorStore.setState({ isDirty: false });
       setShowUploadInput(false);
-      // Force re-fetch the full list from GitHub
-      setProjects(null);
+      setSuccessMsg(`"${name}" 已上传成功。新项目可能需要几秒钟才会出现在列表中。`);
+      // Optimistically update the local list instead of re-fetching
+      // (GitHub's GET /gists list API has eventual consistency and may not
+      // reflect a newly created gist immediately)
+      const entry: GistProject = {
+        gistId: result.gistId,
+        name,
+        description: `PindouVerse: ${name}`,
+        updatedAt: result.updatedAt,
+        isPublic: false,
+      };
+      // Track as recent upload so refresh won't lose it
+      if (!gistId) {
+        setRecentUploads((prev) => [...prev.filter((r) => r.gistId !== result.gistId), entry]);
+      }
+      setProjects((prev) => {
+        if (!prev) return [entry];
+        const idx = prev.findIndex((p) => p.gistId === result.gistId);
+        if (idx >= 0) {
+          const updated = [...prev];
+          updated[idx] = entry;
+          return updated;
+        }
+        return [entry, ...prev];
+      });
     } catch (e: any) {
       setError(e.message || "Upload failed");
     } finally {
@@ -130,6 +172,7 @@ export function CloudDialog({ onClose }: CloudDialogProps) {
     if (isDirty && !confirm("当前有未保存的修改，下载云端项目将替换当前画布。继续？")) return;
     setLoading(true);
     setError(null);
+    setSuccessMsg(null);
     try {
       const { project, updatedAt } = await downloadProject(token, gistId);
       loadCanvasData(project.canvasData, project.canvasSize);
@@ -153,12 +196,18 @@ export function CloudDialog({ onClose }: CloudDialogProps) {
     if (!confirm(`确定删除云端项目 "${name}"？此操作不可撤销。`)) return;
     setLoading(true);
     setError(null);
+    setSuccessMsg(null);
     try {
       await deleteProject(token, gistId);
       if (cloudGistId === gistId) {
         setCloudSync(null, null, null);
       }
-      setProjects(null);
+      // Optimistically remove from local list and track deletion
+      // so refresh won't re-add it from stale API results
+      setDeletedGistIds((prev) => new Set(prev).add(gistId));
+      setProjects((prev) => prev ? prev.filter((p) => p.gistId !== gistId) : prev);
+      setRecentUploads((prev) => prev.filter((p) => p.gistId !== gistId));
+      setSuccessMsg(`"${name}" 已删除。`);
     } catch (e: any) {
       setError(e.message || "Delete failed");
     } finally {
@@ -235,6 +284,11 @@ export function CloudDialog({ onClose }: CloudDialogProps) {
         {error && (
           <div className="mx-4 mt-2 text-xs text-red-600 bg-red-50 border border-red-200 rounded px-2 py-1">
             {error}
+          </div>
+        )}
+        {successMsg && (
+          <div className="mx-4 mt-2 text-xs text-green-600 bg-green-50 border border-green-200 rounded px-2 py-1">
+            {successMsg}
           </div>
         )}
 
