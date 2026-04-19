@@ -129,7 +129,7 @@ export interface PlatformAdapter {
 
   // Image import
   previewImage(path: string): Promise<ImagePreview>;
-  importImage(path: string, maxDimension: number, crop: CropRect | null, sharp: boolean): Promise<PixelData>;
+  importImage(path: string, maxDimension: number, crop: CropRect | null, sharp: boolean, widthRatio?: number): Promise<PixelData>;
 
   // Image export
   exportImage(request: ExportImageRequest): Promise<void>;

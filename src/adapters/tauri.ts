@@ -42,8 +42,8 @@ export class TauriAdapter implements PlatformAdapter {
     return await invoke<ImagePreview>("preview_image", { path });
   }
 
-  async importImage(path: string, maxDimension: number, crop: CropRect | null, sharp: boolean): Promise<PixelData> {
-    return await invoke<PixelData>("import_image", { path, maxDimension, crop, sharp });
+  async importImage(path: string, maxDimension: number, crop: CropRect | null, sharp: boolean, widthRatio?: number): Promise<PixelData> {
+    return await invoke<PixelData>("import_image", { path, maxDimension, crop, sharp, widthRatio: widthRatio ?? null });
   }
 
   async exportImage(request: ExportImageRequest): Promise<void> {

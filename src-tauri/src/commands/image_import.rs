@@ -57,7 +57,7 @@ pub fn preview_image(path: String) -> Result<ImagePreview, String> {
 }
 
 #[tauri::command]
-pub fn import_image(path: String, max_dimension: u32, crop: Option<CropRegion>, sharp: Option<bool>) -> Result<PixelData, String> {
+pub fn import_image(path: String, max_dimension: u32, crop: Option<CropRegion>, sharp: Option<bool>, width_ratio: Option<f64>) -> Result<PixelData, String> {
     let img = image::open(&path).map_err(|e| format!("Failed to open image: {}", e))?;
 
     let cropped = if let Some(c) = crop {
@@ -66,12 +66,25 @@ pub fn import_image(path: String, max_dimension: u32, crop: Option<CropRegion>, 
         img
     };
 
+    // Apply width compensation: ratio < 1.0 makes result narrower
+    let adjusted = if let Some(r) = width_ratio {
+        if (r - 1.0).abs() > 0.001 && r > 0.1 && r < 2.0 {
+            let (cw, ch) = cropped.dimensions();
+            let new_w = ((cw as f64) * r).round() as u32;
+            cropped.resize_exact(new_w, ch, image::imageops::FilterType::Lanczos3)
+        } else {
+            cropped
+        }
+    } else {
+        cropped
+    };
+
     let filter = if sharp.unwrap_or(false) {
         image::imageops::FilterType::Nearest
     } else {
         image::imageops::FilterType::Lanczos3
     };
-    let resized = cropped.resize(max_dimension, max_dimension, filter);
+    let resized = adjusted.resize(max_dimension, max_dimension, filter);
     let (w, h) = resized.dimensions();
 
     let mut pixels = Vec::with_capacity((w * h * 3) as usize);

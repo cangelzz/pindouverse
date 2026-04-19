@@ -25,6 +25,10 @@ export function ImageImportDialog({ onClose }: { onClose: () => void }) {
   // Resize filter: sharp (nearest) vs smooth (lanczos)
   const [sharpEdge, setSharpEdge] = useState(false);
 
+  // Width compensation: < 1.0 makes result narrower
+  const [widthRatio, setWidthRatio] = useState(1.0);
+  const [widthExpand, setWidthExpand] = useState<"center" | "left" | "right">("center");
+
   // Canvas size (independent from image size)
   const [canvasW, setCanvasW] = useState(currentCanvasSize.width);
   const [canvasH, setCanvasH] = useState(currentCanvasSize.height);
@@ -547,21 +551,38 @@ export function ImageImportDialog({ onClose }: { onClose: () => void }) {
     }
   };
 
+  // Expand crop rect to compensate for width compression, so output stays target size
+  const getCompensatedCrop = useCallback((): CropRect | null => {
+    if (!imagePreview) return cropRect;
+    const imgW = imagePreview.original_width;
+    const base = cropRect || { x: 0, y: 0, width: imgW, height: imagePreview.original_height };
+    if (widthRatio >= 1.0) return cropRect;
+
+    const expandedW = Math.min(imgW, Math.round(base.width / widthRatio));
+    const extra = expandedW - base.width;
+
+    let newX: number;
+    if (widthExpand === "left") {
+      newX = Math.max(0, base.x - extra);
+    } else if (widthExpand === "right") {
+      newX = base.x;
+      if (newX + expandedW > imgW) newX = Math.max(0, imgW - expandedW);
+    } else {
+      newX = Math.max(0, base.x - Math.floor(extra / 2));
+      if (newX + expandedW > imgW) newX = Math.max(0, imgW - expandedW);
+    }
+    const actualW = Math.min(expandedW, imgW - newX);
+    return { x: newX, y: base.y, width: actualW, height: base.height };
+  }, [cropRect, widthRatio, widthExpand, imagePreview]);
+
   const handlePreview = async () => {
     if (!filePath) return;
     setIsProcessing(true);
     try {
-      const crop = cropRect
-        ? {
-            x: cropRect.x,
-            y: cropRect.y,
-            width: cropRect.width,
-            height: cropRect.height,
-          }
-        : null;
+      const crop = getCompensatedCrop();
 
       const adapter = getAdapter();
-      const data = await adapter.importImage(filePath, maxDimension, crop, sharpEdge);
+      const data = await adapter.importImage(filePath, maxDimension, crop, sharpEdge, widthRatio !== 1.0 ? widthRatio : undefined);
 
       let matched = matchImageToMard(data.pixels, algorithm, colorGroupId);
       setMatchedPreview(matched);
@@ -579,12 +600,10 @@ export function ImageImportDialog({ onClose }: { onClose: () => void }) {
     if (!filePath) return;
     setIsProcessing(true);
     try {
-      const crop = cropRect
-        ? { x: cropRect.x, y: cropRect.y, width: cropRect.width, height: cropRect.height }
-        : null;
+      const crop = getCompensatedCrop();
 
       const adapter = getAdapter();
-      const data = await adapter.importImage(filePath, maxDimension, crop, sharpEdge);
+      const data = await adapter.importImage(filePath, maxDimension, crop, sharpEdge, widthRatio !== 1.0 ? widthRatio : undefined);
       setRawPixels(data.pixels as number[]);
       setActualSize({ width: data.width, height: data.height });
 
@@ -1139,6 +1158,47 @@ export function ImageImportDialog({ onClose }: { onClose: () => void }) {
                 平滑过渡 (照片)
               </label>
             </div>
+            <label className="text-xs text-gray-600 mt-2 mb-1 block">
+              宽度补偿 ({Math.round(widthRatio * 100)}%)
+            </label>
+            <div className="flex gap-2 items-center">
+              <input
+                type="range"
+                min={85}
+                max={100}
+                value={Math.round(widthRatio * 100)}
+                onChange={(e) => {
+                  setWidthRatio(Number(e.target.value) / 100);
+                  setMatchedPreview(null);
+                  setActualSize(null);
+                }}
+                className="flex-1"
+              />
+              <button
+                onClick={() => { setWidthRatio(1.0); setMatchedPreview(null); setActualSize(null); }}
+                className="text-[10px] text-blue-500 hover:text-blue-700 shrink-0"
+              >
+                重置
+              </button>
+            </div>
+            <p className="text-[10px] text-gray-400 mt-0.5">向左拖动可让画面变窄，补偿像素化后视觉变宽的效果</p>
+            {widthRatio < 1.0 && (
+              <div className="flex items-center gap-2 mt-1">
+                <span className="text-[10px] text-gray-500">扩展方向:</span>
+                {(["center", "left", "right"] as const).map((d) => (
+                  <label key={d} className="flex items-center gap-0.5 text-[10px]">
+                    <input
+                      type="radio"
+                      name="widthExpand"
+                      checked={widthExpand === d}
+                      onChange={() => { setWidthExpand(d); setMatchedPreview(null); setActualSize(null); }}
+                      className="w-3 h-3"
+                    />
+                    {{ center: "两侧", left: "左侧", right: "右侧" }[d]}
+                  </label>
+                ))}
+              </div>
+            )}
           </div>
 
           {/* Preview / Compare / Confirm */}
