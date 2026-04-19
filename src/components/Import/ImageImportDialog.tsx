@@ -72,11 +72,15 @@ export function ImageImportDialog({ onClose }: { onClose: () => void }) {
 
   // Interaction mode
   const [interactionMode, setInteractionMode] = useState<"crop" | "loupe">("crop");
+  const [cropCursor, setCropCursor] = useState("crosshair");
 
   // Crop drag state
   const cropCanvasRef = useRef<HTMLCanvasElement>(null);
   const isDraggingCrop = useRef(false);
   const cropStart = useRef({ x: 0, y: 0 });
+  const cropDragMode = useRef<"new" | "move" | "edge">("new");
+  const cropEdge = useRef<"top" | "bottom" | "left" | "right" | "tl" | "tr" | "bl" | "br">("top");
+  const cropOrigRect = useRef<CropRect | null>(null);
 
   // Synced scroll refs for comparison
   const compareScrollRefs = useRef<(HTMLDivElement | null)[]>([]);
@@ -205,6 +209,17 @@ export function ImageImportDialog({ onClose }: { onClose: () => void }) {
       ctx.strokeStyle = "#3B82F6";
       ctx.lineWidth = 2;
       ctx.strokeRect(rx, ry, rw, rh);
+
+      // Draw corner/edge handles
+      const hs = 6;
+      ctx.fillStyle = "#3B82F6";
+      for (const [hx, hy] of [
+        [rx, ry], [rx + rw, ry], [rx, ry + rh], [rx + rw, ry + rh],
+        [rx + rw / 2, ry], [rx + rw / 2, ry + rh],
+        [rx, ry + rh / 2], [rx + rw, ry + rh / 2],
+      ] as [number, number][]) {
+        ctx.fillRect(hx - hs / 2, hy - hs / 2, hs, hs);
+      }
     }
 
     // Draw magnifier loupe — grid-aligned rendering
@@ -339,19 +354,64 @@ export function ImageImportDialog({ onClose }: { onClose: () => void }) {
       if (interactionMode === "crop") {
         const pos = mouseToOriginal(e);
         if (!pos) return;
+
+        // Check if clicking on existing selection edge/interior
+        if (cropRect) {
+          const EDGE = 8; // tolerance in original-image pixels
+          const { x, y, width: w, height: h } = cropRect;
+          const onLeft = Math.abs(pos.x - x) < EDGE && pos.y >= y - EDGE && pos.y <= y + h + EDGE;
+          const onRight = Math.abs(pos.x - (x + w)) < EDGE && pos.y >= y - EDGE && pos.y <= y + h + EDGE;
+          const onTop = Math.abs(pos.y - y) < EDGE && pos.x >= x - EDGE && pos.x <= x + w + EDGE;
+          const onBottom = Math.abs(pos.y - (y + h)) < EDGE && pos.x >= x - EDGE && pos.x <= x + w + EDGE;
+          const inside = pos.x > x + EDGE && pos.x < x + w - EDGE && pos.y > y + EDGE && pos.y < y + h - EDGE;
+
+          if (onTop && onLeft) {
+            cropDragMode.current = "edge"; cropEdge.current = "tl";
+          } else if (onTop && onRight) {
+            cropDragMode.current = "edge"; cropEdge.current = "tr";
+          } else if (onBottom && onLeft) {
+            cropDragMode.current = "edge"; cropEdge.current = "bl";
+          } else if (onBottom && onRight) {
+            cropDragMode.current = "edge"; cropEdge.current = "br";
+          } else if (onTop) {
+            cropDragMode.current = "edge"; cropEdge.current = "top";
+          } else if (onBottom) {
+            cropDragMode.current = "edge"; cropEdge.current = "bottom";
+          } else if (onLeft) {
+            cropDragMode.current = "edge"; cropEdge.current = "left";
+          } else if (onRight) {
+            cropDragMode.current = "edge"; cropEdge.current = "right";
+          } else if (inside) {
+            cropDragMode.current = "move";
+          } else {
+            cropDragMode.current = "new";
+            setCropRect(null);
+            setMatchedPreview(null);
+            setActualSize(null);
+          }
+
+          if (cropDragMode.current !== "new") {
+            isDraggingCrop.current = true;
+            cropStart.current = pos;
+            cropOrigRect.current = { ...cropRect };
+            return;
+          }
+        }
+
+        // New selection
+        cropDragMode.current = "new";
         isDraggingCrop.current = true;
         cropStart.current = pos;
+        cropOrigRect.current = null;
         setCropRect(null);
         setMatchedPreview(null);
         setActualSize(null);
       } else if (interactionMode === "loupe") {
         if (loupePinned) {
-          // Start dragging pinned loupe
           isDraggingLoupe.current = true;
           const pos = mouseToPreview(e);
           if (pos) setLoupePos(pos);
         } else {
-          // Pin at current position
           const pos = mouseToPreview(e);
           if (pos) {
             setLoupePos(pos);
@@ -360,22 +420,79 @@ export function ImageImportDialog({ onClose }: { onClose: () => void }) {
         }
       }
     },
-    [mouseToOriginal, mouseToPreview, interactionMode, loupePinned]
+    [mouseToOriginal, mouseToPreview, interactionMode, loupePinned, cropRect]
   );
 
   const handleCanvasMouseMove = useCallback(
     (e: React.MouseEvent<HTMLCanvasElement>) => {
       if (interactionMode === "crop") {
-        if (!isDraggingCrop.current || !imagePreview) return;
         const pos = mouseToOriginal(e);
-        if (!pos) return;
+        if (!pos || !imagePreview) return;
 
-        const x = Math.min(cropStart.current.x, pos.x);
-        const y = Math.min(cropStart.current.y, pos.y);
-        const w = Math.abs(pos.x - cropStart.current.x);
-        const h = Math.abs(pos.y - cropStart.current.y);
+        // Update cursor based on hover position when not dragging
+        if (!isDraggingCrop.current) {
+          if (cropRect) {
+            const EDGE = 8;
+            const { x, y, width: w, height: h } = cropRect;
+            const onLeft = Math.abs(pos.x - x) < EDGE && pos.y >= y - EDGE && pos.y <= y + h + EDGE;
+            const onRight = Math.abs(pos.x - (x + w)) < EDGE && pos.y >= y - EDGE && pos.y <= y + h + EDGE;
+            const onTop = Math.abs(pos.y - y) < EDGE && pos.x >= x - EDGE && pos.x <= x + w + EDGE;
+            const onBottom = Math.abs(pos.y - (y + h)) < EDGE && pos.x >= x - EDGE && pos.x <= x + w + EDGE;
+            const inside = pos.x > x + EDGE && pos.x < x + w - EDGE && pos.y > y + EDGE && pos.y < y + h - EDGE;
 
-        if (w > 2 && h > 2) {
+            if ((onTop && onLeft) || (onBottom && onRight)) setCropCursor("nwse-resize");
+            else if ((onTop && onRight) || (onBottom && onLeft)) setCropCursor("nesw-resize");
+            else if (onTop || onBottom) setCropCursor("ns-resize");
+            else if (onLeft || onRight) setCropCursor("ew-resize");
+            else if (inside) setCropCursor("move");
+            else setCropCursor("crosshair");
+          } else {
+            setCropCursor("crosshair");
+          }
+          return;
+        }
+
+        const imgW = imagePreview.original_width;
+        const imgH = imagePreview.original_height;
+
+        if (cropDragMode.current === "new") {
+          const x = Math.min(cropStart.current.x, pos.x);
+          const y = Math.min(cropStart.current.y, pos.y);
+          const w = Math.abs(pos.x - cropStart.current.x);
+          const h = Math.abs(pos.y - cropStart.current.y);
+          if (w > 2 && h > 2) {
+            setCropRect({ x, y, width: w, height: h });
+          }
+        } else if (cropDragMode.current === "move" && cropOrigRect.current) {
+          const dx = pos.x - cropStart.current.x;
+          const dy = pos.y - cropStart.current.y;
+          const orig = cropOrigRect.current;
+          const nx = Math.max(0, Math.min(imgW - orig.width, orig.x + dx));
+          const ny = Math.max(0, Math.min(imgH - orig.height, orig.y + dy));
+          setCropRect({ x: nx, y: ny, width: orig.width, height: orig.height });
+        } else if (cropDragMode.current === "edge" && cropOrigRect.current) {
+          const orig = cropOrigRect.current;
+          const dx = pos.x - cropStart.current.x;
+          const dy = pos.y - cropStart.current.y;
+          let { x, y, width: w, height: h } = orig;
+          const edge = cropEdge.current;
+
+          if (edge === "left" || edge === "tl" || edge === "bl") {
+            const newX = Math.max(0, Math.min(x + w - 3, x + dx));
+            w = w + (x - newX);
+            x = newX;
+          }
+          if (edge === "right" || edge === "tr" || edge === "br") {
+            w = Math.max(3, Math.min(imgW - x, w + dx));
+          }
+          if (edge === "top" || edge === "tl" || edge === "tr") {
+            const newY = Math.max(0, Math.min(y + h - 3, y + dy));
+            h = h + (y - newY);
+            y = newY;
+          }
+          if (edge === "bottom" || edge === "bl" || edge === "br") {
+            h = Math.max(3, Math.min(imgH - y, h + dy));
+          }
           setCropRect({ x, y, width: w, height: h });
         }
       } else if (interactionMode === "loupe") {
@@ -388,7 +505,7 @@ export function ImageImportDialog({ onClose }: { onClose: () => void }) {
         }
       }
     },
-    [mouseToOriginal, mouseToPreview, imagePreview, interactionMode, loupePinned]
+    [mouseToOriginal, mouseToPreview, imagePreview, interactionMode, loupePinned, cropRect]
   );
 
   const handleCanvasMouseUp = useCallback(() => {
@@ -718,11 +835,12 @@ export function ImageImportDialog({ onClose }: { onClose: () => void }) {
                     onMouseUp={handleCanvasMouseUp}
                     onMouseLeave={handleCanvasMouseLeave}
                     className={
-                      interactionMode === "crop"
+                      interactionMode === "loupe"
                         ? "cursor-crosshair"
-                        : "cursor-crosshair"
+                        : ""
                     }
                     style={{
+                      cursor: interactionMode === "crop" ? cropCursor : undefined,
                       width: Math.min(
                         interactionMode === "loupe" ? 340 : 520,
                         imagePreview.preview_width
