@@ -53,6 +53,8 @@ function sendRequest(type: string, data: Record<string, any> = {}): Promise<any>
 // Current document state (set by extension on load)
 let currentDocPath = "";
 let onDocumentLoad: ((content: string, path: string) => void) | null = null;
+// Track content we just saved, so we can ignore the echo from extension host
+let lastSavedContent: string | null = null;
 
 export function setDocumentLoadHandler(handler: (content: string, path: string) => void) {
   onDocumentLoad = handler;
@@ -63,6 +65,12 @@ window.addEventListener("message", (event) => {
   const msg = event.data;
   if (msg.type === "loadDocument") {
     currentDocPath = msg.path;
+    // Skip reload if this is an echo of our own save
+    if (lastSavedContent !== null && msg.content === lastSavedContent) {
+      lastSavedContent = null;
+      return;
+    }
+    lastSavedContent = null;
     if (onDocumentLoad) {
       onDocumentLoad(msg.content, msg.path);
     }
@@ -99,8 +107,8 @@ export class VScodeAdapter implements PlatformAdapter {
   }
 
   async saveProject(_path: string, project: ProjectFile): Promise<void> {
-    // Save directly through the TextDocument (the extension handles persistence)
     const content = JSON.stringify(project, null, 2);
+    lastSavedContent = content;
     vscode.postMessage({ type: "save", content });
   }
 

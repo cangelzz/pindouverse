@@ -87,9 +87,12 @@ class PindouEditorProvider implements vscode.CustomTextEditorProvider {
       });
     };
 
+    // Suppress reload during save (our own edit triggers onDidChangeTextDocument)
+    let isSaving = false;
+
     // Listen for document changes (external edits)
     const changeDocSub = vscode.workspace.onDidChangeTextDocument((e) => {
-      if (e.document.uri.toString() === document.uri.toString()) {
+      if (e.document.uri.toString() === document.uri.toString() && !isSaving) {
         sendDocument();
       }
     });
@@ -102,6 +105,7 @@ class PindouEditorProvider implements vscode.CustomTextEditorProvider {
           break;
 
         case "save": {
+          isSaving = true;
           const edit = new vscode.WorkspaceEdit();
           edit.replace(
             document.uri,
@@ -110,6 +114,7 @@ class PindouEditorProvider implements vscode.CustomTextEditorProvider {
           );
           await vscode.workspace.applyEdit(edit);
           await document.save();
+          isSaving = false;
           break;
         }
 

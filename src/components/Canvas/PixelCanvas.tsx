@@ -253,15 +253,21 @@ export function PixelCanvas() {
 
     const w = container.clientWidth;
     const h = container.clientHeight;
+    if (w === 0 || h === 0) return;
     const dpr = window.devicePixelRatio || 1;
+    const targetW = w * dpr;
+    const targetH = h * dpr;
 
     const canvases = [pc, rc, gc, ac];
     const selc = selectionCanvasRef.current;
     if (selc) canvases.push(selc);
 
+    // Skip if size hasn't actually changed (avoids clearing canvas content)
+    if (pc.width === targetW && pc.height === targetH) return;
+
     for (const c of canvases) {
-      c.width = w * dpr;
-      c.height = h * dpr;
+      c.width = targetW;
+      c.height = targetH;
       c.style.width = `${w}px`;
       c.style.height = `${h}px`;
       c.getContext("2d")?.scale(dpr, dpr);
