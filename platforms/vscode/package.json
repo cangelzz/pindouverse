@@ -64,7 +64,8 @@
     "watch:webview": "vite build --config webview/vite.config.ts --watch",
     "package": "vsce package",
     "publish:pat": "npm run build && npm run package && vsce publish",
-    "publish:entra": "npm run build && npm run package && node scripts/publish-entra.js"
+    "publish:entra": "npm run build && npm run package && node scripts/publish-entra.js",
+    "test": "npx playwright test"
   },
   "devDependencies": {
     "@anthropic-ai/sdk": "latest",

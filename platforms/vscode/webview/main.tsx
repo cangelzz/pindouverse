@@ -27,7 +27,7 @@ setAdapter(adapter);
 };
 
 // Handle document load from extension host
-setDocumentLoadHandler((content: string, _path: string) => {
+setDocumentLoadHandler((content: string, path: string) => {
   try {
     const project = JSON.parse(content);
     if (project.canvasSize && project.canvasData) {
@@ -39,6 +39,10 @@ setDocumentLoadHandler((content: string, _path: string) => {
       if (project.gridConfig) {
         useEditorStore.setState({ gridConfig: { ...store.gridConfig, ...project.gridConfig } });
       }
+      if (project.projectInfo) {
+        useEditorStore.setState({ projectInfo: project.projectInfo });
+      }
+      useEditorStore.setState({ projectPath: path });
     }
   } catch (e) {
     console.error("Failed to parse .pindou file:", e);

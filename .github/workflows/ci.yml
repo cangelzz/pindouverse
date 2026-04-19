@@ -18,8 +18,31 @@ jobs:
       - run: npm ci
       - run: npm test
 
+  test-vscode:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - name: Install VS Code extension dependencies
+        run: cd platforms/vscode && npm ci
+      - name: Build VS Code extension
+        run: cd platforms/vscode && npm run build
+      - name: Install Playwright browsers
+        run: cd platforms/vscode && npx playwright install --with-deps chromium
+      - name: Run VS Code webview tests
+        run: cd platforms/vscode && npm test
+      - uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: vscode-test-results
+          path: platforms/vscode/test-results/
+
   build:
-    needs: test
+    needs: [test, test-vscode]
     strategy:
       fail-fast: false
       matrix:
