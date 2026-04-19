@@ -1,5 +1,31 @@
 # Changelog
 
+## 0.6.1
+
+- Fix canvas not auto-resizing when sidebar collapses/expands
+
+## 0.6.0
+
+- Collapsible sidebar with inline toggle button
+- Blueprint export now works in VS Code (canvas-based rendering)
+- Color override system for user calibration (right-click palette colors)
+- Adjusted colors group in palette dropdown
+- Width compensation slider for image import
+- Adjustable/movable crop selection in image import
+
+## 0.5.0
+
+- Project info dialog (title, author, description, link)
+- Window title shows project name and path
+- Cloud sync: optimistic UI for upload/delete (GitHub API consistency fix)
+- Success messages after cloud operations
+
+## 0.4.0
+
+- Arrow key navigation in blueprint mode
+- Exit fix for unsaved changes
+- Selection drag preview
+
 ## 0.3.0
 
 - GitHub cloud sync via Gist (upload, download, delete, version history)
