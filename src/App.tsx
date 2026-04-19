@@ -453,15 +453,7 @@ function App() {
         <PixelCanvas />
 
         {/* Right panel (resizable) */}
-        <div className="flex min-h-0">
-          {/* Sidebar toggle */}
-          <button
-            onClick={() => setSidebarCollapsed(!sidebarCollapsed)}
-            className="w-5 flex items-center justify-center bg-gray-100 hover:bg-gray-200 border-l text-gray-400 hover:text-gray-600 text-xs shrink-0"
-            title={sidebarCollapsed ? "展开侧边栏" : "折叠侧边栏"}
-          >
-            {sidebarCollapsed ? "◀" : "▶"}
-          </button>
+        <div className="flex min-h-0 relative">
           {!sidebarCollapsed && (
             <>
           {/* Resize handle */}
@@ -504,6 +496,13 @@ function App() {
               }`}
             >
               统计
+            </button>
+            <button
+              onClick={() => setSidebarCollapsed(true)}
+              className="px-1.5 py-1.5 text-gray-300 hover:text-gray-500"
+              title="折叠侧边栏"
+            >
+              ▶
             </button>
           </div>
 
@@ -726,6 +725,15 @@ function App() {
           </div>
         </div>
             </>
+          )}
+          {sidebarCollapsed && (
+            <button
+              onClick={() => setSidebarCollapsed(false)}
+              className="w-5 flex items-center justify-center border-l bg-gray-50 hover:bg-gray-100 text-gray-300 hover:text-gray-500 text-xs"
+              title="展开侧边栏"
+            >
+              ◀
+            </button>
           )}
         </div>
       </div>
