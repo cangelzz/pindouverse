@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.7.0
+
+- Fix save opening dialog instead of saving to current file
+- Fix canvas clearing after save (save-echo suppression)
+- Fix projectInfo and projectPath not loaded from document
+- Prevent Vite dev server page reload on .pindou file save
+- Harden canvas resize with size-change guard
+- Add integration tests for critical paths (load, save, render)
+- Add test-vscode CI job
+
 ## 0.6.1
 
 - Fix canvas not auto-resizing when sidebar collapses/expands
