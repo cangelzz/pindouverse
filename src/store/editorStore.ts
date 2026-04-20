@@ -327,7 +327,7 @@ export const useEditorStore = create<EditorState>((set, get) => ({
   beadLayerVisible: true,
   beadLayerOpacity: 1,
 
-  currentTool: "pen",
+  currentTool: "pan",
   selectedColorIndex: 0,
   highlightColorIndex: null,
 
