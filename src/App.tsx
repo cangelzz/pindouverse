@@ -127,6 +127,23 @@ function App() {
   // Resizable right panel
   const [rightPanelWidth, setRightPanelWidth] = useState(224);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
+  const autoCollapsedRef = useRef(false);
+
+  // Auto-collapse sidebar when window is narrow (e.g. VS Code diff view)
+  useEffect(() => {
+    const check = () => {
+      if (window.innerWidth < 600 && !sidebarCollapsed) {
+        setSidebarCollapsed(true);
+        autoCollapsedRef.current = true;
+      } else if (window.innerWidth >= 600 && autoCollapsedRef.current) {
+        setSidebarCollapsed(false);
+        autoCollapsedRef.current = false;
+      }
+    };
+    check();
+    window.addEventListener("resize", check);
+    return () => window.removeEventListener("resize", check);
+  }, [sidebarCollapsed]);
   const isResizingPanel = useRef(false);
   const handlePanelResizeStart = useCallback((e: React.MouseEvent) => {
     e.preventDefault();
