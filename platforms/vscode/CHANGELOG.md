@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.8.0
+
+- Cross-window copy/paste via system clipboard
+- Draggable floating selection with marching ants border
+- Grab/grabbing cursor on selection hover/drag
+- Changes preview: overlay highlight for added/removed/modified cells
+- Side-by-side compare dialog with synced zoom/pan and resizable window
+- Auto-collapse sidebar when window is narrow (e.g. diff view)
+- Default tool set to pan (hand) instead of pen
+- Feedback button with pre-filled system info (version, platform, canvas)
+- Clear selection state on new canvas and open project
+
 ## 0.7.0
 
 - Fix save opening dialog instead of saving to current file
