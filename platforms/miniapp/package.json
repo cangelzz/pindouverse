@@ -1,0 +1,10 @@
+{
+  "name": "pindou-h5",
+  "private": true,
+  "workspaces": ["packages/*"],
+  "scripts": {
+    "dev:client": "npm -w @pindou/client run dev",
+    "dev:server": "npm -w @pindou/server run dev",
+    "build": "npm -w @pindou/core run build && npm -w @pindou/server run build && npm -w @pindou/client run build"
+  }
+}

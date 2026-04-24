@@ -1,0 +1,14 @@
+FROM node:20-alpine AS build
+WORKDIR /app
+COPY package.json package-lock.json* ./
+COPY packages/core/package.json packages/core/
+COPY packages/client/package.json packages/client/
+RUN npm install
+COPY packages/core packages/core
+COPY packages/client packages/client
+COPY tsconfig.base.json .
+RUN npm -w @pindou/core run build && npm -w @pindou/client run build
+
+FROM nginx:alpine
+COPY --from=build /app/packages/client/dist /usr/share/nginx/html
+EXPOSE 80
