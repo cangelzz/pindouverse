@@ -20,10 +20,16 @@ export function PreviewThumbnail({ containerWidth, containerHeight }: PreviewThu
   const setOffset = useEditorStore((s) => s.setOffset);
   const colorOverrides = useEditorStore((s) => s.colorOverrides);
 
-  const [pos, setPos] = useState({ x: 10, y: 10 });
+  const [pos, setPos] = useState<{ x: number; y: number } | null>(() => {
+    try {
+      const raw = localStorage.getItem("pindou_preview_pos");
+      if (raw) return JSON.parse(raw);
+    } catch {}
+    return null; // null = use default (right side, computed below)
+  });
   const [isDragging, setIsDragging] = useState(false);
   const dragRef = useRef({ startX: 0, startY: 0, startPosX: 0, startPosY: 0 });
-  const [thumbSize, setThumbSize] = useState(200);
+  const [thumbSize, setThumbSize] = useState(400);
   const [showFull, setShowFull] = useState(true);
 
   const isMirror = blueprintMode && blueprintMirror;
@@ -116,45 +122,62 @@ export function PreviewThumbnail({ containerWidth, containerHeight }: PreviewThu
 
   const handleDragStart = useCallback(
     (e: React.MouseEvent) => {
-      if (e.target !== e.currentTarget) return;
       e.preventDefault();
+      e.stopPropagation();
       setIsDragging(true);
-      dragRef.current = { startX: e.clientX, startY: e.clientY, startPosX: pos.x, startPosY: pos.y };
+      const cur = pos ?? { x: Math.max(10, containerWidth - thumbW - 20), y: 10 };
+      dragRef.current = { startX: e.clientX, startY: e.clientY, startPosX: cur.x, startPosY: cur.y };
     },
-    [pos]
+    [pos, containerWidth, thumbW]
   );
 
   useEffect(() => {
     if (!isDragging) return;
     const onMove = (e: MouseEvent) => {
-      setPos({
+      const next = {
         x: dragRef.current.startPosX + e.clientX - dragRef.current.startX,
         y: dragRef.current.startPosY + e.clientY - dragRef.current.startY,
+      };
+      setPos(next);
+    };
+    const onUp = () => {
+      setIsDragging(false);
+      // Persist final position
+      setPos((p) => {
+        if (p) {
+          try { localStorage.setItem("pindou_preview_pos", JSON.stringify(p)); } catch {}
+        }
+        return p;
       });
     };
-    const onUp = () => setIsDragging(false);
     window.addEventListener("mousemove", onMove);
     window.addEventListener("mouseup", onUp);
     return () => { window.removeEventListener("mousemove", onMove); window.removeEventListener("mouseup", onUp); };
   }, [isDragging]);
 
+  // Compute effective position: default to right side to avoid blocking left axis labels
+  const effectivePos = pos ?? { x: Math.max(10, containerWidth - thumbW - 20), y: 10 };
+
   return (
     <div
       className="absolute z-40 bg-white border border-gray-300 rounded shadow-lg select-none"
-      style={{ left: pos.x, top: pos.y, cursor: isDragging ? "grabbing" : "default" }}
+      style={{ left: effectivePos.x, top: effectivePos.y, cursor: isDragging ? "grabbing" : "default" }}
+      onMouseDown={(e) => e.stopPropagation()}
+      onContextMenu={(e) => e.stopPropagation()}
     >
       <div
-        className="flex items-center px-1.5 py-0.5 bg-gray-100 border-b text-[10px] text-gray-500 cursor-grab rounded-t"
+        className="flex items-center px-1.5 py-0.5 bg-gray-100 border-b text-[10px] text-gray-500 cursor-grab active:cursor-grabbing rounded-t hover:bg-gray-200"
         onMouseDown={handleDragStart}
+        title="拖动移动预览窗口"
       >
-        <div className="flex items-center gap-1">
-          <button onClick={() => setThumbSize((s) => Math.max(80, s - 40))} className="px-1 hover:bg-gray-200 rounded" title="缩小">−</button>
-          <button onClick={() => setThumbSize((s) => Math.min(600, s + 40))} className="px-1 hover:bg-gray-200 rounded" title="放大">+</button>
-          <button onClick={() => setShowFull(!showFull)} className="px-1 hover:bg-gray-200 rounded" title={showFull ? "局部放大" : "全局缩略"}>
+        <div className="flex items-center gap-1" onMouseDown={(e) => e.stopPropagation()}>
+          <button onClick={() => setThumbSize((s) => Math.max(80, s - 40))} className="px-1 hover:bg-gray-300 rounded" title="缩小">−</button>
+          <button onClick={() => setThumbSize((s) => Math.min(600, s + 40))} className="px-1 hover:bg-gray-300 rounded" title="放大">+</button>
+          <button onClick={() => setShowFull(!showFull)} className="px-1 hover:bg-gray-300 rounded" title={showFull ? "局部放大" : "全局缩略"}>
             {showFull ? "🔍" : "🗺️"}
           </button>
         </div>
-        <span className="flex-1 text-center">预览</span>
+        <span className="flex-1 text-center pointer-events-none">⋮⋮ 预览 ⋮⋮</span>
       </div>
       <canvas
         ref={canvasRef}
