@@ -2,7 +2,7 @@
   "name": "pindouverse",
   "displayName": "PindouVerse - Bead Art Editor",
   "description": "PindouVerse (拼豆宇宙) — Open and edit .pindou bead art projects inside VS Code. Pixel art editor for perler/fuse bead designs with 295-color MARD palette, multi-layer support, grid overlay, and blueprint mode.",
-  "version": "0.8.0",
+  "version": "0.8.1",
   "publisher": "PindouVerse",
   "license": "MIT",
   "repository": {

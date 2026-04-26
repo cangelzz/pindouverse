@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.8.1
+
+- History dialog: show from→to color swatches and position for single-pixel changes; verbose tooltip for batch actions
+- Preview thumbnail: defaults to right side (no longer blocks left axis labels), position persists across reloads, default size enlarged to 400px, clearer drag handle
+- Preview thumbnail: stop event propagation so dragging/clicking the preview no longer pans or draws on the canvas underneath
+- Blueprint mode: coordinate labels now rendered on all four edges (top/bottom for columns, left/right for rows)
+
 ## 0.8.0
 
 - Cross-window copy/paste via system clipboard
