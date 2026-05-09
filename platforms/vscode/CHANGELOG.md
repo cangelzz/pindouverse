@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.8.7
+
+- Improvement: blueprint PNG/JPG export now uses larger, better-centered cell-text. Font multiplier raised from 0.32 → 0.4 (12px at the default 30px cellSize, was ~9.6px), making per-cell color codes legible without zoom.
+
 ## 0.8.6
 
 - Fix: "PindouVerse: New Project" no longer leaks the internal temp filename into the project. Save now correctly prompts for a destination instead of silently overwriting the untitled temp file (untitled_<timestamp>.pindou under the extension's globalStorage)
