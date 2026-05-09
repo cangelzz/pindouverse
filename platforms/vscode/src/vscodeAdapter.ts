@@ -304,7 +304,7 @@ export class VScodeAdapter implements PlatformAdapter {
 
         // Color code text
         if (cell_size >= 16) {
-          const fontSize = Math.max(7, Math.min(cell_size * 0.32, 14));
+          const fontSize = Math.max(7, Math.min(cell_size * 0.4, 14));
           ctx.font = `${fontSize}px "Segoe UI", Arial, sans-serif`;
           ctx.textAlign = "center";
           ctx.textBaseline = "middle";

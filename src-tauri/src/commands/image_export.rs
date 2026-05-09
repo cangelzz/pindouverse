@@ -1,7 +1,7 @@
 use serde::Deserialize;
 use image::{Rgba, RgbaImage};
 use imageproc::drawing::draw_text_mut;
-use ab_glyph::{FontRef, PxScale};
+use ab_glyph::{point, Font, FontRef, PxScale, ScaleFont};
 use std::collections::HashMap;
 
 #[derive(Deserialize, Clone)]
@@ -27,6 +27,30 @@ pub struct ExportRequest {
 
 fn luminance(r: u8, g: u8, b: u8) -> f64 {
     0.299 * r as f64 + 0.587 * g as f64 + 0.114 * b as f64
+}
+
+/// Returns (width, ink_min_y, ink_max_y) of the rendered text in pixels.
+/// ink_min_y / ink_max_y are y-offsets to add to the draw y for the actual visible glyph extents.
+fn measure_text(scale: PxScale, font: &impl Font, text: &str) -> (i32, i32, i32) {
+    let scaled = font.as_scaled(scale);
+    let mut w = 0f32;
+    let mut min_y = f32::INFINITY;
+    let mut max_y = f32::NEG_INFINITY;
+    for c in text.chars() {
+        let id = scaled.glyph_id(c);
+        let glyph = id.with_scale_and_position(scale, point(w, scaled.ascent()));
+        w += scaled.h_advance(id);
+        if let Some(g) = scaled.outline_glyph(glyph) {
+            let bb = g.px_bounds();
+            min_y = min_y.min(bb.min.y);
+            max_y = max_y.max(bb.max.y);
+        }
+    }
+    if !min_y.is_finite() {
+        min_y = 0.0;
+        max_y = 0.0;
+    }
+    (w.round() as i32, min_y.round() as i32, max_y.round() as i32)
 }
 
 #[tauri::command]
@@ -88,7 +112,7 @@ pub fn export_image(request: ExportRequest) -> Result<String, String> {
     let font = FontRef::try_from_slice(font_data)
         .map_err(|e| format!("Failed to load font: {}", e))?;
 
-    let code_scale = PxScale::from(cs as f32 * 0.3);
+    let code_scale = PxScale::from(cs as f32 * 0.4);
     let axis_scale = PxScale::from(cs as f32 * 0.45);
     let legend_code_scale = PxScale::from(cs as f32 * 0.35);
     let legend_title_scale = PxScale::from(cs as f32 * 0.5);
@@ -135,14 +159,10 @@ pub fn export_image(request: ExportRequest) -> Result<String, String> {
                 } else {
                     Rgba([255, 255, 255, 255])
                 };
-                // Center text in cell
-                // Approximate text width: each char ~0.6 * font_size for monospace
-                let font_size = cs as f32 * 0.3;
-                let char_count = cell_data.color_code.len() as f32;
-                let text_w = (char_count * font_size * 0.6) as i32;
-                let text_h = font_size as i32;
+                // Center text using actual ink bounding box (accounts for ascent gap above caps)
+                let (text_w, ink_min_y, ink_max_y) = measure_text(code_scale, &font, &cell_data.color_code);
                 let text_x = x0 as i32 + (cs as i32 - text_w) / 2;
-                let text_y = y0 as i32 + (cs as i32 - text_h) / 2;
+                let text_y = y0 as i32 + cs as i32 / 2 - (ink_min_y + ink_max_y) / 2;
                 draw_text_mut(&mut img, text_color, text_x, text_y, code_scale, &font, &cell_data.color_code);
             }
         }

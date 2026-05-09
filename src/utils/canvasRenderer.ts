@@ -73,7 +73,7 @@ export function renderPixels(
 
         // Blueprint text (drawn in both normal blueprint and textOnly mode)
         if ((blueprintMode || textOnly) && cellSize >= 16) {
-          const fontSize = Math.max(7, Math.min(cellSize * 0.32, 14));
+          const fontSize = Math.max(7, Math.min(cellSize * 0.4, 14));
           ctx.font = `${fontSize}px "Segoe UI", Arial, sans-serif`;
           ctx.textAlign = "center";
           ctx.textBaseline = "middle";
