@@ -8,7 +8,6 @@ const tools: { id: EditorTool; label: string; icon: string; shortcut: string }[]
   { id: "wand", label: "魔棒", icon: "✦", shortcut: "W" },
   { id: "pen", label: "画笔", icon: "✏️", shortcut: "P" },
   { id: "fill", label: "填充", icon: "🪣", shortcut: "F" },
-  { id: "eraser", label: "橡皮擦", icon: "🩹", shortcut: "E" },
   { id: "eyedropper", label: "取色", icon: "💧", shortcut: "I" },
   { id: "pan", label: "平移", icon: "✋", shortcut: "Space" },
 ];
@@ -19,11 +18,18 @@ const shapeTools: { id: EditorTool; label: string; icon: string; shortcut: strin
   { id: "circle", label: "圆形", icon: "⭕", shortcut: "C" },
 ];
 
+const eraserTools: { id: EditorTool; label: string; icon: string; shortcut: string }[] = [
+  { id: "eraser",     label: "单格擦除", icon: "🩹", shortcut: "E" },
+  { id: "eraserFill", label: "区域擦除", icon: "🧽", shortcut: "" },
+];
+
 export function CanvasToolbar() {
   const currentTool = useEditorStore((s) => s.currentTool);
   const setTool = useEditorStore((s) => s.setTool);
+  const lastEraserSubmode = useEditorStore((s) => s.lastEraserSubmode);
 
   const [showShapeMenu, setShowShapeMenu] = useState(false);
+  const [showEraserMenu, setShowEraserMenu] = useState(false);
 
   const undo = useEditorStore((s) => s.undo);
   const redo = useEditorStore((s) => s.redo);
@@ -76,8 +82,52 @@ export function CanvasToolbar() {
         )}
       </div>
 
-      {/* Basic tools */}
-      {tools.map((t) => (
+      {/* Basic tools (first slice: select, wand, pen, fill) */}
+      {tools.slice(0, 4).map((t) => (
+        <button
+          key={t.id}
+          onClick={() => setTool(t.id)}
+          className={`w-9 h-9 rounded flex items-center justify-center text-lg transition-colors
+            ${currentTool === t.id ? "bg-blue-500 text-white shadow" : "hover:bg-gray-200"}`}
+          title={`${t.label} (${t.shortcut})`}
+        >
+          {t.icon}
+        </button>
+      ))}
+
+      {/* Eraser tools flyout */}
+      <div className="relative">
+        <button
+          onClick={() => setShowEraserMenu(!showEraserMenu)}
+          className={`w-9 h-9 rounded flex items-center justify-center text-lg transition-colors
+            ${currentTool === "eraser" || currentTool === "eraserFill" ? "bg-blue-500 text-white shadow" : "hover:bg-gray-200"}`}
+          title="橡皮擦 (E)"
+        >
+          {eraserTools.find((t) => t.id === lastEraserSubmode)?.icon || "🩹"}
+        </button>
+        {showEraserMenu && (
+          <div className="absolute left-full top-0 ml-1 bg-white border rounded shadow-lg flex flex-col gap-0.5 p-1 z-50">
+            {eraserTools.map((t) => (
+              <button
+                key={t.id}
+                onClick={() => {
+                  setTool(t.id);
+                  setShowEraserMenu(false);
+                }}
+                className={`w-20 h-8 rounded flex items-center gap-1.5 px-2 text-xs transition-colors
+                  ${currentTool === t.id ? "bg-blue-500 text-white" : "hover:bg-gray-100"}`}
+                title={t.shortcut ? `${t.label} (${t.shortcut})` : t.label}
+              >
+                <span className="text-sm">{t.icon}</span>
+                <span>{t.label}</span>
+              </button>
+            ))}
+          </div>
+        )}
+      </div>
+
+      {/* Basic tools (second slice: eyedropper, pan) */}
+      {tools.slice(4).map((t) => (
         <button
           key={t.id}
           onClick={() => setTool(t.id)}
