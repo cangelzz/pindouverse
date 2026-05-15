@@ -8,7 +8,6 @@ import { playDone, playUnknown, playListenStart, speak, warmupAudio } from "../.
 import { PreviewThumbnail } from "./PreviewThumbnail";
 import { lineCells, rectCells, circleCells, constrainLine, constrainRect } from "../../utils/shapeDrawing";
 import { renderMarchingAnts, renderResizeHandles, renderFloatingSelection } from "../../utils/selectionRenderer";
-import { computeFloodReplaceEntries } from "../../utils/floodFill";
 
 export function PixelCanvas() {
   const pixelCanvasRef = useRef<HTMLCanvasElement>(null);
@@ -748,21 +747,11 @@ export function PixelCanvas() {
           setCell(row, col, null);
           break;
         case "fill": {
-          const state = useEditorStore.getState();
-          const layerIdx = state.layers.findIndex((l) => l.id === state.activeLayerId);
-          if (layerIdx === -1) break;
-          const layerData = state.layers[layerIdx].data;
-          const entries = computeFloodReplaceEntries(
-            layerData,
-            row,
-            col,
-            selectedColorIndex,
-            state.canvasSize.width,
-            state.canvasSize.height,
-          );
-          if (entries.length > 0) {
-            useEditorStore.getState().batchSetCells(entries);
-          }
+          useEditorStore.getState().floodFill(row, col, selectedColorIndex);
+          break;
+        }
+        case "eraserFill": {
+          useEditorStore.getState().floodErase(row, col);
           break;
         }
         case "eyedropper": {
@@ -1122,7 +1111,10 @@ export function PixelCanvas() {
           f: "fill", e: "eraser", i: "eyedropper",
           s: "select", w: "wand",
         };
-        const tool = toolMap[e.key.toLowerCase()];
+        let tool = toolMap[e.key.toLowerCase()];
+        if (tool === "eraser") {
+          tool = useEditorStore.getState().lastEraserSubmode;
+        }
         if (tool) {
           e.preventDefault();
           useEditorStore.getState().setTool(tool);
@@ -1151,7 +1143,7 @@ export function PixelCanvas() {
         ? "grab"
         : currentTool === "pan"
           ? "grab"
-          : currentTool === "eyedropper" || currentTool === "fill"
+          : currentTool === "eyedropper" || currentTool === "fill" || currentTool === "eraserFill"
             ? "crosshair"
             : currentTool === "select" || currentTool === "wand"
               ? "crosshair"
