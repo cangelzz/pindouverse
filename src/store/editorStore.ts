@@ -48,6 +48,7 @@ interface EditorState {
 
   // Tool state
   currentTool: EditorTool;
+  lastEraserSubmode: "eraser" | "eraserFill";
   selectedColorIndex: number | null;
   highlightColorIndex: number | null; // highlight all cells of this color
 
@@ -333,6 +334,7 @@ export const useEditorStore = create<EditorState>((set, get) => ({
   beadLayerOpacity: 1,
 
   currentTool: "pan",
+  lastEraserSubmode: "eraser",
   selectedColorIndex: 0,
   highlightColorIndex: null,
 
@@ -456,7 +458,13 @@ export const useEditorStore = create<EditorState>((set, get) => ({
     });
   },
 
-  setTool: (tool) => set({ currentTool: tool }),
+  setTool: (tool) => set((state) => ({
+    currentTool: tool,
+    lastEraserSubmode:
+      tool === "eraser" || tool === "eraserFill"
+        ? tool
+        : state.lastEraserSubmode,
+  })),
   setSelectedColor: (index) => set({ selectedColorIndex: index }),
 
   setZoom: (zoom) => {
