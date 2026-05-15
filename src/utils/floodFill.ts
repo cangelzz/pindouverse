@@ -27,11 +27,11 @@ export function computeFloodReplaceEntries(
   if (target === replaceWith) return [];
 
   const visited = new Set<string>();
-  const queue: [number, number][] = [[startRow, startCol]];
+  const stack: [number, number][] = [[startRow, startCol]];
   const entries: FloodEntry[] = [];
 
-  while (queue.length > 0) {
-    const [r, c] = queue.pop()!;
+  while (stack.length > 0) {
+    const [r, c] = stack.pop()!;
     const key = `${r},${c}`;
     if (visited.has(key)) continue;
     if (r < 0 || r >= height || c < 0 || c >= width) continue;
@@ -39,7 +39,7 @@ export function computeFloodReplaceEntries(
     if (cellColor !== target) continue;
     visited.add(key);
     entries.push({ row: r, col: c, colorIndex: replaceWith });
-    queue.push([r - 1, c], [r + 1, c], [r, c - 1], [r, c + 1]);
+    stack.push([r - 1, c], [r + 1, c], [r, c - 1], [r, c + 1]);
   }
 
   return entries;
