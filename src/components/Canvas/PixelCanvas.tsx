@@ -747,33 +747,11 @@ export function PixelCanvas() {
           setCell(row, col, null);
           break;
         case "fill": {
-          // Flood fill: fill connected cells of the same color
-          const state = useEditorStore.getState();
-          const layerIdx = state.layers.findIndex((l) => l.id === state.activeLayerId);
-          if (layerIdx === -1) break;
-          const layerData = state.layers[layerIdx].data;
-          const targetColor = layerData[row]?.[col]?.colorIndex ?? null;
-          const fillColor = selectedColorIndex;
-          if (targetColor === fillColor) break; // same color, no-op
-          const w = state.canvasSize.width;
-          const h = state.canvasSize.height;
-          const visited = new Set<string>();
-          const queue: [number, number][] = [[row, col]];
-          const entries: { row: number; col: number; colorIndex: number | null }[] = [];
-          while (queue.length > 0) {
-            const [r, c] = queue.pop()!;
-            const key = `${r},${c}`;
-            if (visited.has(key)) continue;
-            if (r < 0 || r >= h || c < 0 || c >= w) continue;
-            const cellColor = layerData[r]?.[c]?.colorIndex ?? null;
-            if (cellColor !== targetColor) continue;
-            visited.add(key);
-            entries.push({ row: r, col: c, colorIndex: fillColor });
-            queue.push([r - 1, c], [r + 1, c], [r, c - 1], [r, c + 1]);
-          }
-          if (entries.length > 0) {
-            useEditorStore.getState().batchSetCells(entries);
-          }
+          useEditorStore.getState().floodFill(row, col, selectedColorIndex);
+          break;
+        }
+        case "eraserFill": {
+          useEditorStore.getState().floodErase(row, col);
           break;
         }
         case "eyedropper": {
@@ -1133,7 +1111,10 @@ export function PixelCanvas() {
           f: "fill", e: "eraser", i: "eyedropper",
           s: "select", w: "wand",
         };
-        const tool = toolMap[e.key.toLowerCase()];
+        let tool = toolMap[e.key.toLowerCase()];
+        if (tool === "eraser") {
+          tool = useEditorStore.getState().lastEraserSubmode;
+        }
         if (tool) {
           e.preventDefault();
           useEditorStore.getState().setTool(tool);
@@ -1162,7 +1143,7 @@ export function PixelCanvas() {
         ? "grab"
         : currentTool === "pan"
           ? "grab"
-          : currentTool === "eyedropper" || currentTool === "fill"
+          : currentTool === "eyedropper" || currentTool === "fill" || currentTool === "eraserFill"
             ? "crosshair"
             : currentTool === "select" || currentTool === "wand"
               ? "crosshair"

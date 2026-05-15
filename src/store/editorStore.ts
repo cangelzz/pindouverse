@@ -2,6 +2,7 @@ import { create } from "zustand";
 import { getAdapter } from "../adapters";
 import type { SnapshotInfo } from "../adapters";
 import { loadOverrides, saveOverrides, hexToRgb, type ColorOverrideMap } from "../utils/colorHelper";
+import { computeFloodReplaceEntries } from "../utils/floodFill";
 import type {
   BeadLayer,
   CanvasCell,
@@ -48,6 +49,7 @@ interface EditorState {
 
   // Tool state
   currentTool: EditorTool;
+  lastEraserSubmode: "eraser" | "eraserFill";
   selectedColorIndex: number | null;
   highlightColorIndex: number | null; // highlight all cells of this color
 
@@ -95,6 +97,8 @@ interface EditorState {
   newCanvas: (width: number, height: number) => void;
   setCell: (row: number, col: number, colorIndex: number | null) => void;
   batchSetCells: (entries: { row: number; col: number; colorIndex: number | null }[]) => void;
+  floodFill: (row: number, col: number, colorIndex: number | null) => void;
+  floodErase: (row: number, col: number) => void;
   setTool: (tool: EditorTool) => void;
   setSelectedColor: (index: number | null) => void;
   setZoom: (zoom: number) => void;
@@ -333,6 +337,7 @@ export const useEditorStore = create<EditorState>((set, get) => ({
   beadLayerOpacity: 1,
 
   currentTool: "pan",
+  lastEraserSubmode: "eraser",
   selectedColorIndex: 0,
   highlightColorIndex: null,
 
@@ -456,7 +461,33 @@ export const useEditorStore = create<EditorState>((set, get) => ({
     });
   },
 
-  setTool: (tool) => set({ currentTool: tool }),
+  floodFill: (row, col, colorIndex) => {
+    const state = get();
+    const layerIdx = state.layers.findIndex((l) => l.id === state.activeLayerId);
+    if (layerIdx === -1) return;
+    const layerData = state.layers[layerIdx].data;
+    const entries = computeFloodReplaceEntries(
+      layerData,
+      row,
+      col,
+      colorIndex,
+      state.canvasSize.width,
+      state.canvasSize.height,
+    );
+    if (entries.length > 0) get().batchSetCells(entries);
+  },
+
+  floodErase: (row, col) => {
+    get().floodFill(row, col, null);
+  },
+
+  setTool: (tool) => set((state) => ({
+    currentTool: tool,
+    lastEraserSubmode:
+      tool === "eraser" || tool === "eraserFill"
+        ? tool
+        : state.lastEraserSubmode,
+  })),
   setSelectedColor: (index) => set({ selectedColorIndex: index }),
 
   setZoom: (zoom) => {
