@@ -8,6 +8,7 @@ import { playDone, playUnknown, playListenStart, speak, warmupAudio } from "../.
 import { PreviewThumbnail } from "./PreviewThumbnail";
 import { lineCells, rectCells, circleCells, constrainLine, constrainRect } from "../../utils/shapeDrawing";
 import { renderMarchingAnts, renderResizeHandles, renderFloatingSelection } from "../../utils/selectionRenderer";
+import { computeFloodReplaceEntries } from "../../utils/floodFill";
 
 export function PixelCanvas() {
   const pixelCanvasRef = useRef<HTMLCanvasElement>(null);
@@ -747,30 +748,18 @@ export function PixelCanvas() {
           setCell(row, col, null);
           break;
         case "fill": {
-          // Flood fill: fill connected cells of the same color
           const state = useEditorStore.getState();
           const layerIdx = state.layers.findIndex((l) => l.id === state.activeLayerId);
           if (layerIdx === -1) break;
           const layerData = state.layers[layerIdx].data;
-          const targetColor = layerData[row]?.[col]?.colorIndex ?? null;
-          const fillColor = selectedColorIndex;
-          if (targetColor === fillColor) break; // same color, no-op
-          const w = state.canvasSize.width;
-          const h = state.canvasSize.height;
-          const visited = new Set<string>();
-          const queue: [number, number][] = [[row, col]];
-          const entries: { row: number; col: number; colorIndex: number | null }[] = [];
-          while (queue.length > 0) {
-            const [r, c] = queue.pop()!;
-            const key = `${r},${c}`;
-            if (visited.has(key)) continue;
-            if (r < 0 || r >= h || c < 0 || c >= w) continue;
-            const cellColor = layerData[r]?.[c]?.colorIndex ?? null;
-            if (cellColor !== targetColor) continue;
-            visited.add(key);
-            entries.push({ row: r, col: c, colorIndex: fillColor });
-            queue.push([r - 1, c], [r + 1, c], [r, c - 1], [r, c + 1]);
-          }
+          const entries = computeFloodReplaceEntries(
+            layerData,
+            row,
+            col,
+            selectedColorIndex,
+            state.canvasSize.width,
+            state.canvasSize.height,
+          );
           if (entries.length > 0) {
             useEditorStore.getState().batchSetCells(entries);
           }
