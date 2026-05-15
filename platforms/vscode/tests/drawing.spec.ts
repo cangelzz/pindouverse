@@ -144,6 +144,94 @@ test.describe("Drawing — store actions", () => {
     );
     expect(oldRemaining).toBe(0);
   });
+
+  test("floodErase clears all connected cells of the clicked color", async ({ page }) => {
+    await setupPage(page);
+    await loadProject(page);
+
+    // Paint a 3x3 solid block of color 7 starting at (5, 5)
+    const block = [];
+    for (let r = 5; r < 8; r++) {
+      for (let c = 5; c < 8; c++) {
+        block.push({ row: r, col: c, colorIndex: 7 });
+      }
+    }
+    await callAction(page, "batchSetCells", [block]);
+
+    // Sanity: all 9 cells are color 7
+    const before = await page.evaluate(() => {
+      const d = (window as any).__pindouStore.getState().canvasData;
+      const out: (number | null)[] = [];
+      for (let r = 5; r < 8; r++) for (let c = 5; c < 8; c++) out.push(d[r][c].colorIndex);
+      return out;
+    });
+    expect(before).toEqual(Array(9).fill(7));
+
+    // Flood erase from the middle of the block
+    await callAction(page, "floodErase", [6, 6]);
+
+    const after = await page.evaluate(() => {
+      const d = (window as any).__pindouStore.getState().canvasData;
+      const out: (number | null)[] = [];
+      for (let r = 5; r < 8; r++) for (let c = 5; c < 8; c++) out.push(d[r][c].colorIndex);
+      return out;
+    });
+    expect(after).toEqual(Array(9).fill(null));
+  });
+
+  test("floodErase on an empty cell is a no-op (no history entry)", async ({ page }) => {
+    await setupPage(page);
+    await loadProject(page);
+
+    // Ensure (0, 0) is empty so we have a guaranteed null cell to test with
+    await callAction(page, "setCell", [0, 0, null]);
+
+    const undoBefore = (await getStoreState<any[]>(page, "undoStack")).length;
+    // floodErase on the now-empty (0,0) should be a no-op
+    await callAction(page, "floodErase", [0, 0]);
+    const undoAfter = (await getStoreState<any[]>(page, "undoStack")).length;
+    expect(undoAfter).toBe(undoBefore);
+  });
+
+  test("floodErase produces a single undo step that restores the whole region", async ({ page }) => {
+    await setupPage(page);
+    await loadProject(page);
+
+    const block = [];
+    for (let r = 10; r < 13; r++) {
+      for (let c = 10; c < 13; c++) {
+        block.push({ row: r, col: c, colorIndex: 4 });
+      }
+    }
+    await callAction(page, "batchSetCells", [block]);
+
+    await callAction(page, "floodErase", [11, 11]);
+    // One undo should bring all 9 cells back
+    await callAction(page, "undo", []);
+
+    const restored = await page.evaluate(() => {
+      const d = (window as any).__pindouStore.getState().canvasData;
+      const out: (number | null)[] = [];
+      for (let r = 10; r < 13; r++) for (let c = 10; c < 13; c++) out.push(d[r][c].colorIndex);
+      return out;
+    });
+    expect(restored).toEqual(Array(9).fill(4));
+  });
+
+  test("setTool tracks lastEraserSubmode for eraser tools only", async ({ page }) => {
+    await setupPage(page);
+    await loadProject(page);
+
+    await callAction(page, "setTool", ["eraserFill"]);
+    expect(await getStoreState(page, "lastEraserSubmode")).toBe("eraserFill");
+
+    // Switching to pen does NOT reset the submode
+    await callAction(page, "setTool", ["pen"]);
+    expect(await getStoreState(page, "lastEraserSubmode")).toBe("eraserFill");
+
+    await callAction(page, "setTool", ["eraser"]);
+    expect(await getStoreState(page, "lastEraserSubmode")).toBe("eraser");
+  });
 });
 
 test.describe("Toolbar wiring", () => {
