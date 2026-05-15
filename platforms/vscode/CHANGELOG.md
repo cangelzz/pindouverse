@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.8.8
+
+- Feature: eraser tool now has a flyout with two sub-modes — 单格擦除 (single cell, the original behavior) and 区域擦除 (flood-erase, clears all connected cells of the clicked color). Symmetric to the 填充 tool. The last-used sub-mode is sticky via the `E` shortcut.
+
 ## 0.8.7
 
 - Improvement: blueprint PNG/JPG export now uses larger, better-centered cell-text. Font multiplier raised from 0.32 → 0.4 (12px at the default 30px cellSize, was ~9.6px), making per-cell color codes legible without zoom.
