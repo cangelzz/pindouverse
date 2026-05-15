@@ -85,7 +85,7 @@ test.describe("Drawing — store actions", () => {
     await setupPage(page);
     await loadProject(page);
 
-    for (const tool of ["pen", "eraser", "eyedropper", "fill", "line", "select"]) {
+    for (const tool of ["pen", "eraser", "eraserFill", "eyedropper", "fill", "line", "select"]) {
       await callAction(page, "setTool", [tool]);
       expect(await getStoreState(page, "currentTool")).toBe(tool);
     }
@@ -250,12 +250,27 @@ test.describe("Toolbar wiring", () => {
     expect(await getStoreState(page, "currentTool")).toBe("pen");
   });
 
-  test("clicking eraser toolbar button sets currentTool=eraser", async ({ page }) => {
+  test("eraser flyout: clicking 单格擦除 sets currentTool=eraser", async ({ page }) => {
     await setupPage(page);
     await loadProject(page);
 
     await callAction(page, "setTool", ["pen"]);
-    await page.locator('button[title*="橡皮"], button[title*="Eraser"]').first().click();
+
+    // Open the eraser flyout (parent button has title containing "橡皮")
+    await page.locator('button[title*="橡皮"]').first().click();
+    // Pick 单格擦除 from the flyout
+    await page.locator('button[title^="单格擦除"]').first().click();
     expect(await getStoreState(page, "currentTool")).toBe("eraser");
+  });
+
+  test("eraser flyout: clicking 区域擦除 sets currentTool=eraserFill", async ({ page }) => {
+    await setupPage(page);
+    await loadProject(page);
+
+    await callAction(page, "setTool", ["pen"]);
+
+    await page.locator('button[title*="橡皮"]').first().click();
+    await page.locator('button[title^="区域擦除"]').first().click();
+    expect(await getStoreState(page, "currentTool")).toBe("eraserFill");
   });
 });
