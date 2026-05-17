@@ -351,7 +351,7 @@ export class BrowserAdapter implements PlatformAdapter {
     }
 
     // Bead-count legend below grid (matches Tauri output)
-    drawLegend(ctx, legend, cell_size, cell_size, gridAreaH);
+    drawLegend(ctx, legend, cell_size, gridAreaH);
 
     const mimeType = format === "jpeg" ? "image/jpeg" : "image/png";
     const ext = format === "jpeg" ? "jpg" : "png";

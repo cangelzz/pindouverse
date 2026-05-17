@@ -1,7 +1,36 @@
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, vi, beforeAll } from "vitest";
 import { buildLegendItems, computeLegendLayout, type LegendCell } from "../../src/utils/blueprintLegend";
 
 const mk = (code: string, r: number, g: number, b: number): LegendCell => ({ color_code: code, r, g, b });
+
+// Mock canvas.measureText: monospace at 12px → each char is exactly 7px wide.
+const CHAR_W = 7;
+beforeAll(() => {
+  const FakeCtx = {
+    font: "",
+    measureText(s: string) {
+      return { width: s.length * CHAR_W };
+    },
+  };
+  if (typeof document === "undefined") {
+    (globalThis as any).document = {
+      createElement(tag: string) {
+        if (tag === "canvas") {
+          return { getContext: () => FakeCtx } as any;
+        }
+        return {};
+      },
+    };
+  } else {
+    const origCreateElement = document.createElement.bind(document);
+    vi.spyOn(document, "createElement").mockImplementation((tag: string) => {
+      if (tag === "canvas") {
+        return { getContext: () => FakeCtx } as any;
+      }
+      return origCreateElement(tag);
+    });
+  }
+});
 
 describe("buildLegendItems", () => {
   it("counts cells and returns both sort orders", () => {
@@ -35,21 +64,22 @@ describe("computeLegendLayout", () => {
     const cells: (LegendCell | null)[][] = [[mk("A", 1, 1, 1), mk("B", 2, 2, 2)]];
     const layout = computeLegendLayout(cells, 2, 30);
     expect(layout.totalHeight).toBeGreaterThan(0);
-    expect(layout.byCount.length).toBe(2);
-    expect(layout.byAlpha.length).toBe(2);
-    expect(layout.cols).toBeGreaterThanOrEqual(1);
+    expect(layout.sections).toHaveLength(2);
+    expect(layout.sections[0].items.length).toBe(2);
   });
 
-  it("scales legend columns based on width and cell size", () => {
-    const cells: (LegendCell | null)[][] = [[mk("A", 1, 1, 1)]];
-    // width 100 cells × cellSize 30 = 3000px, swatchW = 60 → cols = 50
-    expect(computeLegendLayout(cells, 100, 30).cols).toBe(50);
-    // width 4 cells × cellSize 30 = 120px, swatchW = 60 → cols = 2
-    expect(computeLegendLayout(cells, 4, 30).cols).toBe(2);
+  it("section items sorted by count in first section, alpha in second", () => {
+    const cells: (LegendCell | null)[][] = [[
+      mk("B", 2, 2, 2), mk("A", 1, 1, 1), mk("A", 1, 1, 1),
+    ]];
+    const layout = computeLegendLayout(cells, 10, 30);
+    expect(layout.sections[0].items[0].code).toBe("A"); // highest count
+    expect(layout.sections[1].items[0].code).toBe("A"); // alpha first
   });
 
-  it("at least 1 column even for very narrow grids", () => {
+  it("computes swatchH equal to cellSize", () => {
     const cells: (LegendCell | null)[][] = [[mk("A", 1, 1, 1)]];
-    expect(computeLegendLayout(cells, 1, 30).cols).toBe(1);
+    expect(computeLegendLayout(cells, 4, 30).swatchH).toBe(30);
+    expect(computeLegendLayout(cells, 1, 20).swatchH).toBe(20);
   });
 });

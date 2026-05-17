@@ -78,25 +78,67 @@ pub fn export_image(request: ExportRequest) -> Result<String, String> {
     let mut by_alpha = by_count.clone();
     by_alpha.sort_by(|a, b| a.0.cmp(&b.0));
 
-    // Legend layout
-    let swatch_w = cs * 2;      // each swatch block width
-    let swatch_h = cs;           // each swatch block height
-    let legend_cols = ((request.width * cs) / swatch_w).max(1);
-    let legend_gap = cs / 2;
+    // === Legend layout (matches src/utils/blueprintLegend.ts) ===
+    const LEGEND_PAD: u32 = 6;
+    const LEGEND_GAP: u32 = 6;
+    const LEGEND_ROW_GAP: u32 = 2;
 
-    let legend_rows_count = |items: &[(String, u8, u8, u8, u32)]| -> u32 {
-        if items.is_empty() { 0 } else { ((items.len() as u32 - 1) / legend_cols) + 1 }
+    let swatch_h = cs;
+    let legend_gap = cs / 2;
+    let section_title_h = cs;
+
+    // Font scales for the legend (font_data + font loaded later in the file
+    // are reused here; we re-declare these scales locally now)
+    let legend_code_scale = PxScale::from(cs as f32 * 0.4);
+    let legend_title_scale = PxScale::from(cs as f32 * 0.5);
+
+    let font_data = include_bytes!("../../fonts/NotoSansMono-Regular.ttf");
+    let font = FontRef::try_from_slice(font_data)
+        .map_err(|e| format!("Failed to load font: {}", e))?;
+
+    // Pre-compute per-item widths from glyph metrics
+    type LegendLayoutItem = (String, u8, u8, u8, u32, u32, u32); // (code, r, g, b, count, leftW, rightW)
+    let prepare_items = |items: &[(String, u8, u8, u8, u32)]| -> Vec<LegendLayoutItem> {
+        items.iter().map(|(code, r, g, b, cnt)| {
+            let (code_w, _, _) = measure_text(legend_code_scale, &font, code);
+            let count_str = format!("{}", cnt);
+            let (count_w, _, _) = measure_text(legend_code_scale, &font, &count_str);
+            let left_w  = code_w  as u32 + LEGEND_PAD * 2;
+            let right_w = count_w as u32 + LEGEND_PAD * 2;
+            (code.clone(), *r, *g, *b, *cnt, left_w, right_w)
+        }).collect()
     };
 
-    let section_title_h = cs;
-    let legend_section_h = |items: &[(String, u8, u8, u8, u32)]| -> u32 {
-        section_title_h + legend_rows_count(items) * (swatch_h + 2)
+    let count_rows = |items: &[LegendLayoutItem], inner_w: u32| -> u32 {
+        if items.is_empty() { return 0; }
+        let mut rows: u32 = 1;
+        let mut x: u32 = 0;
+        for (i, it) in items.iter().enumerate() {
+            let w = it.5 + it.6;
+            if i > 0 && x + w > inner_w {
+                rows += 1;
+                x = 0;
+            }
+            x += w + LEGEND_GAP;
+        }
+        rows
+    };
+
+    let by_count_layout = prepare_items(&by_count);
+    let by_alpha_layout = prepare_items(&by_alpha);
+
+    let inner_w = if request.width * cs > margin * 2 { request.width * cs - margin * 2 } else { 0 };
+    let by_count_rows = count_rows(&by_count_layout, inner_w);
+    let by_alpha_rows = count_rows(&by_alpha_layout, inner_w);
+
+    let section_h = |rows: u32| -> u32 {
+        section_title_h + rows * (swatch_h + LEGEND_ROW_GAP)
     };
 
     let total_legend_h = legend_gap
-        + legend_section_h(&by_count)
+        + section_h(by_count_rows)
         + legend_gap
-        + legend_section_h(&by_alpha)
+        + section_h(by_alpha_rows)
         + legend_gap;
 
     let grid_area_h = request.height * cs + margin;
@@ -108,14 +150,8 @@ pub fn export_image(request: ExportRequest) -> Result<String, String> {
         *pixel = Rgba([255, 255, 255, 255]);
     }
 
-    let font_data = include_bytes!("../../fonts/NotoSansMono-Regular.ttf");
-    let font = FontRef::try_from_slice(font_data)
-        .map_err(|e| format!("Failed to load font: {}", e))?;
-
     let code_scale = PxScale::from(cs as f32 * 0.4);
     let axis_scale = PxScale::from(cs as f32 * 0.45);
-    let legend_code_scale = PxScale::from(cs as f32 * 0.35);
-    let legend_title_scale = PxScale::from(cs as f32 * 0.5);
     let axis_color = Rgba([80, 80, 80, 255]);
 
     let sx = request.start_x.unwrap_or(1);
@@ -234,67 +270,100 @@ pub fn export_image(request: ExportRequest) -> Result<String, String> {
     draw_vline(&mut img, grid_x_end.saturating_sub(2), grid_y_start, grid_y_end, thick_color, 3);
 
     // === Draw legend below grid ===
-    let draw_legend_section = |img: &mut RgbaImage, items: &[(String, u8, u8, u8, u32)], y_start: u32, title: &str| {
+    let draw_legend_section = |img: &mut RgbaImage, items: &[LegendLayoutItem], _rows: u32, y_start: u32, title: &str| {
         // Title
         draw_text_mut(img, Rgba([0, 0, 0, 255]), margin as i32, y_start as i32 + 2, legend_title_scale, &font, title);
 
         let row_start_y = y_start + section_title_h;
-        for (i, (code, r, g, b, cnt)) in items.iter().enumerate() {
-            let col = i as u32 % legend_cols;
-            let row = i as u32 / legend_cols;
-            let sx = margin + col * swatch_w;
-            let sy = row_start_y + row * (swatch_h + 2);
+        let mut x: u32 = margin;
+        let mut row_idx: u32 = 0;
+        for (i, it) in items.iter().enumerate() {
+            let (code, r, g, b, cnt, left_w, right_w) = it.clone();
+            let item_w = left_w + right_w;
+            if i > 0 && x + item_w > margin + inner_w {
+                row_idx += 1;
+                x = margin;
+            }
+            let sy = row_start_y + row_idx * (swatch_h + LEGEND_ROW_GAP);
 
-            // Draw swatch background
+            // Left sub-cell — color background
             for dy in 0..swatch_h {
-                for dx in 0..swatch_w.saturating_sub(2) {
-                    let px = sx + dx;
+                for dx in 0..left_w {
+                    let px = x + dx;
                     let py = sy + dy;
                     if px < img_width && py < img_height {
-                        img.put_pixel(px, py, Rgba([*r, *g, *b, 255]));
+                        img.put_pixel(px, py, Rgba([r, g, b, 255]));
+                    }
+                }
+            }
+            // Right sub-cell — white background
+            for dy in 0..swatch_h {
+                for dx in 0..right_w {
+                    let px = x + left_w + dx;
+                    let py = sy + dy;
+                    if px < img_width && py < img_height {
+                        img.put_pixel(px, py, Rgba([255, 255, 255, 255]));
                     }
                 }
             }
 
-            // Border
-            for dx in 0..swatch_w.saturating_sub(2) {
-                let px = sx + dx;
+            // Outer border (top, bottom, left, right)
+            let border = Rgba([160, 160, 160, 255]);
+            for dx in 0..item_w {
+                let px = x + dx;
                 if px < img_width {
-                    if sy < img_height { img.put_pixel(px, sy, Rgba([160, 160, 160, 255])); }
+                    if sy < img_height { img.put_pixel(px, sy, border); }
                     let by = sy + swatch_h - 1;
-                    if by < img_height { img.put_pixel(px, by, Rgba([160, 160, 160, 255])); }
+                    if by < img_height { img.put_pixel(px, by, border); }
                 }
             }
             for dy in 0..swatch_h {
                 let py = sy + dy;
                 if py < img_height {
-                    if sx < img_width { img.put_pixel(sx, py, Rgba([160, 160, 160, 255])); }
-                    let bx = sx + swatch_w - 3;
-                    if bx < img_width { img.put_pixel(bx, py, Rgba([160, 160, 160, 255])); }
+                    if x < img_width { img.put_pixel(x, py, border); }
+                    let bx = x + item_w - 1;
+                    if bx < img_width { img.put_pixel(bx, py, border); }
+                }
+            }
+            // Divider line between left and right
+            let div_x = x + left_w;
+            for dy in 1..swatch_h - 1 {
+                let py = sy + dy;
+                if div_x < img_width && py < img_height {
+                    img.put_pixel(div_x, py, border);
                 }
             }
 
-            // Text: "CODE ×N"
-            let label = format!("{} x{}", code, cnt);
-            let text_color = if luminance(*r, *g, *b) > 128.0 {
+            // Left text — code, centered, adaptive color
+            let text_color = if luminance(r, g, b) > 128.0 {
                 Rgba([0, 0, 0, 255])
             } else {
                 Rgba([255, 255, 255, 255])
             };
-            let tx = sx as i32 + 3;
-            let ty = sy as i32 + (swatch_h as i32 / 4);
-            draw_text_mut(img, text_color, tx, ty, legend_code_scale, &font, &label);
+            let (code_w, code_min_y, code_max_y) = measure_text(legend_code_scale, &font, &code);
+            let code_tx = x as i32 + (left_w as i32 - code_w) / 2;
+            let code_ty = sy as i32 + swatch_h as i32 / 2 - (code_min_y + code_max_y) / 2;
+            draw_text_mut(img, text_color, code_tx, code_ty, legend_code_scale, &font, &code);
+
+            // Right text — count, centered black-on-white
+            let count_str = format!("{}", cnt);
+            let (cnt_w, cnt_min_y, cnt_max_y) = measure_text(legend_code_scale, &font, &count_str);
+            let cnt_tx = (x + left_w) as i32 + (right_w as i32 - cnt_w) / 2;
+            let cnt_ty = sy as i32 + swatch_h as i32 / 2 - (cnt_min_y + cnt_max_y) / 2;
+            draw_text_mut(img, Rgba([0, 0, 0, 255]), cnt_tx, cnt_ty, legend_code_scale, &font, &count_str);
+
+            x += item_w + LEGEND_GAP;
         }
     };
 
     let mut legend_y = grid_area_h + legend_gap;
     let total_beads: u32 = by_count.iter().map(|x| x.4).sum();
     let title1 = format!("By Count ({} colors, {} beads)", by_count.len(), total_beads);
-    draw_legend_section(&mut img, &by_count, legend_y, &title1);
-    legend_y += legend_section_h(&by_count) + legend_gap;
+    draw_legend_section(&mut img, &by_count_layout, by_count_rows, legend_y, &title1);
+    legend_y += section_h(by_count_rows) + legend_gap;
 
     let title2 = format!("By Code ({} colors)", by_alpha.len());
-    draw_legend_section(&mut img, &by_alpha, legend_y, &title2);
+    draw_legend_section(&mut img, &by_alpha_layout, by_alpha_rows, legend_y, &title2);
 
     match request.format.as_str() {
         "jpeg" | "jpg" => {
