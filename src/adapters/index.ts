@@ -28,6 +28,14 @@ export interface CropRect {
   height: number;
 }
 
+/** Serialized payload sent to the export backend (TS or Rust). */
+export interface WatermarkPayload {
+  show_header: boolean;
+  app_description: string;
+  /** Pre-resolved lines to tile across the grid. Length 0..2. */
+  watermark_lines: string[];
+}
+
 export interface ExportImageRequest {
   width: number;
   height: number;
@@ -38,6 +46,7 @@ export interface ExportImageRequest {
   start_x: number;
   start_y: number;
   edge_padding: number;
+  watermark?: WatermarkPayload;
 }
 
 export interface ExportPreviewRequest {
@@ -46,6 +55,7 @@ export interface ExportPreviewRequest {
   pixel_size: number;
   cells: (null | { color_code: string; r: number; g: number; b: number })[][];
   output_path: string;
+  watermark?: WatermarkPayload;
 }
 
 export interface SnapshotInfo {

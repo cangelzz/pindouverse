@@ -4,12 +4,21 @@ use imageproc::drawing::draw_text_mut;
 use ab_glyph::{point, Font, FontRef, PxScale, ScaleFont};
 use std::collections::HashMap;
 
+use super::image_decorations::{bold_font, draw_header, draw_watermark, header_height, DrawHeaderOpts, DrawWatermarkOpts};
+
 #[derive(Deserialize, Clone)]
 pub struct CellData {
     pub color_code: String,
     pub r: u8,
     pub g: u8,
     pub b: u8,
+}
+
+#[derive(Deserialize, Clone)]
+pub struct WatermarkPayload {
+    pub show_header: bool,
+    pub app_description: String,
+    pub watermark_lines: Vec<String>,
 }
 
 #[derive(Deserialize)]
@@ -23,6 +32,7 @@ pub struct ExportRequest {
     pub start_x: Option<i32>,
     pub start_y: Option<i32>,
     pub edge_padding: Option<u32>,
+    pub watermark: Option<WatermarkPayload>,
 }
 
 fn luminance(r: u8, g: u8, b: u8) -> f64 {
@@ -56,6 +66,7 @@ fn measure_text(scale: PxScale, font: &impl Font, text: &str) -> (i32, i32, i32)
 #[tauri::command]
 pub fn export_image(request: ExportRequest) -> Result<String, String> {
     let cs = request.cell_size;
+    let header_h = header_height(cs, request.watermark.as_ref().map(|w| w.show_header).unwrap_or(false));
     let margin = cs;
 
     // Count colors used
@@ -143,11 +154,25 @@ pub fn export_image(request: ExportRequest) -> Result<String, String> {
 
     let grid_area_h = request.height * cs + margin;
     let img_width = request.width * cs + margin;
-    let img_height = grid_area_h + total_legend_h;
+    let img_height = header_h + grid_area_h + total_legend_h;
     let mut img = RgbaImage::new(img_width, img_height);
 
     for pixel in img.pixels_mut() {
         *pixel = Rgba([255, 255, 255, 255]);
+    }
+
+    // Header band
+    if header_h > 0 {
+        if let Some(wm) = &request.watermark {
+            let bold = bold_font()?;
+            draw_header(&mut img, DrawHeaderOpts {
+                cell_size: cs,
+                width: img_width,
+                header_height: header_h,
+                description: &wm.app_description,
+                bold_font: bold,
+            });
+        }
     }
 
     let code_scale = PxScale::from(cs as f32 * 0.4);
@@ -163,11 +188,11 @@ pub fn export_image(request: ExportRequest) -> Result<String, String> {
         let x = margin + col * cs;
         let label = format!("{}", col as i32 - ep as i32 + sx);
         let tx = x as i32 + cs as i32 / 6;
-        let ty = cs as i32 / 4;
+        let ty = header_h as i32 + cs as i32 / 4;
         draw_text_mut(&mut img, axis_color, tx, ty, axis_scale, &font, &label);
     }
     for row in ep..request.height - ep {
-        let y = margin + row * cs;
+        let y = header_h + margin + row * cs;
         let label = format!("{}", row as i32 - ep as i32 + sy);
         let tx = cs as i32 / 8;
         let ty = y as i32 + cs as i32 / 4;
@@ -178,7 +203,7 @@ pub fn export_image(request: ExportRequest) -> Result<String, String> {
     for (row_idx, row) in request.cells.iter().enumerate() {
         for (col_idx, cell) in row.iter().enumerate() {
             let x0 = margin + col_idx as u32 * cs;
-            let y0 = margin + row_idx as u32 * cs;
+            let y0 = header_h + margin + row_idx as u32 * cs;
 
             if let Some(cell_data) = cell {
                 for dy in 0..cs {
@@ -209,6 +234,11 @@ pub fn export_image(request: ExportRequest) -> Result<String, String> {
     let mid_color = Rgba([80, 80, 80, 255]);
     let thick_color = Rgba([0, 0, 0, 255]);
 
+    let grid_x_start = margin;
+    let grid_y_start = header_h + margin;
+    let grid_x_end = margin + request.width * cs;
+    let grid_y_end = header_h + margin + request.height * cs;
+
     let draw_hline = |img: &mut RgbaImage, y: u32, x_start: u32, x_end: u32, color: Rgba<u8>, thickness: u32| {
         for t in 0..thickness {
             let py = y + t;
@@ -222,16 +252,11 @@ pub fn export_image(request: ExportRequest) -> Result<String, String> {
         for t in 0..thickness {
             let px = x + t;
             if px >= img_width { break; }
-            for py in y_start..y_end.min(grid_area_h) {
+            for py in y_start..y_end.min(grid_y_end) {
                 img.put_pixel(px, py, color);
             }
         }
     };
-
-    let grid_x_start = margin;
-    let grid_y_start = margin;
-    let grid_x_end = margin + request.width * cs;
-    let grid_y_end = margin + request.height * cs;
 
     for col in 0..=request.width {
         let x = grid_x_start + col * cs;
@@ -356,7 +381,7 @@ pub fn export_image(request: ExportRequest) -> Result<String, String> {
         }
     };
 
-    let mut legend_y = grid_area_h + legend_gap;
+    let mut legend_y = header_h + grid_area_h + legend_gap;
     let total_beads: u32 = by_count.iter().map(|x| x.4).sum();
     let title1 = format!("By Count ({} colors, {} beads)", by_count.len(), total_beads);
     draw_legend_section(&mut img, &by_count_layout, by_count_rows, legend_y, &title1);
@@ -364,6 +389,22 @@ pub fn export_image(request: ExportRequest) -> Result<String, String> {
 
     let title2 = format!("By Code ({} colors)", by_alpha.len());
     draw_legend_section(&mut img, &by_alpha_layout, by_alpha_rows, legend_y, &title2);
+
+    // Watermark (clipped to the grid area)
+    if let Some(wm) = &request.watermark {
+        if !wm.watermark_lines.is_empty() {
+            let bold = bold_font()?;
+            draw_watermark(&mut img, DrawWatermarkOpts {
+                cell_size: cs,
+                grid_x: margin,
+                grid_y: header_h + margin,
+                grid_w: request.width * cs,
+                grid_h: request.height * cs,
+                lines: &wm.watermark_lines,
+                bold_font: bold,
+            });
+        }
+    }
 
     match request.format.as_str() {
         "jpeg" | "jpg" => {
@@ -388,26 +429,41 @@ pub struct PreviewRequest {
     pub pixel_size: u32,
     pub cells: Vec<Vec<Option<CellData>>>,
     pub output_path: String,
+    pub watermark: Option<WatermarkPayload>,
 }
 
 /// Export a flat preview image — just colored pixels, no grid/text/legend
 #[tauri::command]
 pub fn export_preview(request: PreviewRequest) -> Result<String, String> {
     let ps = request.pixel_size;
+    let header_h = header_height(ps, request.watermark.as_ref().map(|w| w.show_header).unwrap_or(false));
+    let grid_area_h = request.height * ps;
     let img_width = request.width * ps;
-    let img_height = request.height * ps;
+    let img_height = header_h + grid_area_h;
     let mut img = RgbaImage::new(img_width, img_height);
 
-    // Fill with white
     for pixel in img.pixels_mut() {
         *pixel = Rgba([255, 255, 255, 255]);
+    }
+
+    if header_h > 0 {
+        if let Some(wm) = &request.watermark {
+            let bold = bold_font()?;
+            draw_header(&mut img, DrawHeaderOpts {
+                cell_size: ps,
+                width: img_width,
+                header_height: header_h,
+                description: &wm.app_description,
+                bold_font: bold,
+            });
+        }
     }
 
     for (row_idx, row) in request.cells.iter().enumerate() {
         for (col_idx, cell) in row.iter().enumerate() {
             if let Some(cd) = cell {
                 let x0 = col_idx as u32 * ps;
-                let y0 = row_idx as u32 * ps;
+                let y0 = header_h + row_idx as u32 * ps;
                 for dy in 0..ps {
                     for dx in 0..ps {
                         let px = x0 + dx;
@@ -421,10 +477,40 @@ pub fn export_preview(request: PreviewRequest) -> Result<String, String> {
         }
     }
 
-    // Always save as JPEG (convert RGBA -> RGB)
+    if let Some(wm) = &request.watermark {
+        if !wm.watermark_lines.is_empty() {
+            let bold = bold_font()?;
+            draw_watermark(&mut img, DrawWatermarkOpts {
+                cell_size: ps,
+                grid_x: 0,
+                grid_y: header_h,
+                grid_w: img_width,
+                grid_h: grid_area_h,
+                lines: &wm.watermark_lines,
+                bold_font: bold,
+            });
+        }
+    }
+
     let rgb_img: image::RgbImage = image::DynamicImage::ImageRgba8(img).to_rgb8();
     rgb_img.save_with_format(&request.output_path, image::ImageFormat::Jpeg)
         .map_err(|e| format!("Failed to save preview: {}", e))?;
 
     Ok(request.output_path)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::super::image_decorations::header_height;
+
+    #[test]
+    fn header_height_off() {
+        assert_eq!(header_height(20, false), 0);
+    }
+
+    #[test]
+    fn header_height_on() {
+        assert_eq!(header_height(20, true), 40);
+        assert_eq!(header_height(33, true), 66);
+    }
 }

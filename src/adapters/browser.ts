@@ -13,6 +13,30 @@ import type {
 } from "./index";
 import type { ProjectFile } from "../types";
 import { computeLegendLayout, drawLegend } from "../utils/blueprintLegend";
+import {
+  computeHeaderHeight,
+  drawHeader,
+  drawWatermark,
+} from "../utils/blueprintDecorations";
+import appIconUrl from "../../src-tauri/icons/64x64.png";
+
+let _cachedIcon: HTMLImageElement | null = null;
+let _iconPromise: Promise<HTMLImageElement | null> | null = null;
+
+function loadAppIcon(): Promise<HTMLImageElement | null> {
+  if (_cachedIcon) return Promise.resolve(_cachedIcon);
+  if (_iconPromise) return _iconPromise;
+  _iconPromise = new Promise((resolve) => {
+    const img = new Image();
+    img.onload = () => {
+      _cachedIcon = img;
+      resolve(img);
+    };
+    img.onerror = () => resolve(null);
+    img.src = appIconUrl;
+  });
+  return _iconPromise;
+}
 
 const DB_NAME = "pindouverse";
 const DB_VERSION = 1;
@@ -262,19 +286,41 @@ export class BrowserAdapter implements PlatformAdapter {
   // ─── Image export (Canvas API + download) ───
 
   async exportImage(request: ExportImageRequest): Promise<void> {
-    const { width, height, cell_size, cells, output_path, format, start_x, start_y, edge_padding } = request;
+    const {
+      width, height, cell_size, cells, output_path, format,
+      start_x, start_y, edge_padding, watermark,
+    } = request;
     const cw = width * cell_size;
     const gridAreaH = height * cell_size;
+    const headerH = computeHeaderHeight(cell_size, !!watermark?.show_header);
     const legend = computeLegendLayout(cells as any, width, cell_size);
-    const ch = gridAreaH + legend.totalHeight;
+    const ch = headerH + gridAreaH + legend.totalHeight;
     const canvas = document.createElement("canvas");
     canvas.width = cw;
     canvas.height = ch;
     const ctx = canvas.getContext("2d")!;
 
-    // White background (covers grid + legend)
     ctx.fillStyle = "#FFFFFF";
     ctx.fillRect(0, 0, cw, ch);
+
+    // Optional header
+    if (headerH > 0 && watermark) {
+      const icon = await loadAppIcon();
+      drawHeader(ctx, {
+        cellSize: cell_size,
+        width: cw,
+        headerHeight: headerH,
+        iconImage: icon,
+        description: watermark.app_description,
+      });
+    }
+
+    // Translate the existing grid/axis/legend drawing into the post-header band
+    const useTranslate = headerH > 0;
+    if (useTranslate) {
+      ctx.save();
+      ctx.translate(0, headerH);
+    }
 
     // Draw cells
     for (let row = 0; row < height; row++) {
@@ -353,6 +399,22 @@ export class BrowserAdapter implements PlatformAdapter {
     // Bead-count legend below grid (matches Tauri output)
     drawLegend(ctx, legend, cell_size, gridAreaH);
 
+    if (useTranslate) {
+      ctx.restore();
+    }
+
+    // Watermark (in absolute coords — inside the grid area only, after the header offset)
+    if (watermark && watermark.watermark_lines.length > 0) {
+      drawWatermark(ctx, {
+        cellSize: cell_size,
+        gridX: 0,
+        gridY: headerH,
+        gridW: cw,
+        gridH: gridAreaH,
+        lines: watermark.watermark_lines,
+      });
+    }
+
     const mimeType = format === "jpeg" ? "image/jpeg" : "image/png";
     const ext = format === "jpeg" ? "jpg" : "png";
     const blob = await new Promise<Blob>((resolve) =>
@@ -363,9 +425,11 @@ export class BrowserAdapter implements PlatformAdapter {
   }
 
   async exportPreview(request: ExportPreviewRequest): Promise<void> {
-    const { width, height, pixel_size, cells, output_path } = request;
+    const { width, height, pixel_size, cells, output_path, watermark } = request;
     const cw = width * pixel_size;
-    const ch = height * pixel_size;
+    const gridAreaH = height * pixel_size;
+    const headerH = computeHeaderHeight(pixel_size, !!watermark?.show_header);
+    const ch = headerH + gridAreaH;
     const canvas = document.createElement("canvas");
     canvas.width = cw;
     canvas.height = ch;
@@ -374,14 +438,36 @@ export class BrowserAdapter implements PlatformAdapter {
     ctx.fillStyle = "#FFFFFF";
     ctx.fillRect(0, 0, cw, ch);
 
+    if (headerH > 0 && watermark) {
+      const icon = await loadAppIcon();
+      drawHeader(ctx, {
+        cellSize: pixel_size,
+        width: cw,
+        headerHeight: headerH,
+        iconImage: icon,
+        description: watermark.app_description,
+      });
+    }
+
     for (let row = 0; row < height; row++) {
       for (let col = 0; col < width; col++) {
         const cell = cells[row]?.[col];
         if (cell) {
           ctx.fillStyle = `rgb(${cell.r},${cell.g},${cell.b})`;
-          ctx.fillRect(col * pixel_size, row * pixel_size, pixel_size, pixel_size);
+          ctx.fillRect(col * pixel_size, headerH + row * pixel_size, pixel_size, pixel_size);
         }
       }
+    }
+
+    if (watermark && watermark.watermark_lines.length > 0) {
+      drawWatermark(ctx, {
+        cellSize: pixel_size,
+        gridX: 0,
+        gridY: headerH,
+        gridW: cw,
+        gridH: gridAreaH,
+        lines: watermark.watermark_lines,
+      });
     }
 
     const blob = await new Promise<Blob>((resolve) =>

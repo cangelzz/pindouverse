@@ -87,6 +87,7 @@ mod tests {
             start_x: Some(1),
             start_y: Some(1),
             edge_padding: Some(edge_padding),
+            watermark: None,
         };
         export_image(request).expect("Export failed");
         assert!(export_path.exists(), "Exported file should exist");

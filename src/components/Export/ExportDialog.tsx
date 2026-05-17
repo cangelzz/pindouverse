@@ -1,8 +1,15 @@
-import { useState } from "react";
+import { useState, useEffect, useMemo } from "react";
 import { useEditorStore } from "../../store/editorStore";
 import { MARD_COLORS } from "../../data/mard221";
 import { getEffectiveColor } from "../../utils/colorHelper";
 import { getAdapter } from "../../adapters";
+import {
+  loadWatermarkSettings,
+  saveWatermarkSettings,
+  computeWatermarkLines,
+  resolveWatermarkAuthor,
+} from "../../utils/blueprintDecorations";
+import type { WatermarkPayload } from "../../adapters";
 
 export function ExportDialog({ onClose }: { onClose: () => void }) {
   const canvasData = useEditorStore((s) => s.canvasData);
@@ -11,6 +18,26 @@ export function ExportDialog({ onClose }: { onClose: () => void }) {
   const projectPath = useEditorStore((s) => s.projectPath);
   const gridConfig = useEditorStore((s) => s.gridConfig);
   const colorOverrides = useEditorStore((s) => s.colorOverrides);
+  const projectInfo = useEditorStore((s) => s.projectInfo);
+  const [watermark, setWatermark] = useState(() => loadWatermarkSettings());
+
+  const projectAuthor = projectInfo?.author ?? "";
+  const resolvedAuthor = resolveWatermarkAuthor(watermark.authorOverride, projectAuthor);
+  const watermarkPayload: WatermarkPayload = useMemo(
+    () => ({
+      show_header: watermark.showHeader,
+      app_description: watermark.appDescription.trim(),
+      watermark_lines: computeWatermarkLines(watermark, projectAuthor),
+    }),
+    [watermark, projectAuthor]
+  );
+
+  // Persist settings when the dialog unmounts, even if the user closes without exporting
+  useEffect(() => {
+    return () => {
+      saveWatermarkSettings(watermark);
+    };
+  }, [watermark]);
 
   const [cellSize, setCellSize] = useState(30);
   const [format, setFormat] = useState<"png" | "jpeg">("png");
@@ -64,6 +91,7 @@ export function ExportDialog({ onClose }: { onClose: () => void }) {
     setIsExporting(true);
     try {
       const cells = buildCells();
+      saveWatermarkSettings(watermark);
       const results: string[] = [];
       const errors: string[] = [];
 
@@ -88,6 +116,7 @@ export function ExportDialog({ onClose }: { onClose: () => void }) {
             start_x: gridConfig.startX,
             start_y: gridConfig.startY,
             edge_padding: gridConfig.edgePadding,
+            watermark: watermarkPayload,
           }),
         );
 
@@ -104,6 +133,7 @@ export function ExportDialog({ onClose }: { onClose: () => void }) {
               start_x: gridConfig.startX,
               start_y: gridConfig.startY,
               edge_padding: gridConfig.edgePadding,
+              watermark: watermarkPayload,
             }),
           );
         }
@@ -132,6 +162,7 @@ export function ExportDialog({ onClose }: { onClose: () => void }) {
             pixel_size: cellSize,
             cells,
             output_path: previewPath,
+            watermark: watermarkPayload,
           }),
         );
 
@@ -144,6 +175,7 @@ export function ExportDialog({ onClose }: { onClose: () => void }) {
               pixel_size: cellSize,
               cells: mirrorCells(cells),
               output_path: mirrorPreviewPath,
+              watermark: watermarkPayload,
             }),
           );
         }
@@ -163,7 +195,7 @@ export function ExportDialog({ onClose }: { onClose: () => void }) {
 
   return (
     <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50">
-      <div className="bg-white rounded-lg shadow-xl w-[380px]">
+      <div className="bg-white rounded-lg shadow-xl w-[440px]">
         <div className="px-4 py-3 border-b flex justify-between items-center">
           <h2 className="font-semibold text-sm">导出高分辨率图片</h2>
           <button
@@ -247,6 +279,70 @@ export function ExportDialog({ onClose }: { onClose: () => void }) {
                 />
                 <span>🪞 同时导出左右镜像（拼豆背面视角）</span>
               </label>
+            </div>
+          </div>
+
+          <div>
+            <label className="text-xs text-gray-600 mb-1 block">水印与署名</label>
+            <div className="flex flex-col gap-1.5">
+              <label className="flex items-center gap-2 text-xs cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={watermark.showHeader}
+                  onChange={(e) => setWatermark({ ...watermark, showHeader: e.target.checked })}
+                  className="w-3.5 h-3.5"
+                />
+                <span>顶部应用标题（icon + PindouVerse）</span>
+              </label>
+              {watermark.showHeader && (
+                <div className="pl-6">
+                  <label className="text-[11px] text-gray-500 block mb-0.5">描述（可选）</label>
+                  <input
+                    type="text"
+                    value={watermark.appDescription}
+                    onChange={(e) => setWatermark({ ...watermark, appDescription: e.target.value })}
+                    placeholder="例如 犬夜叉桔梗 64x72"
+                    className="w-full px-2 py-1 text-xs border rounded"
+                  />
+                </div>
+              )}
+
+              <label className="flex items-center gap-2 text-xs cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={watermark.appWatermark}
+                  onChange={(e) => setWatermark({ ...watermark, appWatermark: e.target.checked })}
+                  className="w-3.5 h-3.5"
+                />
+                <span>在图中添加 PindouVerse 水印（45° 平铺）</span>
+              </label>
+
+              <label className="flex items-center gap-2 text-xs cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={watermark.authorWatermark}
+                  onChange={(e) => setWatermark({ ...watermark, authorWatermark: e.target.checked })}
+                  className="w-3.5 h-3.5"
+                />
+                <span>在图中添加作者水印</span>
+              </label>
+              {watermark.authorWatermark && (
+                <div className="pl-6">
+                  <label className="text-[11px] text-gray-500 block mb-0.5">作者</label>
+                  <input
+                    type="text"
+                    value={watermark.authorOverride}
+                    onChange={(e) => setWatermark({ ...watermark, authorOverride: e.target.value })}
+                    placeholder={projectAuthor || "(未设置)"}
+                    className="w-full px-2 py-1 text-xs border rounded"
+                  />
+                  {!resolvedAuthor && (
+                    <p className="text-[10px] text-gray-400 mt-0.5">
+                      未设置作者名，将不绘制作者水印
+                    </p>
+                  )}
+                </div>
+              )}
             </div>
           </div>
 

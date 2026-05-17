@@ -106,3 +106,16 @@ export interface ProjectSnapshot {
   canvasSize: CanvasSize;
   canvasData: CanvasData;
 }
+
+export interface ExportWatermarkSettings {
+  /** Show top header band with icon + PindouVerse text. Default true. */
+  showHeader: boolean;
+  /** Optional description appended as " - <desc>" after PindouVerse. Default "". */
+  appDescription: string;
+  /** Tile PindouVerse text at 45° across the grid. Default false. */
+  appWatermark: boolean;
+  /** Tile resolved author text at 45° across the grid. Default true. */
+  authorWatermark: boolean;
+  /** Per-session author override; not persisted. Empty falls back to projectInfo.author. */
+  authorOverride: string;
+}
