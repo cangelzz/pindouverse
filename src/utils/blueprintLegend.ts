@@ -151,11 +151,10 @@ export function computeLegendLayout(
 export function drawLegend(
   ctx: CanvasRenderingContext2D,
   layout: LegendLayout,
-  cellSize: number,
   margin: number,
   gridAreaH: number,
 ): void {
-  const { swatchH, sections } = layout;
+  const { swatchH, sections, cellSize } = layout;
   const innerW = (ctx.canvas.width - margin * 2);
   const gap = Math.floor(cellSize / 2);
   const sectionTitleH = cellSize;

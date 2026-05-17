@@ -13,7 +13,7 @@ beforeAll(() => {
     },
   };
   if (typeof document === "undefined") {
-    (global as any).document = {
+    (globalThis as any).document = {
       createElement(tag: string) {
         if (tag === "canvas") {
           return { getContext: () => FakeCtx } as any;

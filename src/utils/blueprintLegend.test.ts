@@ -1,6 +1,3 @@
-/**
- * @vitest environment jsdom
- */
 import { describe, it, expect, vi, beforeAll } from "vitest";
 import {
   buildLegendItems,
