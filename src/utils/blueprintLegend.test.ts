@@ -8,7 +8,6 @@ import {
   LEGEND_PAD,
   LEGEND_GAP,
   type LegendCell,
-  type LegendLayout,
 } from "./blueprintLegend";
 
 // Mock measureText: monospace at 12px → each char is exactly 7px wide.
@@ -22,9 +21,9 @@ beforeAll(() => {
       return { width: s.length * CHAR_W };
     },
   };
-  // Create a minimal mock for document if it doesn't exist
+  // Create a minimal mock for document if it doesn't exist (vitest defaults to node env)
   if (typeof document === "undefined") {
-    (global as any).document = {
+    (globalThis as any).document = {
       createElement(tag: string) {
         if (tag === "canvas") {
           return { getContext: () => FakeCtx } as any;
@@ -33,7 +32,7 @@ beforeAll(() => {
       },
     };
   } else {
-    // jsdom doesn't provide canvas — stub document.createElement for "canvas"
+    // jsdom: spy on createElement so getContext returns our mock
     const origCreateElement = document.createElement.bind(document);
     vi.spyOn(document, "createElement").mockImplementation((tag: string) => {
       if (tag === "canvas") {
