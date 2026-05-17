@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.8.9
+
+- Feature: image exports (blueprint, preview, and mirrors) now support an optional top "PindouVerse" header band with the app icon, plus opt-in 45° tiled watermarks for the app name and the project author. New "水印与署名" section in the export dialog with a description field, author override, and persistent settings. Header band on by default; author watermark on by default (silently skipped if no author is set).
+
 ## 0.8.8
 
 - Feature: eraser tool now has a flyout with two sub-modes — 单格擦除 (single cell, the original behavior) and 区域擦除 (flood-erase, clears all connected cells of the clicked color). Symmetric to the 填充 tool. The last-used sub-mode is sticky via the `E` shortcut.
