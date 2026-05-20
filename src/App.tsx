@@ -15,7 +15,7 @@ import type { BlueprintImportResult } from "./adapters";
 import { MARD_COLORS } from "./data/mard221";
 import { getEffectiveColor, getEffectiveHex, type ColorOverrideMap } from "./utils/colorHelper";
 import { hasToken, clearGitHubToken, requestDeviceCode, pollForToken, type DeviceCodeInfo } from "./utils/llmVoice";
-import type { HistoryAction, HistoryEntry } from "./types";
+import type { HistoryAction, HistoryEntry, CanvasData, CanvasSize } from "./types";
 
 /** Render a small color swatch (or hatched empty marker for null) */
 function ColorSwatch({ colorIndex, overrides }: { colorIndex: number | null; overrides: ColorOverrideMap }) {
@@ -112,6 +112,11 @@ function App() {
   const [resizeAnchorCol, setResizeAnchorCol] = useState(0);
   const [showSnapshots, setShowSnapshots] = useState(false);
   const [snapshotLabel, setSnapshotLabel] = useState("");
+  const [compareSnapshot, setCompareSnapshot] = useState<{
+    canvasData: CanvasData;
+    canvasSize: CanvasSize;
+    name: string;
+  } | null>(null);
   const [blueprintImporting, setBlueprintImporting] = useState(false);
   const [blueprintProgress, setBlueprintProgress] = useState("");
   const [blueprintResult, setBlueprintResult] = useState<BlueprintImportResult | null>(null);
@@ -174,6 +179,7 @@ function App() {
   const createSnapshot = useEditorStore((s) => s.createSnapshot);
   const loadSnapshots = useEditorStore((s) => s.loadSnapshots);
   const restoreSnapshot = useEditorStore((s) => s.restoreSnapshot);
+  const deleteSnapshot = useEditorStore((s) => s.deleteSnapshot);
   const undoStack = useEditorStore((s) => s.undoStack);
   const redoStack = useEditorStore((s) => s.redoStack);
   const undo = useEditorStore((s) => s.undo);
@@ -1062,7 +1068,7 @@ function App() {
       {/* Snapshot Dialog */}
       {showSnapshots && (
         <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50">
-          <div className="bg-white rounded-lg shadow-xl w-[420px] max-h-[70vh] flex flex-col">
+          <div className="bg-white rounded-lg shadow-xl w-[480px] max-h-[70vh] flex flex-col">
             <div className="px-4 py-3 border-b flex justify-between items-center">
               <h2 className="font-semibold text-sm">版本管理</h2>
               <button
@@ -1109,12 +1115,43 @@ function App() {
                       </div>
                       <button
                         onClick={async () => {
+                          try {
+                            const proj = await getAdapter().loadSnapshot(s.path);
+                            setCompareSnapshot({
+                              canvasData: proj.canvasData,
+                              canvasSize: proj.canvasSize,
+                              name: s.name,
+                            });
+                          } catch (e) {
+                            alert(`加载快照失败: ${e instanceof Error ? e.message : String(e)}`);
+                          }
+                        }}
+                        className="px-2 py-1 border border-gray-300 text-blue-600 rounded hover:bg-blue-50 shrink-0"
+                      >
+                        对比
+                      </button>
+                      <button
+                        onClick={async () => {
                           await restoreSnapshot(s.path);
                           setShowSnapshots(false);
                         }}
                         className="px-2 py-1 bg-green-500 text-white rounded hover:bg-green-600 shrink-0"
                       >
                         恢复
+                      </button>
+                      <button
+                        onClick={async () => {
+                          if (!confirm(`确认删除快照「${s.name}」？此操作不可撤销。`)) return;
+                          try {
+                            await deleteSnapshot(s.path);
+                          } catch (e) {
+                            alert(`删除失败: ${e instanceof Error ? e.message : String(e)}`);
+                          }
+                        }}
+                        title="删除快照"
+                        className="px-2 py-1 border border-red-300 text-red-600 rounded hover:bg-red-50 shrink-0"
+                      >
+                        🗑
                       </button>
                     </div>
                   ))}
@@ -1123,6 +1160,18 @@ function App() {
             </div>
           </div>
         </div>
+      )}
+
+      {/* Snapshot compare dialog */}
+      {compareSnapshot && (
+        <ChangesCompareDialog
+          onClose={() => setCompareSnapshot(null)}
+          baselineData={compareSnapshot.canvasData}
+          baselineSize={compareSnapshot.canvasSize}
+          baselineLabel={`快照: ${compareSnapshot.name}`}
+          currentLabel="当前"
+          title="与快照对比"
+        />
       )}
 
       {/* History Dialog */}

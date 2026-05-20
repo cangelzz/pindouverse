@@ -256,6 +256,10 @@ export class VScodeAdapter implements PlatformAdapter {
     return this.loadProject(path);
   }
 
+  async deleteSnapshot(_path: string): Promise<void> {
+    throw new Error("Snapshot delete not yet supported on this platform.");
+  }
+
   async previewImage(path: string): Promise<ImagePreview> {
     const img = await getImageElement(path);
 

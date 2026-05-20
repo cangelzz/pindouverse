@@ -205,6 +205,25 @@ pub fn load_snapshot(path: String) -> Result<ProjectFile, String> {
     load_project(path)
 }
 
+#[tauri::command]
+pub fn delete_snapshot(path: String) -> Result<(), String> {
+    let snapshots_dir = dirs::data_local_dir()
+        .ok_or("Cannot find local data dir")?
+        .join("pindou")
+        .join("snapshots");
+
+    let canonical = fs::canonicalize(&path)
+        .map_err(|e| format!("Invalid path: {}", e))?;
+    let canonical_dir = fs::canonicalize(&snapshots_dir)
+        .map_err(|e| format!("Snapshots dir not accessible: {}", e))?;
+
+    if !canonical.starts_with(&canonical_dir) {
+        return Err("Path is outside the snapshots directory".to_string());
+    }
+
+    fs::remove_file(&canonical).map_err(|e| format!("Delete failed: {}", e))
+}
+
 #[derive(Serialize)]
 pub struct SnapshotInfo {
     pub path: String,

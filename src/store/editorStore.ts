@@ -168,6 +168,7 @@ interface EditorState {
   createSnapshot: (label: string) => Promise<void>;
   loadSnapshots: () => Promise<void>;
   restoreSnapshot: (path: string) => Promise<void>;
+  deleteSnapshot: (path: string) => Promise<void>;
 
   // Reference image
   setRefImage: (pixels: number[], width: number, height: number) => void;
@@ -1123,6 +1124,12 @@ export const useEditorStore = create<EditorState>((set, get) => ({
       offsetX: 0,
       offsetY: 0,
     });
+  },
+
+  deleteSnapshot: async (path) => {
+    const adapter = getAdapter();
+    await adapter.deleteSnapshot(path);
+    await get().loadSnapshots();
   },
 
   setRefImage: (pixels, width, height) =>

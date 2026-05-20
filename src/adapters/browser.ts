@@ -96,6 +96,18 @@ function idbAllKeys(store: string): Promise<string[]> {
   );
 }
 
+function idbDelete(store: string, key: string): Promise<void> {
+  return openDB().then(
+    (db) =>
+      new Promise((resolve, reject) => {
+        const tx = db.transaction(store, "readwrite");
+        tx.objectStore(store).delete(key);
+        tx.oncomplete = () => resolve();
+        tx.onerror = () => reject(tx.error);
+      })
+  );
+}
+
 /** Load an image from a File into an HTMLImageElement */
 function loadImageFromFile(file: File): Promise<HTMLImageElement> {
   return new Promise((resolve, reject) => {
@@ -236,6 +248,10 @@ export class BrowserAdapter implements PlatformAdapter {
     const data = await idbGet<{ project: ProjectFile }>(STORE_SNAPSHOTS, path);
     if (!data) throw new Error(`Snapshot not found: ${path}`);
     return data.project;
+  }
+
+  async deleteSnapshot(path: string): Promise<void> {
+    await idbDelete(STORE_SNAPSHOTS, path);
   }
 
   // ─── Image import (Canvas API) ───

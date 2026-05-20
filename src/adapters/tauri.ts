@@ -38,6 +38,10 @@ export class TauriAdapter implements PlatformAdapter {
     return await invoke<ProjectFile>("load_snapshot", { path });
   }
 
+  async deleteSnapshot(path: string): Promise<void> {
+    await invoke("delete_snapshot", { path });
+  }
+
   async previewImage(path: string): Promise<ImagePreview> {
     return await invoke<ImagePreview>("preview_image", { path });
   }

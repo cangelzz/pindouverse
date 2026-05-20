@@ -19,6 +19,7 @@ pub fn run() {
             commands::project::save_snapshot,
             commands::project::list_snapshots,
             commands::project::load_snapshot,
+            commands::project::delete_snapshot,
             commands::mobile::get_mobile_documents_dir,
             commands::mobile::share_file,
             commands::github_auth::github_request_device_code,

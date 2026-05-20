@@ -136,6 +136,7 @@ export interface PlatformAdapter {
   saveSnapshot(project: ProjectFile, label: string): Promise<void>;
   listSnapshots(): Promise<SnapshotInfo[]>;
   loadSnapshot(path: string): Promise<ProjectFile>;
+  deleteSnapshot(path: string): Promise<void>;
 
   // Image import
   previewImage(path: string): Promise<ImagePreview>;

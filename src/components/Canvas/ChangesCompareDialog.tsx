@@ -1,8 +1,11 @@
 import { useRef, useEffect, useMemo, useState, useCallback } from "react";
 import { useEditorStore } from "../../store/editorStore";
 import { getEffectiveHex } from "../../utils/colorHelper";
-import type { CanvasData } from "../../types";
+import type { CanvasData, CanvasSize } from "../../types";
 import type { ColorOverrideMap } from "../../utils/colorHelper";
+import { computeChangeStats } from "./changeStats";
+export type { ChangeStats } from "./changeStats";
+export { computeChangeStats } from "./changeStats";
 
 const MIN_CANVAS = 200;
 const MAX_CANVAS = 600;
@@ -42,7 +45,6 @@ function renderView(
     }
   }
 
-  // Grid lines when zoomed in enough
   if (cellSize >= 8) {
     ctx.strokeStyle = "rgba(0,0,0,0.08)";
     ctx.lineWidth = 0.5;
@@ -57,60 +59,76 @@ function renderView(
   }
 }
 
-export function ChangesCompareDialog({ onClose }: { onClose: () => void }) {
+export interface ChangesCompareDialogProps {
+  onClose: () => void;
+  /** Override baseline. When omitted, reads store.baselineCanvasData. */
+  baselineData?: CanvasData;
+  /** Canvas size of the baseline. When omitted, assumes the same size as the current canvas. */
+  baselineSize?: CanvasSize;
+  /** Override label above the baseline view. Default: "基准版本". */
+  baselineLabel?: string;
+  /** Override label above the current view. Default: "当前版本". */
+  currentLabel?: string;
+  /** Dialog title. Default: "变更对比". */
+  title?: string;
+}
+
+export function ChangesCompareDialog({
+  onClose,
+  baselineData: baselineDataProp,
+  baselineSize: baselineSizeProp,
+  baselineLabel = "基准版本",
+  currentLabel = "当前版本",
+  title = "变更对比",
+}: ChangesCompareDialogProps) {
   const canvasData = useEditorStore((s) => s.canvasData);
   const canvasSize = useEditorStore((s) => s.canvasSize);
-  const baselineCanvasData = useEditorStore((s) => s.baselineCanvasData);
+  const storeBaselineCanvasData = useEditorStore((s) => s.baselineCanvasData);
   const colorOverrides = useEditorStore((s) => s.colorOverrides);
+
+  const baselineData = baselineDataProp ?? storeBaselineCanvasData;
+  const baselineSize: CanvasSize = baselineSizeProp ?? canvasSize;
+
+  // Union size — both views render against the same axes
+  const viewW = Math.max(canvasSize.width, baselineSize.width);
+  const viewH = Math.max(canvasSize.height, baselineSize.height);
+  const sizesDiffer =
+    canvasSize.width !== baselineSize.width ||
+    canvasSize.height !== baselineSize.height;
 
   const baselineRef = useRef<HTMLCanvasElement>(null);
   const currentRef = useRef<HTMLCanvasElement>(null);
 
   const [viewSize, setViewSize] = useState(320);
 
-  // Shared zoom & pan
-  const fitZoom = Math.min(viewSize / canvasSize.width, viewSize / canvasSize.height);
+  const fitZoom = Math.min(viewSize / viewW, viewSize / viewH);
   const [zoom, setZoom] = useState(fitZoom);
   const [panX, setPanX] = useState(0);
   const [panY, setPanY] = useState(0);
   const isDragging = useRef(false);
   const dragStart = useRef({ x: 0, y: 0, px: 0, py: 0 });
 
-  // Center on mount
   useEffect(() => {
-    const z = Math.min(viewSize / canvasSize.width, viewSize / canvasSize.height);
+    const z = Math.min(viewSize / viewW, viewSize / viewH);
     setZoom(z);
-    setPanX((viewSize - canvasSize.width * z) / 2);
-    setPanY((viewSize - canvasSize.height * z) / 2);
-  }, [canvasSize, viewSize]);
+    setPanX((viewSize - viewW * z) / 2);
+    setPanY((viewSize - viewH * z) / 2);
+  }, [viewW, viewH, viewSize]);
 
-  const stats = useMemo(() => {
-    if (!baselineCanvasData) return { added: 0, removed: 0, modified: 0 };
-    let added = 0, removed = 0, modified = 0;
-    for (let r = 0; r < canvasSize.height; r++) {
-      for (let c = 0; c < canvasSize.width; c++) {
-        const base = baselineCanvasData[r]?.[c]?.colorIndex ?? null;
-        const curr = canvasData[r]?.[c]?.colorIndex ?? null;
-        if (base === curr) continue;
-        if (base === null) added++;
-        else if (curr === null) removed++;
-        else modified++;
-      }
-    }
-    return { added, removed, modified };
-  }, [canvasData, baselineCanvasData, canvasSize]);
+  const stats = useMemo(
+    () => computeChangeStats(canvasData, baselineData, viewW, viewH),
+    [canvasData, baselineData, viewW, viewH],
+  );
 
-  // Render both canvases
   useEffect(() => {
-    if (baselineRef.current && baselineCanvasData) {
-      renderView(baselineRef.current, baselineCanvasData, canvasSize.width, canvasSize.height, zoom, panX, panY, colorOverrides, viewSize);
+    if (baselineRef.current && baselineData) {
+      renderView(baselineRef.current, baselineData, viewW, viewH, zoom, panX, panY, colorOverrides, viewSize);
     }
     if (currentRef.current) {
-      renderView(currentRef.current, canvasData, canvasSize.width, canvasSize.height, zoom, panX, panY, colorOverrides, viewSize);
+      renderView(currentRef.current, canvasData, viewW, viewH, zoom, panX, panY, colorOverrides, viewSize);
     }
-  }, [canvasData, baselineCanvasData, canvasSize, colorOverrides, zoom, panX, panY, viewSize]);
+  }, [canvasData, baselineData, viewW, viewH, colorOverrides, zoom, panX, panY, viewSize]);
 
-  // Mouse drag (synced on both canvases)
   const handleMouseDown = useCallback((e: React.MouseEvent) => {
     isDragging.current = true;
     dragStart.current = { x: e.clientX, y: e.clientY, px: panX, py: panY };
@@ -126,7 +144,6 @@ export function ChangesCompareDialog({ onClose }: { onClose: () => void }) {
     isDragging.current = false;
   }, []);
 
-  // Scroll to zoom (synced)
   const handleWheel = useCallback((e: React.WheelEvent) => {
     e.preventDefault();
     const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
@@ -152,7 +169,6 @@ export function ChangesCompareDialog({ onClose }: { onClose: () => void }) {
     className: "border rounded",
   };
 
-  // Dialog resize handle
   const isResizing = useRef(false);
   const resizeStart = useRef({ x: 0, size: 0 });
   const handleResizeStart = useCallback((e: React.MouseEvent) => {
@@ -177,15 +193,22 @@ export function ChangesCompareDialog({ onClose }: { onClose: () => void }) {
     <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50">
       <div className="bg-white rounded-lg shadow-xl relative" style={{ width: viewSize * 2 + 80 }}>
         <div className="px-4 py-3 border-b flex justify-between items-center">
-          <h2 className="font-semibold text-sm">变更对比</h2>
+          <div className="flex items-center gap-2">
+            <h2 className="font-semibold text-sm">{title}</h2>
+            {sizesDiffer && (
+              <span className="text-[10px] text-gray-400">
+                尺寸 {baselineSize.width}×{baselineSize.height} → {canvasSize.width}×{canvasSize.height}
+              </span>
+            )}
+          </div>
           <div className="flex items-center gap-2 text-xs text-gray-500">
             <span>{zoomPct}%</span>
             <button
               onClick={() => {
                 const z = fitZoom;
                 setZoom(z);
-                setPanX((viewSize - canvasSize.width * z) / 2);
-                setPanY((viewSize - canvasSize.height * z) / 2);
+                setPanX((viewSize - viewW * z) / 2);
+                setPanY((viewSize - viewH * z) / 2);
               }}
               className="px-1.5 py-0.5 rounded border hover:bg-gray-100 text-[10px]"
             >
@@ -196,11 +219,11 @@ export function ChangesCompareDialog({ onClose }: { onClose: () => void }) {
         </div>
         <div className="flex gap-4 p-4 justify-center">
           <div className="text-center">
-            <div className="text-[10px] text-gray-500 mb-1">基准版本</div>
+            <div className="text-[10px] text-gray-500 mb-1">{baselineLabel}</div>
             <canvas ref={baselineRef} {...canvasProps} />
           </div>
           <div className="text-center">
-            <div className="text-[10px] text-gray-500 mb-1">当前版本</div>
+            <div className="text-[10px] text-gray-500 mb-1">{currentLabel}</div>
             <canvas ref={currentRef} {...canvasProps} />
           </div>
         </div>

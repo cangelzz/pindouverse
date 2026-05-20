@@ -11,6 +11,7 @@ import { open as dialogOpen } from "@tauri-apps/plugin-dialog";
 import { TauriAdapter } from "./tauri";
 import type { FileFilter, ExportImageRequest, ExportPreviewRequest } from "./index";
 
+// deleteSnapshot is inherited from TauriAdapter — same Rust backend covers mobile.
 export class MobileAdapter extends TauriAdapter {
   /**
    * On mobile, "Save" dialog is replaced by saving to app-local storage
