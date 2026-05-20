@@ -5578,10 +5578,10 @@
         "colorIndex": 189
       },
       {
-        "colorIndex": 189
+        "colorIndex": 100
       },
       {
-        "colorIndex": 96
+        "colorIndex": 100
       },
       {
         "colorIndex": 96
@@ -5883,7 +5883,7 @@
         "colorIndex": 189
       },
       {
-        "colorIndex": 188
+        "colorIndex": 189
       },
       {
         "colorIndex": 96
@@ -6179,7 +6179,7 @@
         "colorIndex": 100
       },
       {
-        "colorIndex": 96
+        "colorIndex": 189
       },
       {
         "colorIndex": 170
@@ -6212,13 +6212,13 @@
         "colorIndex": 189
       },
       {
-        "colorIndex": 188
+        "colorIndex": 189
       },
       {
-        "colorIndex": 188
+        "colorIndex": 189
       },
       {
-        "colorIndex": 188
+        "colorIndex": 189
       },
       {
         "colorIndex": 189
@@ -6478,58 +6478,19 @@
         "colorIndex": 189
       },
       {
-        "colorIndex": 96
-      },
-      {
-        "colorIndex": 170
-      },
-      {
-        "colorIndex": 170
-      },
-      {
-        "colorIndex": 170
-      },
-      {
-        "colorIndex": 170
-      },
-      {
-        "colorIndex": 96
-      },
-      {
-        "colorIndex": 100
-      },
-      {
-        "colorIndex": 100
-      },
-      {
-        "colorIndex": 100
-      },
-      {
-        "colorIndex": 96
-      },
-      {
-        "colorIndex": 217
-      },
-      {
-        "colorIndex": 170
-      },
-      {
-        "colorIndex": 96
-      },
-      {
-        "colorIndex": 96
-      },
-      {
-        "colorIndex": 217
-      },
-      {
         "colorIndex": 189
       },
       {
-        "colorIndex": 96
+        "colorIndex": 170
       },
       {
-        "colorIndex": 100
+        "colorIndex": 170
+      },
+      {
+        "colorIndex": 170
+      },
+      {
+        "colorIndex": 170
       },
       {
         "colorIndex": 189
@@ -6544,10 +6505,49 @@
         "colorIndex": 100
       },
       {
+        "colorIndex": 96
+      },
+      {
         "colorIndex": 100
       },
       {
+        "colorIndex": 189
+      },
+      {
         "colorIndex": 96
+      },
+      {
+        "colorIndex": 100
+      },
+      {
+        "colorIndex": 100
+      },
+      {
+        "colorIndex": 189
+      },
+      {
+        "colorIndex": 100
+      },
+      {
+        "colorIndex": 100
+      },
+      {
+        "colorIndex": 189
+      },
+      {
+        "colorIndex": 100
+      },
+      {
+        "colorIndex": 100
+      },
+      {
+        "colorIndex": 100
+      },
+      {
+        "colorIndex": 100
+      },
+      {
+        "colorIndex": 100
       },
       {
         "colorIndex": 189
@@ -6819,25 +6819,25 @@
         "colorIndex": 170
       },
       {
-        "colorIndex": 189
-      },
-      {
-        "colorIndex": 96
+        "colorIndex": 170
       },
       {
         "colorIndex": 170
       },
       {
-        "colorIndex": 188
-      },
-      {
-        "colorIndex": 96
+        "colorIndex": 170
       },
       {
         "colorIndex": 189
       },
       {
-        "colorIndex": 96
+        "colorIndex": 100
+      },
+      {
+        "colorIndex": 189
+      },
+      {
+        "colorIndex": 100
       },
       {
         "colorIndex": 100
@@ -7118,13 +7118,13 @@
         "colorIndex": 179
       },
       {
-        "colorIndex": 179
+        "colorIndex": 189
       },
       {
-        "colorIndex": 179
+        "colorIndex": 189
       },
       {
-        "colorIndex": 179
+        "colorIndex": 188
       },
       {
         "colorIndex": 179
@@ -7139,7 +7139,7 @@
         "colorIndex": 189
       },
       {
-        "colorIndex": 96
+        "colorIndex": 100
       },
       {
         "colorIndex": 100
@@ -7441,7 +7441,7 @@
         "colorIndex": 179
       },
       {
-        "colorIndex": 96
+        "colorIndex": 189
       },
       {
         "colorIndex": 100
@@ -7743,7 +7743,7 @@
         "colorIndex": 179
       },
       {
-        "colorIndex": 96
+        "colorIndex": 189
       },
       {
         "colorIndex": 100
@@ -8045,7 +8045,7 @@
         "colorIndex": 179
       },
       {
-        "colorIndex": 96
+        "colorIndex": 189
       },
       {
         "colorIndex": 100
@@ -26895,6 +26895,6 @@
     "groupLineColor": "rgba(0,0,0,0.5)",
     "groupLineWidth": 2.0
   },
-  "createdAt": "12:00:11 PM",
-  "updatedAt": "2026-05-20T04:01:04.691Z"
+  "createdAt": "自动备份 1:00:45 PM",
+  "updatedAt": "2026-05-20T05:01:40.783Z"
 }
