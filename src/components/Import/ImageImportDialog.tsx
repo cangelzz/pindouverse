@@ -1,12 +1,21 @@
-import { useState, useRef, useCallback, useEffect } from "react";
+import { useState, useRef, useCallback, useEffect, useMemo } from "react";
 import { useEditorStore } from "../../store/editorStore";
 import { matchImageToMard } from "../../utils/colorMatching";
-import { COLOR_GROUPS } from "../../data/mard221";
+import { COLOR_GROUPS, MARD_COLORS, getGroupIndices, groupIndicesByLetter } from "../../data/mard221";
 import { getEffectiveHex } from "../../utils/colorHelper";
 import { detectPixelGrid } from "../../utils/gridDetect";
 import type { ColorMatchAlgorithm, CanvasCell } from "../../types";
 import { getAdapter } from "../../adapters";
 import type { ImagePreview, CropRect } from "../../adapters";
+import {
+  DEFAULT_CALIBRATION_SETTINGS,
+  computeCoefficients,
+  applyCalibration,
+  sampleRegionMean,
+  IDENTITY_COEFFICIENTS,
+  type CalibrationSettings,
+  type CalibrationCoefficients,
+} from "../../utils/colorCalibration";
 
 export function ImageImportDialog({ onClose }: { onClose: () => void }) {
   const loadCanvasData = useEditorStore((s) => s.loadCanvasData);
@@ -43,6 +52,32 @@ export function ImageImportDialog({ onClose }: { onClose: () => void }) {
   const [matchedPreview, setMatchedPreview] = useState<number[] | null>(null);
   const [rawPixels, setRawPixels] = useState<number[] | null>(null);
   const [actualSize, setActualSize] = useState<{ width: number; height: number } | null>(null);
+
+  // Color calibration
+  const [calibration, setCalibration] = useState<CalibrationSettings>(
+    DEFAULT_CALIBRATION_SETTINGS,
+  );
+
+  const calibrationCoef: CalibrationCoefficients = useMemo(() => {
+    if (!calibration.enabled || calibration.points.length === 0) {
+      return IDENTITY_COEFFICIENTS;
+    }
+    const pairs = calibration.points.map((p) => {
+      const mc = MARD_COLORS[p.targetColorIndex];
+      const target: [number, number, number] = mc?.rgb ?? [0, 0, 0];
+      return { sample: p.sampledRgb, target };
+    });
+    return computeCoefficients(pairs);
+  }, [calibration]);
+
+  const [pendingCalPoint, setPendingCalPoint] = useState<{
+    region: { x: number; y: number; w: number; h: number };
+    sampledRgb: [number, number, number];
+    editingId?: string;
+  } | null>(null);
+
+  const [calibrationPanelOpen, setCalibrationPanelOpen] = useState(false);
+  const [previewMode, setPreviewMode] = useState<"crop" | "sample">("crop");
 
   // Denoise & comparison
   const [showComparison, setShowComparison] = useState(false);
@@ -86,6 +121,11 @@ export function ImageImportDialog({ onClose }: { onClose: () => void }) {
   const cropEdge = useRef<"top" | "bottom" | "left" | "right" | "tl" | "tr" | "bl" | "br">("top");
   const cropOrigRect = useRef<CropRect | null>(null);
 
+  // Sample drag state (calibration sample mode)
+  const isDraggingSample = useRef(false);
+  const sampleStart = useRef({ x: 0, y: 0 });
+  const [sampleDragRect, setSampleDragRect] = useState<{ x: number; y: number; w: number; h: number } | null>(null);
+
   // Synced scroll refs for comparison
   const compareScrollRefs = useRef<(HTMLDivElement | null)[]>([]);
   const isSyncingScroll = useRef(false);
@@ -119,6 +159,9 @@ export function ImageImportDialog({ onClose }: { onClose: () => void }) {
       setMatchedPreview(null);
       setActualSize(null);
       setLoupePos(null);
+      setCalibration(DEFAULT_CALIBRATION_SETTINGS);
+      setPendingCalPoint(null);
+      setPreviewMode("crop");
 
       try {
         const preview = await adapter.previewImage(selected as string);
@@ -299,11 +342,67 @@ export function ImageImportDialog({ onClose }: { onClose: () => void }) {
         }
       }
     }
-  }, [imagePreview, cropRect, showGrid, getGridCellSize, loupePos, interactionMode, loupeZoom, gridOffsetX, gridOffsetY]);
+
+    // Draw persistent calibration markers (numbered 1, 2, 3, …)
+    if (calibration.points.length > 0) {
+      ctx.save();
+      ctx.lineWidth = 1.5;
+      ctx.font = "bold 11px ui-sans-serif, system-ui";
+      ctx.textAlign = "center";
+      ctx.textBaseline = "middle";
+      calibration.points.forEach((p, i) => {
+        const rx = p.region.x;
+        const ry = p.region.y;
+        const rw = Math.max(p.region.w, 1);
+        const rh = Math.max(p.region.h, 1);
+        ctx.strokeStyle = "rgba(255,200,0,0.95)";
+        ctx.strokeRect(rx, ry, rw, rh);
+        // Label badge in the top-left corner of the rect
+        const badgeSize = 14;
+        const bx = rx + (rw < badgeSize ? rw : 0);
+        const by = ry - badgeSize - 1 < 0 ? ry + 1 : ry - badgeSize - 1;
+        ctx.fillStyle = "rgba(255,200,0,0.95)";
+        ctx.fillRect(bx, by, badgeSize, badgeSize);
+        ctx.fillStyle = "#000";
+        ctx.fillText(String(i + 1), bx + badgeSize / 2, by + badgeSize / 2 + 0.5);
+      });
+      ctx.restore();
+    }
+
+    // Draw live sample drag rectangle (dashed)
+    if (sampleDragRect && sampleDragRect.w > 0 && sampleDragRect.h > 0) {
+      ctx.save();
+      ctx.strokeStyle = "rgba(59,130,246,0.95)";
+      ctx.lineWidth = 1.5;
+      ctx.setLineDash([4, 3]);
+      ctx.strokeRect(sampleDragRect.x, sampleDragRect.y, sampleDragRect.w, sampleDragRect.h);
+      ctx.restore();
+    }
+  }, [imagePreview, cropRect, showGrid, getGridCellSize, loupePos, interactionMode, loupeZoom, gridOffsetX, gridOffsetY, calibration.points, sampleDragRect]);
 
   useEffect(() => {
     drawCropCanvas();
   }, [drawCropCanvas]);
+
+  useEffect(() => {
+    if (!rawPixels) return;
+    const calibrated = applyCalibration(rawPixels, calibrationCoef);
+    const matched = matchImageToMard(calibrated, algorithm, colorGroupId, colorOverrides);
+    setMatchedPreview(matched);
+  }, [rawPixels, algorithm, colorGroupId, colorOverrides, calibrationCoef]);
+
+  useEffect(() => {
+    if (previewMode !== "sample") return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") {
+        isDraggingSample.current = false;
+        setSampleDragRect(null);
+        setPreviewMode("crop");
+      }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [previewMode]);
 
   // Convert mouse position to preview pixel coordinates
   const mouseToPreview = useCallback(
@@ -355,6 +454,13 @@ export function ImageImportDialog({ onClose }: { onClose: () => void }) {
 
   const handleCanvasMouseDown = useCallback(
     (e: React.MouseEvent<HTMLCanvasElement>) => {
+      if (previewMode === "sample") {
+        const pos = mouseToPreview(e);
+        if (!pos) return;
+        isDraggingSample.current = true;
+        sampleStart.current = pos;
+        return;
+      }
       if (interactionMode === "crop") {
         const pos = mouseToOriginal(e);
         if (!pos) return;
@@ -424,11 +530,24 @@ export function ImageImportDialog({ onClose }: { onClose: () => void }) {
         }
       }
     },
-    [mouseToOriginal, mouseToPreview, interactionMode, loupePinned, cropRect]
+    [mouseToOriginal, mouseToPreview, interactionMode, loupePinned, cropRect, previewMode]
   );
 
   const handleCanvasMouseMove = useCallback(
     (e: React.MouseEvent<HTMLCanvasElement>) => {
+      if (previewMode === "sample") {
+        if (isDraggingSample.current) {
+          const pos = mouseToPreview(e);
+          if (pos) {
+            const x = Math.min(sampleStart.current.x, pos.x);
+            const y = Math.min(sampleStart.current.y, pos.y);
+            const w = Math.abs(pos.x - sampleStart.current.x);
+            const h = Math.abs(pos.y - sampleStart.current.y);
+            setSampleDragRect({ x, y, w, h });
+          }
+        }
+        return;
+      }
       if (interactionMode === "crop") {
         const pos = mouseToOriginal(e);
         if (!pos || !imagePreview) return;
@@ -509,17 +628,46 @@ export function ImageImportDialog({ onClose }: { onClose: () => void }) {
         }
       }
     },
-    [mouseToOriginal, mouseToPreview, imagePreview, interactionMode, loupePinned, cropRect]
+    [mouseToOriginal, mouseToPreview, imagePreview, interactionMode, loupePinned, cropRect, previewMode]
   );
 
-  const handleCanvasMouseUp = useCallback(() => {
-    isDraggingCrop.current = false;
-    isDraggingLoupe.current = false;
-  }, []);
+  const handleCanvasMouseUp = useCallback(
+    (e: React.MouseEvent<HTMLCanvasElement>) => {
+      if (isDraggingSample.current && imagePreview) {
+        isDraggingSample.current = false;
+        const end = mouseToPreview(e);
+        if (end) {
+          const x = Math.min(sampleStart.current.x, end.x);
+          const y = Math.min(sampleStart.current.y, end.y);
+          const w = Math.abs(end.x - sampleStart.current.x);
+          const h = Math.abs(end.y - sampleStart.current.y);
+          const region = w >= 1 && h >= 1
+            ? { x, y, w, h }
+            : { x: Math.floor(end.x), y: Math.floor(end.y), w: 1, h: 1 };
+          if (region.w > 0 && region.h > 0) {
+            const mean = sampleRegionMean(
+              imagePreview.pixels,
+              imagePreview.preview_width,
+              region,
+            );
+            setPendingCalPoint({ region, sampledRgb: mean });
+          }
+        }
+        setSampleDragRect(null);
+        setPreviewMode("crop");
+        return;
+      }
+      isDraggingCrop.current = false;
+      isDraggingLoupe.current = false;
+    },
+    [imagePreview, mouseToPreview]
+  );
 
   const handleCanvasMouseLeave = useCallback(() => {
     isDraggingCrop.current = false;
     isDraggingLoupe.current = false;
+    isDraggingSample.current = false;
+    setSampleDragRect(null);
     if (interactionMode === "loupe" && !loupePinned) setLoupePos(null);
   }, [interactionMode, loupePinned]);
 
@@ -584,7 +732,8 @@ export function ImageImportDialog({ onClose }: { onClose: () => void }) {
       const adapter = getAdapter();
       const data = await adapter.importImage(filePath, maxDimension, crop, sharpEdge, widthRatio !== 1.0 ? widthRatio : undefined);
 
-      let matched = matchImageToMard(data.pixels, algorithm, colorGroupId, colorOverrides);
+      const calibratedPixels = applyCalibration(data.pixels as number[], calibrationCoef);
+      let matched = matchImageToMard(calibratedPixels, algorithm, colorGroupId, colorOverrides);
       setMatchedPreview(matched);
       setRawPixels(data.pixels as number[]);
       setActualSize({ width: data.width, height: data.height });
@@ -613,8 +762,9 @@ export function ImageImportDialog({ onClose }: { onClose: () => void }) {
       ];
       const results: CompareItem[] = [];
 
+      const calibratedPixels = applyCalibration(data.pixels as number[], calibrationCoef);
       for (const { algo, label } of algos) {
-        const matched = matchImageToMard(data.pixels, algo, colorGroupId, colorOverrides);
+        const matched = matchImageToMard(calibratedPixels, algo, colorGroupId, colorOverrides);
         results.push({ label, algo, indices: matched });
       }
 
@@ -696,6 +846,7 @@ export function ImageImportDialog({ onClose }: { onClose: () => void }) {
     : 0;
 
   return (
+    <>
     <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50">
       <div className={`bg-white rounded-lg shadow-xl max-h-[90vh] flex flex-col transition-all ${showComparison ? "w-[90vw] max-w-[1200px]" : "w-[560px]"}`}>
         <div className="px-4 py-3 border-b flex justify-between items-center">
@@ -859,7 +1010,9 @@ export function ImageImportDialog({ onClose }: { onClose: () => void }) {
                         : ""
                     }
                     style={{
-                      cursor: interactionMode === "crop" ? cropCursor : undefined,
+                      cursor: previewMode === "sample"
+                        ? "crosshair"
+                        : interactionMode === "crop" ? cropCursor : undefined,
                       width: Math.min(
                         interactionMode === "loupe" ? 340 : 520,
                         imagePreview.preview_width
@@ -1110,6 +1263,98 @@ export function ImageImportDialog({ onClose }: { onClose: () => void }) {
             </select>
           </div>
 
+          {/* Color calibration */}
+          <div className="border rounded">
+            <button
+              type="button"
+              onClick={() => setCalibrationPanelOpen((v) => !v)}
+              className="w-full px-3 py-2 flex justify-between items-center text-xs hover:bg-gray-50"
+            >
+              <span>{calibrationPanelOpen ? "▼" : "▶"} 色彩校正</span>
+              <label className="flex items-center gap-1" onClick={(e) => e.stopPropagation()}>
+                <input
+                  type="checkbox"
+                  checked={calibration.enabled}
+                  onChange={(e) =>
+                    setCalibration((prev) => ({ ...prev, enabled: e.target.checked }))
+                  }
+                />
+                <span>启用</span>
+              </label>
+            </button>
+
+            {calibrationPanelOpen && (
+              <div className="p-3 border-t flex flex-col gap-3 text-xs">
+                <div className="flex flex-col gap-1">
+                  <span className="text-gray-500">参考点 (在预览图上拖矩形 → 选 MARD 色):</span>
+                  {calibration.points.length === 0 ? (
+                    <p className="text-gray-400 italic py-1">暂无参考点</p>
+                  ) : (
+                    calibration.points.map((p, idx) => {
+                      const target = MARD_COLORS[p.targetColorIndex];
+                      const targetHex = getEffectiveHex(p.targetColorIndex, colorOverrides);
+                      return (
+                        <div key={p.id} className="flex items-center gap-2 p-1.5 bg-gray-50 rounded border">
+                          <span className="text-[10px] text-gray-500 font-mono w-4 shrink-0 text-center">{idx + 1}</span>
+                          <div
+                            className="w-5 h-5 rounded border shrink-0"
+                            style={{ background: `rgb(${p.sampledRgb.map((v) => Math.round(v)).join(",")})` }}
+                            title={`采样 (${p.sampledRgb.map((v) => Math.round(v)).join(",")})`}
+                          />
+                          <span className="text-gray-400">→</span>
+                          <button
+                            onClick={() =>
+                              setPendingCalPoint({
+                                region: p.region,
+                                sampledRgb: p.sampledRgb,
+                                editingId: p.id,
+                              })
+                            }
+                            className="flex items-center gap-1 flex-1 min-w-0 hover:bg-gray-100 rounded px-1 py-0.5 text-left"
+                            title="点击更改目标色"
+                          >
+                            <div
+                              className="w-5 h-5 rounded border shrink-0"
+                              style={{ background: targetHex }}
+                            />
+                            <span className="flex-1 truncate text-gray-600">
+                              {target?.code} {target?.name}
+                            </span>
+                          </button>
+                          <button
+                            onClick={() =>
+                              setCalibration((prev) => ({
+                                ...prev,
+                                points: prev.points.filter((pt) => pt.id !== p.id),
+                              }))
+                            }
+                            className="text-red-500 hover:bg-red-50 px-2 py-0.5 rounded"
+                          >
+                            删
+                          </button>
+                        </div>
+                      );
+                    })
+                  )}
+                </div>
+
+                <button
+                  onClick={() => setPreviewMode("sample")}
+                  disabled={!imagePreview || previewMode === "sample"}
+                  className="self-start px-3 py-1 border border-blue-300 text-blue-600 rounded hover:bg-blue-50 disabled:opacity-50"
+                >
+                  {previewMode === "sample" ? "拖矩形选择采样区..." : "+ 添加参考点"}
+                </button>
+
+                <div className="text-[10px] text-gray-400">
+                  系数: R {calibrationCoef.a[0].toFixed(2)} {calibrationCoef.b[0] >= 0 ? "+" : ""}{calibrationCoef.b[0].toFixed(1)},
+                  G {calibrationCoef.a[1].toFixed(2)} {calibrationCoef.b[1] >= 0 ? "+" : ""}{calibrationCoef.b[1].toFixed(1)},
+                  B {calibrationCoef.a[2].toFixed(2)} {calibrationCoef.b[2] >= 0 ? "+" : ""}{calibrationCoef.b[2].toFixed(1)}
+                </div>
+              </div>
+            )}
+          </div>
+
           {/* Algorithm & resize mode */}
           <div>
             <label className="text-xs text-gray-600 mb-1 block">
@@ -1348,5 +1593,83 @@ export function ImageImportDialog({ onClose }: { onClose: () => void }) {
         </div>
       </div>
     </div>
+
+    {pendingCalPoint && (
+      <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-[60]">
+        <div className="bg-white rounded-lg shadow-xl p-4 w-[480px] max-h-[70vh] flex flex-col gap-3">
+          <div className="flex items-center justify-between">
+            <h3 className="font-semibold text-sm">
+              {pendingCalPoint.editingId ? "更改目标 MARD 色" : "选择目标 MARD 色"}
+            </h3>
+            <button
+              onClick={() => setPendingCalPoint(null)}
+              aria-label="关闭"
+              className="text-gray-400 hover:text-gray-600 text-lg leading-none"
+            >
+              ×
+            </button>
+          </div>
+
+          <div className="flex items-center gap-3 text-xs">
+            <span className="text-gray-500">采样色:</span>
+            <div
+              className="w-8 h-8 rounded border"
+              style={{
+                background: `rgb(${pendingCalPoint.sampledRgb.map((v) => Math.round(v)).join(",")})`,
+              }}
+            />
+            <span className="text-gray-600">
+              ({pendingCalPoint.sampledRgb.map((v) => Math.round(v)).join(", ")})
+            </span>
+          </div>
+
+          <div className="overflow-y-auto flex flex-col gap-1.5">
+            {groupIndicesByLetter(getGroupIndices(colorGroupId)).map(({ letter, indices }) => (
+              <div key={letter} className="flex items-start gap-2">
+                <span className="text-[11px] text-gray-500 font-mono w-5 shrink-0 pt-1">{letter}</span>
+                <div className="flex flex-wrap gap-1 flex-1">
+                  {indices.map((idx) => {
+                    const c = MARD_COLORS[idx];
+                    if (!c) return null;
+                    const hex = getEffectiveHex(idx, colorOverrides);
+                    return (
+                      <button
+                        key={idx}
+                        onClick={() => {
+                          const editingId = pendingCalPoint.editingId;
+                          setCalibration((prev) => {
+                            if (editingId) {
+                              return {
+                                ...prev,
+                                enabled: true,
+                                points: prev.points.map((pt) =>
+                                  pt.id === editingId ? { ...pt, targetColorIndex: idx } : pt,
+                                ),
+                              };
+                            }
+                            const newPoint = {
+                              id: crypto.randomUUID(),
+                              region: pendingCalPoint.region,
+                              sampledRgb: pendingCalPoint.sampledRgb,
+                              targetColorIndex: idx,
+                            };
+                            return { ...prev, enabled: true, points: [...prev.points, newPoint] };
+                          });
+                          setPendingCalPoint(null);
+                        }}
+                        title={`${c.code} ${c.name}`}
+                        className="w-6 h-6 rounded border hover:ring-2 hover:ring-blue-400"
+                        style={{ background: hex }}
+                      />
+                    );
+                  })}
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      </div>
+    )}
+    </>
   );
 }

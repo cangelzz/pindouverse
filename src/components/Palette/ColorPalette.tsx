@@ -1,5 +1,5 @@
 import { useState, useMemo, useEffect, useRef } from "react";
-import { MARD_COLORS, COLOR_GROUPS, getGroupIndices } from "../../data/mard221";
+import { MARD_COLORS, COLOR_GROUPS, getGroupIndices, groupIndicesByLetter } from "../../data/mard221";
 import { useEditorStore } from "../../store/editorStore";
 import { getEffectiveHex } from "../../utils/colorHelper";
 
@@ -325,27 +325,34 @@ export function ColorPalette() {
               <p className="text-[10px] text-gray-500 mb-1">
                 将画布中所有 {MARD_COLORS[selectedColorIndex]?.code} ({selectedCount} 颗) ��换为:
               </p>
-              <div className="flex flex-wrap gap-0.5 max-h-20 overflow-y-auto">
-                {MARD_COLORS.map((c, i) => {
-                  if (i === selectedColorIndex) return null;
-                  return (
-                    <button
-                      key={c.code}
-                      onClick={() => {
-                        setReplaceTargetIndex(i);
-                        // Auto-highlight source color for preview
-                        setHighlightColor(selectedColorIndex);
-                      }}
-                      className={`w-5 h-5 rounded-sm border ${
-                        replaceTargetIndex === i
-                          ? "ring-2 ring-blue-500"
-                          : "border-gray-200 hover:border-gray-400"
-                      }`}
-                      style={{ backgroundColor: getEffectiveHex(i, colorOverrides) }}
-                      title={c.code}
-                    />
-                  );
-                })}
+              <div className="flex flex-col gap-0.5 max-h-32 overflow-y-auto">
+                {groupIndicesByLetter(MARD_COLORS.map((_, i) => i)).map(({ letter, indices }) => (
+                  <div key={letter} className="flex items-start gap-1">
+                    <span className="text-[9px] text-gray-500 font-mono w-3 shrink-0 pt-0.5 text-center">{letter}</span>
+                    <div className="flex flex-wrap gap-0.5 flex-1">
+                      {indices.map((i) => {
+                        if (i === selectedColorIndex) return null;
+                        const c = MARD_COLORS[i];
+                        return (
+                          <button
+                            key={c.code}
+                            onClick={() => {
+                              setReplaceTargetIndex(i);
+                              setHighlightColor(selectedColorIndex);
+                            }}
+                            className={`w-5 h-5 rounded-sm border ${
+                              replaceTargetIndex === i
+                                ? "ring-2 ring-blue-500"
+                                : "border-gray-200 hover:border-gray-400"
+                            }`}
+                            style={{ backgroundColor: getEffectiveHex(i, colorOverrides) }}
+                            title={c.code}
+                          />
+                        );
+                      })}
+                    </div>
+                  </div>
+                ))}
               </div>
               {replaceTargetIndex !== null && (
                 <div className="mt-1.5 p-1.5 bg-gray-50 rounded border">

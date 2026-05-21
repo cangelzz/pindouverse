@@ -355,9 +355,23 @@ export const COLOR_GROUPS: ColorGroup[] = [
 const TRANSPARENT_CODES = new Set(["H1", "T1"]);
 
 /** Get color series prefix from code */
-function getSeriesPrefix(code: string): string {
+export function getSeriesPrefix(code: string): string {
   const m = code.match(/^([A-Z]+)/);
   return m ? m[1] : "";
+}
+
+/** Group an ordered list of color indices into consecutive runs by letter prefix. */
+export function groupIndicesByLetter(
+  indices: number[],
+): { letter: string; indices: number[] }[] {
+  const out: { letter: string; indices: number[] }[] = [];
+  for (const i of indices) {
+    const letter = getSeriesPrefix(MARD_COLORS[i]?.code ?? "");
+    const last = out[out.length - 1];
+    if (last && last.letter === letter) last.indices.push(i);
+    else out.push({ letter, indices: [i] });
+  }
+  return out;
 }
 
 /** Get indices of colors belonging to a group, excluding transparent colors */
