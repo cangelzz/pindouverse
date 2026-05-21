@@ -39,7 +39,19 @@ PindouVerse (拼豆宇宙) is a cross-platform perler bead pixel art editor. Thi
 
 ## License
 
-MIT
+Non-commercial use only — source code is licensed under the
+[PolyForm Noncommercial 1.0.0](https://polyformproject.org/licenses/noncommercial/1.0.0)
+license, with an explicit carve-out: selling physical bead artwork you
+produced using this software is NOT considered Commercial Use.
+
+Sample bead-art designs in `samples/` are separately licensed under
+[CC BY-NC 4.0](https://creativecommons.org/licenses/by-nc/4.0/).
+
+Releases through 0.8.9 inclusive remain available under MIT (irrevocable
+for those versions). 0.8.10 onward is non-commercial.
+
+For commercial licensing, open a GitHub issue with the label
+`commercial-license`.
 
 ## Development
 

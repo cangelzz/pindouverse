@@ -1,21 +1,29 @@
-MIT License
+PindouVerse VS Code Extension — Licensing
+=========================================
 
-Copyright (c) 2026 PinDou Editor
+This extension is part of the PindouVerse project. It is licensed under
+the same terms as the parent project — the source code is licensed under
+the **PolyForm Noncommercial License 1.0.0**, with a clarification that
+selling physical bead artwork you produced using the software is NOT
+Commercial Use.
 
-Permission is hereby granted, free of charge, to any person obtaining a copy
-of this software and associated documentation files (the "Software"), to deal
-in the Software without restriction, including without limitation the rights
-to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
-copies of the Software, and to permit persons to whom the Software is
-furnished to do so, subject to the following conditions:
+For the full license text and clarifications, see the repository root:
+- https://github.com/cangelzz/pindouverse/blob/main/LICENSE (overview + clarifications)
+- https://github.com/cangelzz/pindouverse/blob/main/LICENSE-CODE (PolyForm NC 1.0.0 full text)
 
-The above copyright notice and this permission notice shall be included in all
-copies or substantial portions of the Software.
+Earlier Releases
+----------------
 
-THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
-AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
-LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
-OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
-SOFTWARE.
+Extension versions through 0.8.9 inclusive were published under the MIT
+license. That grant is irrevocable for those versions. This non-commercial
+license applies to versions published from 0.8.10 onward.
+
+Commercial Licensing
+--------------------
+
+For commercial licensing, open a GitHub issue at
+https://github.com/cangelzz/pindouverse/issues with the label
+`commercial-license` describing your intended use.
+
+Required Notice: Copyright (c) 2026 PindouVerse — Licensed under
+PolyForm Noncommercial 1.0.0. See LICENSE-CODE at the repository root.

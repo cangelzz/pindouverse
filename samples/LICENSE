@@ -1,0 +1,58 @@
+Sample Bead-Art Designs — License
+=================================
+
+Copyright (c) 2026 PindouVerse (cangelzz)
+
+The bead-art designs in this directory (the `*.pindou` project files and
+their accompanying preview / export images) are licensed under the
+**Creative Commons Attribution-NonCommercial 4.0 International License
+(CC BY-NC 4.0)**.
+
+Full text: https://creativecommons.org/licenses/by-nc/4.0/legalcode
+Human-readable summary: https://creativecommons.org/licenses/by-nc/4.0/
+
+You are free to:
+
+- **Share** — copy and redistribute these designs in any medium or format.
+- **Adapt** — remix, transform, and build upon them.
+
+Under the following terms:
+
+- **Attribution** — You must give appropriate credit ("PindouVerse",
+  https://github.com/cangelzz/pindouverse), provide a link to this license,
+  and indicate if changes were made.
+- **NonCommercial** — You may not use these designs for commercial purposes.
+  This includes (but is not limited to):
+  - Selling, sublicensing, or otherwise distributing the sample design
+    files or images derived from them.
+  - Producing physical bead artwork from these specific sample designs
+    for sale, advertising, or any commercial promotion.
+  - Including these designs in any paid product, service, course, or
+    subscription.
+
+This non-commercial restriction is intentional. These samples are provided
+so users can verify the software, learn the file format, and try features
+— not as commercial assets.
+
+Note that this license applies to the **sample designs only**. The
+PindouVerse software itself is licensed separately under the PolyForm
+Noncommercial License 1.0.0; see `../LICENSE` and `../LICENSE-CODE` at the
+repository root.
+
+Carve-out clarification (software, not these samples)
+-----------------------------------------------------
+
+A separate clarification in the root `LICENSE` notes that individuals
+who use the PindouVerse software to design and physically produce their
+own bead artwork may sell that physical artwork without it being treated
+as Commercial Use of the software. That clarification applies to designs
+**you create yourself** with the software. It does NOT extend to the
+sample designs in this directory — these specific designs remain
+governed by the CC BY-NC 4.0 NonCommercial restriction above.
+
+Commercial Licensing
+--------------------
+
+For commercial licensing of any sample design, open a GitHub issue at
+https://github.com/cangelzz/pindouverse/issues with the label
+`commercial-license` describing your intended use.

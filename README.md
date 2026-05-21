@@ -249,3 +249,24 @@ pindou/
 - **语音控制** — Web Speech API 语音指令移动网格聚焦，可选 LLM AI 增强
 - **项目管理** — 保存/加载 .pindou 项目文件，自动保存，版本快照
 - **跨平台** — Desktop (Tauri) + Browser Extension + iOS/Android (WIP)
+
+
+## License
+
+Non-commercial use only. Source code is licensed under the
+[**PolyForm Noncommercial 1.0.0**](https://polyformproject.org/licenses/noncommercial/1.0.0)
+license; sample bead-art designs in `samples/` are licensed under
+[**CC BY-NC 4.0**](https://creativecommons.org/licenses/by-nc/4.0/).
+
+Personal hobby, study, research, and educational / charitable use are
+explicitly permitted. **Individuals selling physical bead artwork they
+produced using this software is NOT Commercial Use** of the software
+(the sample designs themselves remain non-commercial — see
+`samples/LICENSE`).
+
+For full terms, exceptions, and the commercial-licensing contact path,
+see [`LICENSE`](./LICENSE) and [`LICENSE-CODE`](./LICENSE-CODE).
+
+Releases through 0.8.9 (and PindouVerse 1.0.x desktop) remain available
+under MIT — that grant is irrevocable. This non-commercial license
+applies to releases from 0.8.10 / 1.2.0 onward.

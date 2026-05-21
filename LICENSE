@@ -1,21 +1,78 @@
-MIT License
+PindouVerse — Licensing Overview
+================================
 
-Copyright (c) 2026 PinDou Editor
+Copyright (c) 2026 PindouVerse (cangelzz)
 
-Permission is hereby granted, free of charge, to any person obtaining a copy
-of this software and associated documentation files (the "Software"), to deal
-in the Software without restriction, including without limitation the rights
-to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
-copies of the Software, and to permit persons to whom the Software is
-furnished to do so, subject to the following conditions:
+This project uses TWO licenses, depending on what you are looking at:
 
-The above copyright notice and this permission notice shall be included in all
-copies or substantial portions of the Software.
+1. **Source code** (everything except `samples/`) is licensed under the
+   **PolyForm Noncommercial License 1.0.0**. See `LICENSE-CODE` for the
+   full text.
 
-THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
-AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
-LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
-OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
-SOFTWARE.
+2. **Sample bead-art designs** in `samples/` (the `*.pindou` files and
+   accompanying images) are licensed under the
+   **Creative Commons Attribution-NonCommercial 4.0 International License
+   (CC BY-NC 4.0)**. See `samples/LICENSE` for details.
+
+Both licenses prohibit Commercial Use without a separate commercial license.
+
+What counts as Commercial Use
+-----------------------------
+
+Commercial Use means any use intended for or directed toward commercial
+advantage or monetary compensation. Examples that ARE Commercial Use:
+
+- Selling, sublicensing, or hosting the software, its source code, or
+  derivative works (whether stand-alone or bundled in another product).
+- Offering the software, its features, or its file conversion capabilities
+  as a paid service or as part of a paid SaaS / cloud offering.
+- Operating the software inside a for-profit business as part of revenue-
+  generating workflows (commercial bead-art studios, bead-design services,
+  classes / camps charging for instruction that uses the software, etc.).
+- Reproducing or distributing the sample `.pindou` designs (or images
+  derived from them) for sale, advertising, or any commercial promotion.
+
+What does NOT count as Commercial Use
+-------------------------------------
+
+The following are explicitly permitted under this license without paying
+for a commercial license:
+
+- Personal hobby use, study, research, and amateur pursuits.
+- Use by schools, libraries, charities, public research / safety / health /
+  environmental organizations, and government institutions (per PolyForm
+  Noncommercial 1.0.0 §"Noncommercial Organizations").
+- **Individuals using the software to design and physically produce their
+  own bead artwork, and then selling that finished physical artwork.**
+  Selling the resulting bead artwork that you made by hand is NOT, by
+  itself, Commercial Use of this software. This clarification applies to
+  the software only; the sample blueprint designs in `samples/` remain
+  separately governed by CC BY-NC 4.0 and may not be redistributed or
+  used as the basis for commercial designs without a separate license.
+
+Commercial Licensing
+--------------------
+
+If you want to use this software or the sample designs in a way that
+exceeds the permissions above, a separate commercial license is required.
+Open a GitHub issue at https://github.com/cangelzz/pindouverse/issues with
+the label `commercial-license` describing your intended use, or contact
+the project owner via the contact details on the repository.
+
+Earlier Releases
+----------------
+
+Versions of this project that were distributed under the MIT license
+(through 0.8.9 inclusive) continue to be available under MIT — that grant
+is irrevocable. This new license applies to versions published from
+0.8.10 onward and to all later contributions.
+
+Notices
+-------
+
+When redistributing this software (only as permitted by the licenses
+above), you must include both `LICENSE` and `LICENSE-CODE` in their
+entirety, along with the following required notice:
+
+    Required Notice: Copyright (c) 2026 PindouVerse — Licensed under
+    PolyForm Noncommercial 1.0.0. See LICENSE-CODE.
