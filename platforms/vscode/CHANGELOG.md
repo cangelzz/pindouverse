@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.9.1
+
+- Fix: the in-app "新建" toolbar button now opens a fresh untitled `.pindou` tab via the extension host (same flow as the `pindouverse.newProject` command) instead of resetting the canvas in place. Previously, after opening an existing file like `kikyou.pindou`, clicking 新建 left the tab and document pointing at the original file — a subsequent Ctrl+S could silently overwrite it.
+
 ## 0.8.9
 
 - Feature: image exports (blueprint, preview, and mirrors) now support an optional top "PindouVerse" header band with the app icon, plus opt-in 45° tiled watermarks for the app name and the project author. New "水印与署名" section in the export dialog with a description field, author override, and persistent settings. Header band on by default; author watermark on by default (silently skipped if no author is set).
