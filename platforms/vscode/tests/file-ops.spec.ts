@@ -117,6 +117,48 @@ test.describe("File operations", () => {
     expect(size.height).toBe(20);
   });
 
+  test("Toolbar '新建' on an existing file: posts newProject, does NOT mutate current tab's state", async ({ page }) => {
+    await setupPage(page);
+    // Simulate: user opened a real .pindou file in VS Code.
+    await loadProject(page, {
+      isUntitled: false,
+      virtualPath: "/real/kikyou.pindou",
+    });
+    const originalSize = await getStoreState<{ width: number; height: number }>(page, "canvasSize");
+    expect(originalSize.width).toBeGreaterThan(0);
+    expect(await getStoreState(page, "projectPath")).toBe("/real/kikyou.pindou");
+
+    await clearMessages(page);
+
+    // Open the dialog via the toolbar button (exact-match to avoid '+ 新建图层').
+    await page.getByRole("button", { name: /^新建$/ }).first().click();
+    // Pick non-default dimensions to prove they propagate.
+    const inputs = page.locator('input[type="number"]');
+    await inputs.nth(0).fill("32");
+    await inputs.nth(1).fill("48");
+    await page.getByRole("button", { name: /^创建$/ }).click();
+
+    await page.waitForFunction(
+      () => (window as any)._messages.some((m: any) => m.type === "newProject"),
+      null,
+      { timeout: 5_000 }
+    );
+
+    const messages = await getMessages(page);
+    const newProj = messages.find((m: any) => m.type === "newProject");
+    expect(newProj).toBeTruthy();
+    expect(newProj.width).toBe(32);
+    expect(newProj.height).toBe(48);
+
+    // Critical: current webview's state must be untouched. The host will open
+    // the fresh untitled tab; this tab still represents kikyou.pindou so a
+    // subsequent Ctrl+S here cannot silently overwrite it.
+    expect(await getStoreState(page, "projectPath")).toBe("/real/kikyou.pindou");
+    const sizeAfter = await getStoreState<{ width: number; height: number }>(page, "canvasSize");
+    expect(sizeAfter.width).toBe(originalSize.width);
+    expect(sizeAfter.height).toBe(originalSize.height);
+  });
+
   test("After newCanvas, Save prompts for destination", async ({ page }) => {
     await setupPage(page);
     await loadProject(page);

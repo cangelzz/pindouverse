@@ -2,33 +2,44 @@ import * as vscode from "vscode";
 import * as path from "path";
 import * as fs from "fs";
 
+async function createUntitledProject(
+  context: vscode.ExtensionContext,
+  width: number = 52,
+  height: number = 52
+): Promise<void> {
+  const w = Math.max(1, Math.min(256, Math.floor(width) || 52));
+  const h = Math.max(1, Math.min(256, Math.floor(height) || 52));
+
+  const tmpDir = context.globalStorageUri;
+  await vscode.workspace.fs.createDirectory(tmpDir);
+  const tmpUri = vscode.Uri.joinPath(tmpDir, `untitled_${Date.now()}.pindou`);
+
+  const emptyProject = {
+    version: 1,
+    canvasSize: { width: w, height: h },
+    canvasData: Array.from({ length: h }, () =>
+      Array.from({ length: w }, () => ({ colorIndex: null }))
+    ),
+    createdAt: new Date().toISOString(),
+    updatedAt: new Date().toISOString(),
+  };
+
+  await vscode.workspace.fs.writeFile(
+    tmpUri,
+    Buffer.from(JSON.stringify(emptyProject, null, 2))
+  );
+  await vscode.commands.executeCommand("vscode.openWith", tmpUri, "pindouverse.editor");
+}
+
 export function activate(context: vscode.ExtensionContext) {
   context.subscriptions.push(
-    PindouEditorProvider.register(context)
+    PindouEditorProvider.register(context, createUntitledProject)
   );
 
   // Command: new project (opens blank canvas immediately, no save dialog)
   context.subscriptions.push(
     vscode.commands.registerCommand("pindouverse.newProject", async () => {
-      const tmpDir = context.globalStorageUri;
-      await vscode.workspace.fs.createDirectory(tmpDir);
-      const tmpUri = vscode.Uri.joinPath(tmpDir, `untitled_${Date.now()}.pindou`);
-
-      const emptyProject = {
-        version: 1,
-        canvasSize: { width: 52, height: 52 },
-        canvasData: Array.from({ length: 52 }, () =>
-          Array.from({ length: 52 }, () => ({ colorIndex: null }))
-        ),
-        createdAt: new Date().toISOString(),
-        updatedAt: new Date().toISOString(),
-      };
-
-      await vscode.workspace.fs.writeFile(
-        tmpUri,
-        Buffer.from(JSON.stringify(emptyProject, null, 2))
-      );
-      await vscode.commands.executeCommand("vscode.openWith", tmpUri, "pindouverse.editor");
+      await createUntitledProject(context);
     })
   );
 
@@ -50,10 +61,13 @@ export function deactivate() {}
 class PindouEditorProvider implements vscode.CustomTextEditorProvider {
   private static readonly viewType = "pindouverse.editor";
 
-  static register(context: vscode.ExtensionContext): vscode.Disposable {
+  static register(
+    context: vscode.ExtensionContext,
+    createUntitled: (ctx: vscode.ExtensionContext, w?: number, h?: number) => Promise<void>
+  ): vscode.Disposable {
     return vscode.window.registerCustomEditorProvider(
       PindouEditorProvider.viewType,
-      new PindouEditorProvider(context),
+      new PindouEditorProvider(context, createUntitled),
       {
         webviewOptions: { retainContextWhenHidden: true },
         supportsMultipleEditorsPerDocument: false,
@@ -61,7 +75,10 @@ class PindouEditorProvider implements vscode.CustomTextEditorProvider {
     );
   }
 
-  constructor(private readonly context: vscode.ExtensionContext) {}
+  constructor(
+    private readonly context: vscode.ExtensionContext,
+    private readonly createUntitled: (ctx: vscode.ExtensionContext, w?: number, h?: number) => Promise<void>
+  ) {}
 
   async resolveCustomTextEditor(
     document: vscode.TextDocument,
@@ -293,6 +310,18 @@ class PindouEditorProvider implements vscode.CustomTextEditorProvider {
             type: "githubTokenCleared",
             requestId: msg.requestId,
           });
+          break;
+        }
+
+        case "newProject": {
+          // Webview requested a fresh untitled project (e.g., toolbar "新建" button).
+          // Mirror the pindouverse.newProject command so the new tab carries an
+          // untitled_<ts>.pindou path — never the previously opened file's path.
+          try {
+            await this.createUntitled(this.context, msg.width, msg.height);
+          } catch (e: any) {
+            vscode.window.showErrorMessage(`Failed to create new project: ${e.message}`);
+          }
           break;
         }
       }

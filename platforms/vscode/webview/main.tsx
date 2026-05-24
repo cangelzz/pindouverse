@@ -2,7 +2,7 @@ import React, { useEffect } from "react";
 import ReactDOM from "react-dom/client";
 import App from "../../../src/App";
 import { setAdapter } from "../../../src/adapters";
-import { VScodeAdapter, setDocumentLoadHandler, signalReady, requestGitHubToken } from "../src/vscodeAdapter";
+import { VScodeAdapter, setDocumentLoadHandler, signalReady, requestGitHubToken, requestNewProject } from "../src/vscodeAdapter";
 import { useEditorStore } from "../../../src/store/editorStore";
 import { setGitHubToken, clearGitHubToken } from "../../../src/utils/llmVoice";
 import "./styles.css";
@@ -32,6 +32,14 @@ setAdapter(adapter);
 
 (window as any).__pindouLogoutGitHub = (): void => {
   clearGitHubToken();
+};
+
+// Lets the app route the "新建" toolbar button through the extension host so a
+// fresh untitled_<ts>.pindou tab opens instead of mutating the currently open
+// file's webview in place. App.tsx checks for this and falls back to the
+// in-process newCanvas action when not in VS Code.
+(window as any).__pindouRequestNewProject = (width: number, height: number): void => {
+  requestNewProject(width, height);
 };
 
 // Handle document load from extension host

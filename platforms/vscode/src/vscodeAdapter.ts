@@ -189,6 +189,16 @@ export function signalReady() {
 }
 
 /**
+ * Ask the extension host to create a brand-new untitled .pindou project of the
+ * given size and open it in a new editor tab. Mirrors the pindouverse.newProject
+ * command so the in-webview "新建" button never leaves the current tab pointing
+ * at the previously opened file (which would risk an accidental overwrite on save).
+ */
+export function requestNewProject(width: number, height: number): void {
+  vscode.postMessage({ type: "newProject", width, height });
+}
+
+/**
  * Request a GitHub token from VS Code's built-in authentication.
  * Uses vscode.authentication.getSession('github', ['gist']) on the extension host side.
  * @param createIfNone If true, prompts user to sign in if not already authenticated.

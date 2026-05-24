@@ -943,7 +943,18 @@ function App() {
               <div className="flex gap-2 mt-2">
                 <button
                   onClick={() => {
-                    newCanvas(newW, newH);
+                    // When the host (currently VS Code) manages document tabs,
+                    // route through it so a fresh untitled_<ts>.pindou tab opens.
+                    // Otherwise the current tab keeps the previously opened file's
+                    // path, risking an accidental overwrite on save.
+                    const hostNew = (window as any).__pindouRequestNewProject as
+                      | ((w: number, h: number) => void)
+                      | undefined;
+                    if (typeof hostNew === "function") {
+                      hostNew(newW, newH);
+                    } else {
+                      newCanvas(newW, newH);
+                    }
                     setShowNewCanvas(false);
                   }}
                   className="px-3 py-1.5 bg-blue-500 text-white text-xs rounded hover:bg-blue-600"
