@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.9.2
+
+- Fix: floating preview thumbnail no longer gets stuck off-screen. If a previously saved drag position pushed the panel's drag header above the canvas area, the +/− zoom buttons and the drag handle became invisible (clipped by the canvas container's `overflow-hidden`) and the panel could not be moved back. Positions are now clamped on render and during drag so the header always stays inside the canvas area; stale localStorage values are silently corrected on next interaction.
+
 ## 0.9.1
 
 - Fix: the in-app "新建" toolbar button now opens a fresh untitled `.pindou` tab via the extension host (same flow as the `pindouverse.newProject` command) instead of resetting the canvas in place. Previously, after opening an existing file like `kikyou.pindou`, clicking 新建 left the tab and document pointing at the original file — a subsequent Ctrl+S could silently overwrite it.

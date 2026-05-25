@@ -120,24 +120,49 @@ export function PreviewThumbnail({ containerWidth, containerHeight }: PreviewThu
     [showFull, sx, sy, cellSize, containerWidth, containerHeight, setOffset]
   );
 
+  // Keep the draggable header inside the container so the user can always grab it.
+  // HEADER_H matches the header row (px-1.5 py-0.5 text-[10px] ≈ 22px).
+  const HEADER_H = 22;
+  const MIN_TOP = 8;
+  const clampPos = useCallback(
+    (p: { x: number; y: number }) => {
+      const maxX = Math.max(0, containerWidth - thumbW);
+      const maxY = Math.max(MIN_TOP, containerHeight - HEADER_H);
+      return {
+        x: Math.max(0, Math.min(maxX, p.x)),
+        y: Math.max(MIN_TOP, Math.min(maxY, p.y)),
+      };
+    },
+    [containerWidth, containerHeight, thumbW]
+  );
+
+  // Compute effective position: default to right side to avoid blocking left axis labels.
+  // Always clamp so a stale localStorage value can't push the header off-screen.
+  const defaultPos = { x: Math.max(10, containerWidth - thumbW - 20), y: MIN_TOP };
+  const effectivePos = clampPos(pos ?? defaultPos);
+
   const handleDragStart = useCallback(
     (e: React.MouseEvent) => {
       e.preventDefault();
       e.stopPropagation();
       setIsDragging(true);
-      const cur = pos ?? { x: Math.max(10, containerWidth - thumbW - 20), y: 10 };
-      dragRef.current = { startX: e.clientX, startY: e.clientY, startPosX: cur.x, startPosY: cur.y };
+      dragRef.current = {
+        startX: e.clientX,
+        startY: e.clientY,
+        startPosX: effectivePos.x,
+        startPosY: effectivePos.y,
+      };
     },
-    [pos, containerWidth, thumbW]
+    [effectivePos.x, effectivePos.y]
   );
 
   useEffect(() => {
     if (!isDragging) return;
     const onMove = (e: MouseEvent) => {
-      const next = {
+      const next = clampPos({
         x: dragRef.current.startPosX + e.clientX - dragRef.current.startX,
         y: dragRef.current.startPosY + e.clientY - dragRef.current.startY,
-      };
+      });
       setPos(next);
     };
     const onUp = () => {
@@ -153,10 +178,7 @@ export function PreviewThumbnail({ containerWidth, containerHeight }: PreviewThu
     window.addEventListener("mousemove", onMove);
     window.addEventListener("mouseup", onUp);
     return () => { window.removeEventListener("mousemove", onMove); window.removeEventListener("mouseup", onUp); };
-  }, [isDragging]);
-
-  // Compute effective position: default to right side to avoid blocking left axis labels
-  const effectivePos = pos ?? { x: Math.max(10, containerWidth - thumbW - 20), y: 10 };
+  }, [isDragging, clampPos]);
 
   return (
     <div
