@@ -2,6 +2,7 @@ import { useState, useMemo, useEffect, useRef } from "react";
 import { MARD_COLORS, COLOR_GROUPS, getGroupIndices, groupIndicesByLetter } from "../../data/mard221";
 import { useEditorStore } from "../../store/editorStore";
 import { getEffectiveHex } from "../../utils/colorHelper";
+import { appPrompt, appConfirm } from "../Dialog/AppDialog";
 
 /** Get series prefix from color code */
 function getSeriesPrefix(code: string): string {
@@ -140,8 +141,8 @@ export function ColorPalette() {
             )}
           </select>
           <button
-            onClick={() => {
-              const name = prompt("输入自定义色组名称：", "我的色组");
+            onClick={async () => {
+              const name = await appPrompt("输入自定义色组名称：", "我的色组", { title: "新建自定义色组" });
               if (name) {
                 addCustomColorGroup(name);
               }
@@ -153,8 +154,8 @@ export function ColorPalette() {
           </button>
           {isOverridesGroup && (
             <button
-              onClick={() => {
-                if (confirm("确定还原所有已调整的颜色？")) {
+              onClick={async () => {
+                if (await appConfirm("确定还原所有已调整的颜色？", { title: "还原颜色" })) {
                   clearColorOverrides();
                   setGroupId("mard221");
                 }
@@ -167,8 +168,8 @@ export function ColorPalette() {
           )}
           {isCustomGroup && (
             <button
-              onClick={() => {
-                if (confirm(`确定删除色组「${currentCustomGroup?.name}」？`)) {
+              onClick={async () => {
+                if (await appConfirm(`确定删除色组「${currentCustomGroup?.name}」？`, { title: "删除色组" })) {
                   removeCustomColorGroup(groupId);
                   setGroupId("mard221");
                 }

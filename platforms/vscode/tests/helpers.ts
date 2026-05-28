@@ -303,6 +303,17 @@ export async function clickButton(page: Page, text: string | RegExp): Promise<vo
   await page.getByRole("button", { name: text }).first().click();
 }
 
+/**
+ * Wait for the in-app AppDialog modal to appear and click 确定 to dismiss it.
+ * Use this in place of `page.waitForEvent("dialog")` now that alert/prompt/confirm
+ * are rendered as in-app modals (VS Code webviews disable native dialogs).
+ */
+export async function dismissAppAlert(page: Page, timeoutMs = 10_000): Promise<void> {
+  const modal = page.locator("div.fixed.inset-0").filter({ hasText: /确定/ }).last();
+  await modal.waitFor({ state: "visible", timeout: timeoutMs });
+  await modal.getByRole("button", { name: /^确定$/ }).click();
+}
+
 /** Count non-transparent pixels on the largest rendered canvas. */
 export async function countRenderedPixels(page: Page): Promise<number> {
   return page.evaluate(() => {

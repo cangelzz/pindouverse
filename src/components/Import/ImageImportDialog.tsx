@@ -7,6 +7,7 @@ import { detectPixelGrid } from "../../utils/gridDetect";
 import type { ColorMatchAlgorithm, CanvasCell } from "../../types";
 import { getAdapter } from "../../adapters";
 import type { ImagePreview, CropRect } from "../../adapters";
+import { appAlert } from "../Dialog/AppDialog";
 import {
   DEFAULT_CALIBRATION_SETTINGS,
   computeCoefficients,
@@ -167,7 +168,7 @@ export function ImageImportDialog({ onClose }: { onClose: () => void }) {
         const preview = await adapter.previewImage(selected as string);
         setImagePreview(preview);
       } catch (e) {
-        alert(`加载预览失败: ${e}`);
+        await appAlert(`加载预览失败: ${e}`);
       }
     }
   };
@@ -739,7 +740,7 @@ export function ImageImportDialog({ onClose }: { onClose: () => void }) {
       setActualSize({ width: data.width, height: data.height });
       setShowComparison(false);
     } catch (e) {
-      alert(`导入失败: ${e}`);
+      await appAlert(`导入失败: ${e}`);
     } finally {
       setIsProcessing(false);
     }
@@ -772,7 +773,7 @@ export function ImageImportDialog({ onClose }: { onClose: () => void }) {
       setShowComparison(true);
       setSelectedCompareIdx(null);
     } catch (e) {
-      alert(`对比生成失败: ${e}`);
+      await appAlert(`对比生成失败: ${e}`);
     } finally {
       setIsProcessing(false);
     }

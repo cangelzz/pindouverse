@@ -10,6 +10,7 @@ import {
   resolveWatermarkAuthor,
 } from "../../utils/blueprintDecorations";
 import type { WatermarkPayload } from "../../adapters";
+import { appAlert } from "../Dialog/AppDialog";
 
 export function ExportDialog({ onClose }: { onClose: () => void }) {
   const canvasData = useEditorStore((s) => s.canvasData);
@@ -183,10 +184,10 @@ export function ExportDialog({ onClose }: { onClose: () => void }) {
 
       const successMsg = results.length ? `导出成功:\n${results.join("\n")}` : "";
       const errorMsg = errors.length ? `\n\n以下项目失败:\n${errors.join("\n")}` : "";
-      alert(`${successMsg}${errorMsg}`.trim() || "未导出任何文件");
+      await appAlert(`${successMsg}${errorMsg}`.trim() || "未导出任何文件", { title: "导出结果" });
       onClose();
     } catch (e) {
-      alert(`导出失败: ${e}`);
+      await appAlert(`导出失败: ${e}`, { title: "导出失败" });
       onClose();
     } finally {
       setIsExporting(false);

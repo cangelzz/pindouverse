@@ -7,6 +7,7 @@ import {
   getWrites,
   callAction,
   clearMessages,
+  dismissAppAlert,
 } from "./helpers";
 
 async function openExportDialog(page: import("@playwright/test").Page) {
@@ -37,8 +38,6 @@ test.describe("Export", () => {
     await stageReply(page, "showSaveDialog", "/out/test.png");
 
     await clearMessages(page);
-    // Capture the success alert so it doesn't linger past the test boundary
-    const alertDismissed = page.waitForEvent("dialog").then((d) => d.accept());
     // Click the dialog's 导出 button (the only one inside the modal that's enabled)
     await page.getByRole("button", { name: /^导出$/ }).last().click();
 
@@ -54,7 +53,7 @@ test.describe("Export", () => {
 
     const header = decodeBase64Header(fileWrite.data);
     expect(header).toEqual([0x89, 0x50, 0x4e, 0x47]); // PNG signature
-    await alertDismissed;
+    await dismissAppAlert(page);
   });
 
   test("watermark section: header checkbox visible and toggles", async ({ page }) => {
@@ -95,15 +94,13 @@ test.describe("Export", () => {
     // Trigger export so saveWatermarkSettings is called (persists to localStorage)
     await stageReply(page, "showSaveDialog", "/out/persist-test.png");
     await clearMessages(page);
-    // Capture the success alert before clicking so it resolves within the test
-    const alertDismissed = page.waitForEvent("dialog").then((d) => d.accept());
     await page.getByRole("button", { name: /^导出$/ }).last().click();
     await page.waitForFunction(
       () => (window as any)._writes.some((w: any) => w.kind === "writeFile"),
       null,
       { timeout: 10_000 }
     );
-    await alertDismissed;
+    await dismissAppAlert(page);
 
     // Wait for the dialog to close (onClose is called after alert)
     await page
@@ -129,7 +126,6 @@ test.describe("Export", () => {
     // Default settings: showHeader=true (header is 2*cellSize tall)
     await stageReply(page, "showSaveDialog", "/out/test.png");
     await clearMessages(page);
-    const alertDismissed = page.waitForEvent("dialog").then((d) => d.accept());
     await page.getByRole("button", { name: /^导出$/ }).last().click();
 
     await page.waitForFunction(
@@ -154,14 +150,13 @@ test.describe("Export", () => {
     // The grid is the loaded sample's canvas — we don't know its exact dims,
     // but we know the height must exceed (canvasHeight*30 + legend) by exactly 60.
     // Compare against a no-header export by disabling the header.
-    await alertDismissed;
+    await dismissAppAlert(page);
 
     // Now uncheck the header and export again to compare.
     await openExportDialog(page);
     await page.getByLabel(/顶部应用标题/).uncheck();
     await stageReply(page, "showSaveDialog", "/out/test-no-header.png");
     await clearMessages(page);
-    const alertDismissed2 = page.waitForEvent("dialog").then((d) => d.accept());
     await page.getByRole("button", { name: /^导出$/ }).last().click();
 
     await page.waitForFunction(
@@ -181,7 +176,7 @@ test.describe("Export", () => {
     expect(width).toBe(widthNoHeader);
     // Height with header must be larger by exactly 60 (= 2 * default cellSize 30)
     expect(height - heightNoHeader).toBe(60);
-    await alertDismissed2;
+    await dismissAppAlert(page);
   });
 
   test("export with cancelled save dialog → no writeFile", async ({ page }) => {
@@ -208,8 +203,6 @@ test.describe("Export", () => {
     await stageReply(page, "showSaveDialog", "/out/test.png");
     // Mirror file is written without a separate dialog (path derived from base)
     await clearMessages(page);
-    // Capture the success alert so it doesn't linger past the test boundary
-    const alertDismissed = page.waitForEvent("dialog").then((d) => d.accept());
 
     await page.getByRole("button", { name: /^导出$/ }).last().click();
     await page.waitForFunction(
@@ -230,7 +223,7 @@ test.describe("Export", () => {
     // Mirror filename should differ from the original
     const paths = fileWrites.map((w: any) => w.path);
     expect(new Set(paths).size).toBe(paths.length);
-    await alertDismissed;
+    await dismissAppAlert(page);
   });
 
   test("export preview JPG → writeFile called with JPEG bytes", async ({ page }) => {
@@ -245,8 +238,6 @@ test.describe("Export", () => {
     await stageReply(page, "showSaveDialog", "/out/test_preview.jpg");
 
     await clearMessages(page);
-    // Capture the success alert so it doesn't linger past the test boundary
-    const alertDismissed = page.waitForEvent("dialog").then((d) => d.accept());
     await page.getByRole("button", { name: /^导出$/ }).last().click();
 
     await page.waitForFunction(
@@ -262,6 +253,6 @@ test.describe("Export", () => {
     expect(previewWrite).toBeTruthy();
     const header = decodeBase64Header(previewWrite.data);
     expect(header.slice(0, 3)).toEqual([0xff, 0xd8, 0xff]); // JPEG SOI
-    await alertDismissed;
+    await dismissAppAlert(page);
   });
 });

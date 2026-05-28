@@ -9,6 +9,7 @@ import { ExportDialog } from "./components/Export/ExportDialog";
 import { CloudDialog } from "./components/Cloud/CloudDialog";
 import { ProjectInfoDialog } from "./components/ProjectInfo/ProjectInfoDialog";
 import { ChangesCompareDialog } from "./components/Canvas/ChangesCompareDialog";
+import { DialogHost, appPrompt, appAlert, appConfirm } from "./components/Dialog/AppDialog";
 import { useEditorStore } from "./store/editorStore";
 import { getAdapter } from "./adapters";
 import type { BlueprintImportResult } from "./adapters";
@@ -402,9 +403,10 @@ function App() {
             if (!path) return;
 
             // Ask user for grid dimensions (optional, improves accuracy)
-            const sizeInput = prompt(
+            const sizeInput = await appPrompt(
               "输入图纸网格尺寸（宽x高），留空自动检测：\n例如: 100x100 或 52x52",
-              ""
+              "",
+              { title: "图纸网格尺寸" }
             );
             let gridWidth: number | undefined;
             let gridHeight: number | undefined;
@@ -433,7 +435,7 @@ function App() {
               setBlueprintImporting(false);
               setBlueprintResult(result);
             } catch (e) {
-              alert(`图纸导入失败: ${e}`);
+              await appAlert(`图纸导入失败: ${e}`);
               setBlueprintImporting(false);
             }
           }}
@@ -630,8 +632,8 @@ function App() {
                 <div className="flex items-center justify-between mb-1">
                   <span className="font-semibold text-gray-600">拼豆图层</span>
                   <button
-                    onClick={() => {
-                      const name = prompt("图层名称", `图层 ${layers.length + 1}`);
+                    onClick={async () => {
+                      const name = await appPrompt("图层名称", `图层 ${layers.length + 1}`, { title: "新建图层" });
                       if (name !== null) addLayer(name || `图层 ${layers.length + 1}`);
                     }}
                     className="px-1.5 py-0.5 bg-blue-500 text-white rounded text-[10px] hover:bg-blue-600"
@@ -656,8 +658,8 @@ function App() {
                         />
                         <button
                           onClick={() => setActiveLayer(layer.id)}
-                          onDoubleClick={() => {
-                            const name = prompt("重命名图层", layer.name);
+                          onDoubleClick={async () => {
+                            const name = await appPrompt("重命名图层", layer.name, { title: "重命名图层" });
                             if (name !== null && name.trim()) renameLayer(layer.id, name.trim());
                           }}
                           className={`flex-1 text-left truncate ${isActive ? "font-semibold text-blue-700" : "text-gray-600"}`}
@@ -1134,7 +1136,7 @@ function App() {
                               name: s.name,
                             });
                           } catch (e) {
-                            alert(`加载快照失败: ${e instanceof Error ? e.message : String(e)}`);
+                            await appAlert(`加载快照失败: ${e instanceof Error ? e.message : String(e)}`);
                           }
                         }}
                         className="px-2 py-1 border border-gray-300 text-blue-600 rounded hover:bg-blue-50 shrink-0"
@@ -1152,11 +1154,11 @@ function App() {
                       </button>
                       <button
                         onClick={async () => {
-                          if (!confirm(`确认删除快照「${s.name}」？此操作不可撤销。`)) return;
+                          if (!(await appConfirm(`确认删除快照「${s.name}」？此操作不可撤销。`, { title: "删除快照" }))) return;
                           try {
                             await deleteSnapshot(s.path);
                           } catch (e) {
-                            alert(`删除失败: ${e instanceof Error ? e.message : String(e)}`);
+                            await appAlert(`删除失败: ${e instanceof Error ? e.message : String(e)}`);
                           }
                         }}
                         title="删除快照"
@@ -1380,6 +1382,7 @@ function App() {
           </div>
         </div>
       )}
+      <DialogHost />
     </div>
   );
 }

@@ -14,6 +14,7 @@ import {
 } from "../../utils/gistSync";
 import { CloudComparePreview } from "./CloudComparePreview";
 import type { ProjectFile } from "../../types";
+import { appConfirm } from "../Dialog/AppDialog";
 
 interface CloudDialogProps {
   onClose: () => void;
@@ -169,7 +170,7 @@ export function CloudDialog({ onClose }: CloudDialogProps) {
 
   const handleDownload = async (gistId: string, name: string) => {
     if (!token) return;
-    if (isDirty && !confirm("当前有未保存的修改，下载云端项目将替换当前画布。继续？")) return;
+    if (isDirty && !(await appConfirm("当前有未保存的修改，下载云端项目将替换当前画布。继续？", { title: "覆盖确认" }))) return;
     setLoading(true);
     setError(null);
     setSuccessMsg(null);
@@ -193,7 +194,7 @@ export function CloudDialog({ onClose }: CloudDialogProps) {
 
   const handleDelete = async (gistId: string, name: string) => {
     if (!token) return;
-    if (!confirm(`确定删除云端项目 "${name}"？此操作不可撤销。`)) return;
+    if (!(await appConfirm(`确定删除云端项目 "${name}"？此操作不可撤销。`, { title: "删除云端项目" }))) return;
     setLoading(true);
     setError(null);
     setSuccessMsg(null);
@@ -231,7 +232,7 @@ export function CloudDialog({ onClose }: CloudDialogProps) {
 
   const handleRestoreRevision = async (gistId: string, sha: string) => {
     if (!token) return;
-    if (isDirty && !confirm("当前有未保存的修改，恢复版本将替换当前画布。继续？")) return;
+    if (isDirty && !(await appConfirm("当前有未保存的修改，恢复版本将替换当前画布。继续？", { title: "覆盖确认" }))) return;
     setLoading(true);
     try {
       const project = await downloadRevision(token, gistId, sha);
