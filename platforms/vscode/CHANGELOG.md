@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.9.5
+
+- Feature: 「版本管理」对话框新增提示：快照只保存在本地应用数据目录，换设备或重装应用会丢失。同时显示一个 (i) 图标，hover 可查看实际存储路径。
+- Feature: 每条快照新增「另存为」按钮，可把任意快照导出为独立 `.pindou` 文件到用户选择的位置。VS Code 下走静默 `writeFile`，不会切换当前编辑器（区别于 `saveProject` 的 `saveAs` 行为）。
+- Internal: 新增 `PlatformAdapter.writeProjectFile(path, project)` 接口，作为「只写文件、不动编辑器」的导出语义；与 `saveProject` 区分开。VS Code adapter 的 autosave 静默写入路径也复用了它，消除重复逻辑。
+
 ## 0.9.4
 
 - Fix: 图层 ↑/↓ 重新排序后，约一分钟左右页面突然刷新、多层内容被合并成一层的问题。根因：

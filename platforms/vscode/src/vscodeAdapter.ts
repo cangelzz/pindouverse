@@ -234,8 +234,7 @@ export class VScodeAdapter implements PlatformAdapter {
       // multi-layer composition (bug: ↑/↓ reorder then idle for 60s → autosave
       // fires → editor swap → layers appear "merged" after the page refresh).
       if (/[\\/]autosave\.pindou$/i.test(path) || /\.pindou_autosave[\\/]/.test(path)) {
-        const data = btoa(unescape(encodeURIComponent(content)));
-        await sendRequest("writeFile", { path, data });
+        await this.writeProjectFile(path, project);
         return;
       }
       await sendRequest("saveAs", { path, content });
@@ -243,6 +242,15 @@ export class VScodeAdapter implements PlatformAdapter {
       lastSavedContent = content;
       vscode.postMessage({ type: "save", content });
     }
+  }
+
+  async writeProjectFile(path: string, project: ProjectFile): Promise<void> {
+    // EXPORT-ONLY write: never route through saveAs/openWith. The caller
+    // (e.g. snapshot 另存为) wants the file on disk without disturbing
+    // the currently open editor. Always use raw writeFile.
+    const content = JSON.stringify(project, null, 2);
+    const data = btoa(unescape(encodeURIComponent(content)));
+    await sendRequest("writeFile", { path, data });
   }
 
   async loadProject(_path: string): Promise<ProjectFile> {

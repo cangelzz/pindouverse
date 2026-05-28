@@ -214,6 +214,12 @@ export class BrowserAdapter implements PlatformAdapter {
     await idbPut(STORE_PROJECTS, path, project);
   }
 
+  async writeProjectFile(path: string, project: ProjectFile): Promise<void> {
+    // Browser has no editor concept — store the file under the chosen
+    // IndexedDB key, same as saveProject.
+    await idbPut(STORE_PROJECTS, path, project);
+  }
+
   async loadProject(path: string): Promise<ProjectFile> {
     const project = await idbGet<ProjectFile>(STORE_PROJECTS, path);
     if (!project) throw new Error(`Project not found: ${path}`);

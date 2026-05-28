@@ -128,6 +128,15 @@ export interface PlatformAdapter {
   // Project I/O
   saveProject(path: string, project: ProjectFile): Promise<void>;
   loadProject(path: string): Promise<ProjectFile>;
+  /**
+   * Write a ProjectFile to `path` without any editor side effects.
+   * Distinct from saveProject: in VS Code, saveProject routes through
+   * saveAs (which disposes the current panel and opens the new file as
+   * the active editor). writeProjectFile is for "export-only" flows
+   * (snapshot export, backups) where the caller must NOT lose its
+   * current editing context.
+   */
+  writeProjectFile(path: string, project: ProjectFile): Promise<void>;
 
   // Auto-save
   getAutosaveDir(): Promise<string>;

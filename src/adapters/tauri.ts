@@ -18,6 +18,12 @@ export class TauriAdapter implements PlatformAdapter {
     await invoke("save_project", { path, project });
   }
 
+  async writeProjectFile(path: string, project: ProjectFile): Promise<void> {
+    // Tauri has no editor concept — saveProject already does a plain disk
+    // write via the save_project IPC command. Reuse it.
+    await invoke("save_project", { path, project });
+  }
+
   async loadProject(path: string): Promise<ProjectFile> {
     return await invoke<ProjectFile>("load_project", { path });
   }

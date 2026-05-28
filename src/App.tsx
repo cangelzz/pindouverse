@@ -113,6 +113,7 @@ function App() {
   const [resizeAnchorCol, setResizeAnchorCol] = useState(0);
   const [showSnapshots, setShowSnapshots] = useState(false);
   const [snapshotLabel, setSnapshotLabel] = useState("");
+  const [autosaveDir, setAutosaveDir] = useState<string | null>(null);
   const [compareSnapshot, setCompareSnapshot] = useState<{
     canvasData: CanvasData;
     canvasSize: CanvasSize;
@@ -238,6 +239,34 @@ function App() {
     const id = setInterval(() => autoSaveRef.current(), 60_000);
     return () => clearInterval(id);
   }, [autoSaveEnabled]);
+
+  // Resolve the autosave directory path lazily, so the (i) tooltip in the
+  // snapshot dialog can show the actual on-disk location.
+  useEffect(() => {
+    if (!showSnapshots) return;
+    if (autosaveDir !== null) return;
+    let cancelled = false;
+    getAdapter()
+      .getAutosaveDir()
+      .then((dir) => {
+        if (!cancelled) setAutosaveDir(dir ?? "");
+      })
+      .catch(() => {
+        if (!cancelled) setAutosaveDir("");
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [showSnapshots, autosaveDir]);
+
+  // Refresh the snapshot list when the 版本管理 dialog opens, but only if
+  // the store is empty — preserves test-injected state.
+  useEffect(() => {
+    if (showSnapshots && snapshots.length === 0) {
+      loadSnapshots();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [showSnapshots]);
 
   // Update window title with project name/path
   useEffect(() => {
@@ -377,6 +406,7 @@ function App() {
           onClick={() => saveProjectAs()}
           className="px-2 py-1 rounded hover:bg-gray-200"
           title="Ctrl+Shift+S"
+          aria-label="保存到新文件"
         >
           另存为
         </button>
@@ -483,10 +513,10 @@ function App() {
           </>
         )}
         <button
-          onClick={() => { loadSnapshots(); setShowSnapshots(true); }}
+          onClick={() => setShowSnapshots(true)}
           className="px-2 py-1 rounded hover:bg-gray-200"
         >
-          版本管理
+          版本
         </button>
         <div className="flex-1" />
         {/* GitHub login/logout */}
@@ -1092,8 +1122,13 @@ function App() {
               </button>
             </div>
             <div className="p-4 flex flex-col gap-3 overflow-y-auto">
+              {/* Local-only notice (persistent, info-pill style) */}
+              <div className="text-[11px] text-gray-500 bg-gray-50 border border-gray-200 rounded px-2 py-1">
+                📍 快照保存在本地应用数据目录，换设备或重装应用会丢失
+              </div>
+
               {/* Create snapshot */}
-              <div className="flex gap-2">
+              <div className="flex gap-2 items-center">
                 <input
                   type="text"
                   value={snapshotLabel}
@@ -1110,6 +1145,17 @@ function App() {
                 >
                   创建快照
                 </button>
+                <span
+                  className="inline-flex items-center justify-center w-5 h-5 rounded-full border border-gray-300 text-gray-500 text-[10px] cursor-help select-none"
+                  title={
+                    autosaveDir
+                      ? `保存位置：${autosaveDir}\n如需长期保存请用列表中的「另存为」`
+                      : "快照保存在本机的应用数据目录。如需长期保存请用列表中的「另存为」"
+                  }
+                  aria-label="快照存储位置说明"
+                >
+                  i
+                </span>
               </div>
 
               {/* Snapshot list */}
@@ -1151,6 +1197,30 @@ function App() {
                         className="px-2 py-1 bg-green-500 text-white rounded hover:bg-green-600 shrink-0"
                       >
                         恢复
+                      </button>
+                      <button
+                        onClick={async () => {
+                          try {
+                            const project = await getAdapter().loadSnapshot(s.path);
+                            const suggested = `${s.name.replace(/[\\/:*?"<>|]/g, "_")}.pindou`;
+                            const target = await getAdapter().showSaveDialog(
+                              [{ name: "PinDou Project", extensions: ["pindou"] }],
+                              suggested,
+                            );
+                            if (!target) return;
+                            await getAdapter().writeProjectFile(target, project);
+                            await appAlert(`已导出到: ${target}`, { title: "导出成功" });
+                          } catch (e) {
+                            await appAlert(
+                              `导出失败: ${e instanceof Error ? e.message : String(e)}`,
+                              { title: "导出失败" },
+                            );
+                          }
+                        }}
+                        className="px-2 py-1 border border-blue-300 text-blue-600 rounded hover:bg-blue-50 shrink-0"
+                        title="导出为独立 .pindou 文件"
+                      >
+                        另存为
                       </button>
                       <button
                         onClick={async () => {
