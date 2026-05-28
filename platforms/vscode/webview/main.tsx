@@ -48,10 +48,14 @@ setDocumentLoadHandler((content: string, path: string, isUntitled: boolean) => {
     const project = JSON.parse(content);
     if (project.canvasSize && project.canvasData) {
       const store = useEditorStore.getState();
-      store.loadCanvasData(
-        project.canvasData,
-        project.canvasSize
-      );
+      if (Array.isArray(project.layers) && project.layers.length > 0) {
+        store.loadProjectLayers(project.layers, project.canvasSize);
+      } else {
+        store.loadCanvasData(
+          project.canvasData,
+          project.canvasSize
+        );
+      }
       if (project.gridConfig) {
         useEditorStore.setState({ gridConfig: { ...store.gridConfig, ...project.gridConfig } });
       }

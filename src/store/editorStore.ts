@@ -131,6 +131,8 @@ interface EditorState {
   endStroke: () => void;
   setCloudSync: (gistId: string | null, updatedAt: string | null, name: string | null) => void;
   loadCanvasData: (data: CanvasData, size: CanvasSize) => void;
+  /** Restore layered state from a saved ProjectFile. Falls back to single-layer if no layers field. */
+  loadProjectLayers: (layers: BeadLayer[], size: CanvasSize) => void;
   resizeCanvas: (newWidth: number, newHeight: number, anchorRow: number, anchorCol: number) => void;
   countLostPixels: (newWidth: number, newHeight: number, anchorRow: number, anchorCol: number) => number;
   setSelection: (cells: Set<string>) => void;
@@ -298,9 +300,10 @@ function cloneCanvasData(data: CanvasData): CanvasData {
 function buildProjectFile(state: EditorState): ProjectFile {
   const now = new Date().toISOString();
   return {
-    version: 1,
+    version: 2,
     canvasSize: state.canvasSize,
     canvasData: state.canvasData,
+    layers: state.layers,
     gridConfig: state.gridConfig,
     projectInfo: state.projectInfo,
     createdAt: state.lastSavedAt || now,
@@ -723,6 +726,29 @@ export const useEditorStore = create<EditorState>((set, get) => ({
     });
   },
 
+  loadProjectLayers: (layers, size) => {
+    if (!Array.isArray(layers) || layers.length === 0) return;
+    // Re-id layers to keep nextLayerId() monotonic and avoid collisions with the
+    // current session's counter (saved files may have been authored elsewhere).
+    const remapped: BeadLayer[] = layers.map((l) => ({
+      id: nextLayerId(),
+      name: l.name ?? "拼豆层",
+      data: l.data,
+      visible: l.visible !== false,
+      opacity: typeof l.opacity === "number" ? Math.max(0, Math.min(1, l.opacity)) : 1,
+    }));
+    set({
+      canvasSize: size,
+      gridConfig: makeGridConfig(size.width, size.height),
+      layers: remapped,
+      activeLayerId: remapped[remapped.length - 1].id,
+      canvasData: mergeLayers(remapped, size.width, size.height),
+      undoStack: [],
+      redoStack: [],
+      isDirty: false,
+    });
+  },
+
   resizeCanvas: (newWidth, newHeight, anchorRow, anchorCol) => {
     const state = get();
     const { width: oldW, height: oldH } = state.canvasSize;
@@ -1036,19 +1062,34 @@ export const useEditorStore = create<EditorState>((set, get) => ({
     );
     if (!selected) return;
     const project = await adapter.loadProject(selected);
-    const layer = createDefaultLayer(project.canvasSize.width, project.canvasSize.height);
-    layer.data = project.canvasData;
     const defaultGrid = makeGridConfig(project.canvasSize.width, project.canvasSize.height);
     const savedGrid = project.gridConfig;
+    const hasLayers = Array.isArray(project.layers) && project.layers.length > 0;
+    const restoredLayers: BeadLayer[] = hasLayers
+      ? project.layers!.map((l) => ({
+          id: nextLayerId(),
+          name: l.name ?? "拼豆层",
+          data: l.data,
+          visible: l.visible !== false,
+          opacity: typeof l.opacity === "number" ? Math.max(0, Math.min(1, l.opacity)) : 1,
+        }))
+      : (() => {
+          const layer = createDefaultLayer(project.canvasSize.width, project.canvasSize.height);
+          layer.data = project.canvasData;
+          return [layer];
+        })();
+    const mergedCanvas = hasLayers
+      ? mergeLayers(restoredLayers, project.canvasSize.width, project.canvasSize.height)
+      : project.canvasData;
     set({
-      canvasData: project.canvasData,
+      canvasData: mergedCanvas,
       canvasSize: project.canvasSize,
       gridConfig: savedGrid ? { ...defaultGrid, ...savedGrid } : defaultGrid,
-      layers: [layer],
-      activeLayerId: layer.id,
+      layers: restoredLayers,
+      activeLayerId: restoredLayers[restoredLayers.length - 1].id,
       projectPath: selected as string,
       projectInfo: project.projectInfo,
-      baselineCanvasData: cloneCanvasData(project.canvasData),
+      baselineCanvasData: cloneCanvasData(mergedCanvas),
       undoStack: [],
       redoStack: [],
       isDirty: false,
@@ -1110,13 +1151,28 @@ export const useEditorStore = create<EditorState>((set, get) => ({
   restoreSnapshot: async (path) => {
     const adapter = getAdapter();
     const project = await adapter.loadSnapshot(path);
-    const layer = createDefaultLayer(project.canvasSize.width, project.canvasSize.height);
-    layer.data = project.canvasData;
+    const hasLayers = Array.isArray(project.layers) && project.layers.length > 0;
+    const restoredLayers: BeadLayer[] = hasLayers
+      ? project.layers!.map((l) => ({
+          id: nextLayerId(),
+          name: l.name ?? "拼豆层",
+          data: l.data,
+          visible: l.visible !== false,
+          opacity: typeof l.opacity === "number" ? Math.max(0, Math.min(1, l.opacity)) : 1,
+        }))
+      : (() => {
+          const layer = createDefaultLayer(project.canvasSize.width, project.canvasSize.height);
+          layer.data = project.canvasData;
+          return [layer];
+        })();
+    const mergedCanvas = hasLayers
+      ? mergeLayers(restoredLayers, project.canvasSize.width, project.canvasSize.height)
+      : project.canvasData;
     set({
-      canvasData: project.canvasData,
+      canvasData: mergedCanvas,
       canvasSize: project.canvasSize,
-      layers: [layer],
-      activeLayerId: layer.id,
+      layers: restoredLayers,
+      activeLayerId: restoredLayers[restoredLayers.length - 1].id,
       undoStack: [],
       redoStack: [],
       isDirty: false,

@@ -45,6 +45,7 @@ export function CloudDialog({ onClose }: CloudDialogProps) {
   const cloudProjectName = useEditorStore((s) => s.cloudProjectName);
   const projectPath = useEditorStore((s) => s.projectPath);
   const loadCanvasData = useEditorStore((s) => s.loadCanvasData);
+  const loadProjectLayers = useEditorStore((s) => s.loadProjectLayers);
   const setCloudSync = useEditorStore((s) => s.setCloudSync);
 
   // Derive project name: cloud name > local filename > empty
@@ -176,7 +177,11 @@ export function CloudDialog({ onClose }: CloudDialogProps) {
     setSuccessMsg(null);
     try {
       const { project, updatedAt } = await downloadProject(token, gistId);
-      loadCanvasData(project.canvasData, project.canvasSize);
+      if (Array.isArray(project.layers) && project.layers.length > 0) {
+        loadProjectLayers(project.layers, project.canvasSize);
+      } else {
+        loadCanvasData(project.canvasData, project.canvasSize);
+      }
       if (project.gridConfig) {
         const store = useEditorStore.getState();
         useEditorStore.setState({
@@ -236,7 +241,11 @@ export function CloudDialog({ onClose }: CloudDialogProps) {
     setLoading(true);
     try {
       const project = await downloadRevision(token, gistId, sha);
-      loadCanvasData(project.canvasData, project.canvasSize);
+      if (Array.isArray(project.layers) && project.layers.length > 0) {
+        loadProjectLayers(project.layers, project.canvasSize);
+      } else {
+        loadCanvasData(project.canvasData, project.canvasSize);
+      }
       if (project.gridConfig) {
         const store = useEditorStore.getState();
         useEditorStore.setState({

@@ -228,6 +228,16 @@ export class VScodeAdapter implements PlatformAdapter {
     // "Save As": write to the new file and re-open it in the custom editor.
     // Otherwise (no path or same path), do an in-place save of the active doc.
     if (path && path !== currentDocPath) {
+      // EXCEPTION: writes to the autosave backup directory must NOT switch the
+      // active editor — that would dispose the current webview panel mid-edit,
+      // reloading state from the merged-canvas backup and collapsing any
+      // multi-layer composition (bug: ↑/↓ reorder then idle for 60s → autosave
+      // fires → editor swap → layers appear "merged" after the page refresh).
+      if (/[\\/]autosave\.pindou$/i.test(path) || /\.pindou_autosave[\\/]/.test(path)) {
+        const data = btoa(unescape(encodeURIComponent(content)));
+        await sendRequest("writeFile", { path, data });
+        return;
+      }
       await sendRequest("saveAs", { path, content });
     } else {
       lastSavedContent = content;

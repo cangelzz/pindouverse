@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.9.4
+
+- Fix: 图层 ↑/↓ 重新排序后，约一分钟左右页面突然刷新、多层内容被合并成一层的问题。根因：
+  - `buildProjectFile` 之前只写 `canvasData`（合并视图），不写 `layers` 数组 —— 任何 save/reload 都会把多层折叠成一层。
+  - VS Code adapter 的 autosave 走的是 `saveAs` 消息，扩展会用 `vscode.openWith` 打开备份文件并 dispose 当前 webview panel，导致用户看到「页面刷新」+ 图层丢失。
+  - 修复一：`ProjectFile` 增加可选 `layers` 字段（v2 格式），保存/加载/快照/云端下载/打开项目时都走层级路径；老 v1 文件保持兼容。
+  - 修复二：VS Code adapter 在写入 `autosave.pindou` 时改走静默 `writeFile`，不再触发 saveAs 编辑器切换。
+
+## 0.9.3
+
+- Fix: 「新建图层」、「重命名图层」、「新建自定义色组」、「删除色组」、「删除快照」、「云端覆盖确认」以及导出/导入的成功/失败提示等场景在 VS Code 中之前全部静默失败 —— VS Code webview 禁用了原生 `window.prompt/alert/confirm`。改用应用内模态对话框（`appPrompt/appAlert/appConfirm`），桌面版、浏览器、移动端、VS Code 行为一致。共修复 17 处调用。
+
 ## 0.9.2
 
 - Fix: floating preview thumbnail no longer gets stuck off-screen. If a previously saved drag position pushed the panel's drag header above the canvas area, the +/− zoom buttons and the drag handle became invisible (clipped by the canvas container's `overflow-hidden`) and the panel could not be moved back. Positions are now clamped on render and during drag so the header always stays inside the canvas area; stale localStorage values are silently corrected on next interaction.

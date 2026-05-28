@@ -92,7 +92,11 @@ export interface ProjectInfo {
 export interface ProjectFile {
   version: number;
   canvasSize: CanvasSize;
+  /** Flattened bottom-to-top composite of all visible layers. Always present for
+   * back-compat with v1 loaders that don't know about `layers`. */
   canvasData: CanvasData;
+  /** Source of truth when present (v2+). Bottom-to-top stacking order. */
+  layers?: BeadLayer[];
   gridConfig?: GridConfig;
   projectInfo?: ProjectInfo;
   createdAt: string;
