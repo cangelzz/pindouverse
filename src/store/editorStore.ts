@@ -146,6 +146,16 @@ interface EditorState {
   liftSelectionToFloat: () => void;
   setFloatingSelectionOffset: (row: number, col: number) => void;
   moveSelectionCells: (dRow: number, dCol: number) => void;
+  /** Flip selected cells in place within the selection bounds. */
+  mirrorSelection: (direction: "horizontal" | "vertical") => void;
+  /** Make a draggable floating duplicate without clearing the original cells. */
+  duplicateSelectionAsFloating: () => void;
+  /** Within selection, swap every cell of `fromIndex` to `toIndex`. */
+  replaceColorInSelection: (fromIndex: number, toIndex: number) => void;
+  /** Cut selected cells from active layer onto a NEW layer at the same positions. */
+  moveSelectionToNewLayer: () => void;
+  /** Cut selected cells from active layer onto an existing layer at the same positions. */
+  moveSelectionToLayer: (targetLayerId: string) => void;
   placeImageOnCanvas: (
     imageData: CanvasData,
     imageW: number,
@@ -987,6 +997,147 @@ export const useEditorStore = create<EditorState>((set, get) => ({
       floatingSelection: { cells: floatingCells, offsetRow: r1, offsetCol: c1 },
       selection: null,
       selectionBounds: null,
+    });
+  },
+
+  mirrorSelection: (direction) => {
+    const state = get();
+    if (!state.selection || !state.selectionBounds) return;
+    const layerIdx = state.layers.findIndex((l) => l.id === state.activeLayerId);
+    if (layerIdx === -1) return;
+    const layerData = state.layers[layerIdx].data;
+    const { r1, c1, r2, c2 } = state.selectionBounds;
+
+    // Snapshot the selection's cells by position so we can write the mirrored
+    // values in a single pass without source/destination interference.
+    const snapshot = new Map<string, number | null>();
+    for (const key of state.selection) {
+      const [r, c] = key.split(",").map(Number);
+      snapshot.set(key, layerData[r]?.[c]?.colorIndex ?? null);
+    }
+
+    const entries: { row: number; col: number; colorIndex: number | null }[] = [];
+    for (const key of state.selection) {
+      const [r, c] = key.split(",").map(Number);
+      const srcR = direction === "vertical" ? r2 - (r - r1) : r;
+      const srcC = direction === "horizontal" ? c2 - (c - c1) : c;
+      const srcVal = snapshot.get(`${srcR},${srcC}`);
+      entries.push({ row: r, col: c, colorIndex: srcVal ?? null });
+    }
+    if (entries.length > 0) get().batchSetCells(entries);
+  },
+
+  duplicateSelectionAsFloating: () => {
+    const state = get();
+    if (!state.selection || !state.selectionBounds) return;
+    const layerIdx = state.layers.findIndex((l) => l.id === state.activeLayerId);
+    if (layerIdx === -1) return;
+    const layerData = state.layers[layerIdx].data;
+    const { r1, c1 } = state.selectionBounds;
+    const floatingCells = new Map<string, CanvasCell>();
+    for (const key of state.selection) {
+      const [r, c] = key.split(",").map(Number);
+      const cell = layerData[r]?.[c];
+      if (cell && cell.colorIndex !== null) {
+        floatingCells.set(`${r - r1},${c - c1}`, { ...cell });
+      }
+    }
+    if (floatingCells.size === 0) return;
+    set({
+      floatingSelection: { cells: floatingCells, offsetRow: r1, offsetCol: c1 },
+      selection: null,
+      selectionBounds: null,
+    });
+  },
+
+  replaceColorInSelection: (fromIndex, toIndex) => {
+    const state = get();
+    if (fromIndex === toIndex) return;
+    if (!state.selection) return;
+    const layerIdx = state.layers.findIndex((l) => l.id === state.activeLayerId);
+    if (layerIdx === -1) return;
+    const layerData = state.layers[layerIdx].data;
+    const entries: { row: number; col: number; colorIndex: number | null }[] = [];
+    for (const key of state.selection) {
+      const [r, c] = key.split(",").map(Number);
+      if (layerData[r]?.[c]?.colorIndex === fromIndex) {
+        entries.push({ row: r, col: c, colorIndex: toIndex });
+      }
+    }
+    if (entries.length > 0) get().batchSetCells(entries);
+  },
+
+  moveSelectionToNewLayer: () => {
+    const state = get();
+    if (!state.selection || !state.selectionBounds) return;
+    const sourceIdx = state.layers.findIndex((l) => l.id === state.activeLayerId);
+    if (sourceIdx === -1) return;
+    const sourceLayer = state.layers[sourceIdx];
+
+    // Build the new layer's data starting from an empty canvas, with cells
+    // from the source written at the same positions.
+    const { width, height } = state.canvasSize;
+    const newLayer = createDefaultLayer(width, height, `图层 ${state.layers.length + 1}`);
+    const newLayerData = newLayer.data.map((row) => row.map((c) => ({ ...c })));
+    const clearedSourceData = sourceLayer.data.map((row) => row.map((c) => ({ ...c })));
+
+    for (const key of state.selection) {
+      const [r, c] = key.split(",").map(Number);
+      const srcCell = sourceLayer.data[r]?.[c];
+      if (srcCell && srcCell.colorIndex !== null) {
+        newLayerData[r][c] = { ...srcCell };
+        clearedSourceData[r][c] = { colorIndex: null };
+      }
+    }
+
+    const newLayers = [...state.layers];
+    newLayers[sourceIdx] = { ...sourceLayer, data: clearedSourceData };
+    newLayers.push({ ...newLayer, data: newLayerData });
+
+    set({
+      layers: newLayers,
+      activeLayerId: newLayer.id,
+      canvasData: mergeLayers(newLayers, width, height),
+      undoStack: [],
+      redoStack: [],
+      isDirty: true,
+    });
+  },
+
+  moveSelectionToLayer: (targetLayerId) => {
+    const state = get();
+    if (!state.selection || !state.selectionBounds) return;
+    if (targetLayerId === state.activeLayerId) return;
+    const sourceIdx = state.layers.findIndex((l) => l.id === state.activeLayerId);
+    const targetIdx = state.layers.findIndex((l) => l.id === targetLayerId);
+    if (sourceIdx === -1 || targetIdx === -1) return;
+
+    const sourceLayer = state.layers[sourceIdx];
+    const targetLayer = state.layers[targetIdx];
+    const newSourceData = sourceLayer.data.map((row) => row.map((c) => ({ ...c })));
+    const newTargetData = targetLayer.data.map((row) => row.map((c) => ({ ...c })));
+
+    for (const key of state.selection) {
+      const [r, c] = key.split(",").map(Number);
+      const srcCell = sourceLayer.data[r]?.[c];
+      if (srcCell && srcCell.colorIndex !== null) {
+        newTargetData[r][c] = { ...srcCell };
+        newSourceData[r][c] = { colorIndex: null };
+      }
+    }
+
+    const newLayers = [...state.layers];
+    newLayers[sourceIdx] = { ...sourceLayer, data: newSourceData };
+    newLayers[targetIdx] = { ...targetLayer, data: newTargetData };
+
+    const { width, height } = state.canvasSize;
+    set({
+      layers: newLayers,
+      activeLayerId: targetLayerId,
+      canvasData: mergeLayers(newLayers, width, height),
+      undoStack: [],
+      redoStack: [],
+      isDirty: true,
     });
   },
 

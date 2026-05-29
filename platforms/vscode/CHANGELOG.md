@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.9.6
+
+- Feature: 选区右键菜单。当画布上存在选区时右键弹出菜单，提供 6 个动作：镜像（水平/垂直子菜单）、移到新图层、移到指定图层（子菜单列出其他图层）、复制、原地复制并拖动、替换选区内颜色（弹小对话框选 from/to，to 可以用当前画笔色）。
+- Internal: 5 个新 store action（mirrorSelection / duplicateSelectionAsFloating / replaceColorInSelection / moveSelectionToNewLayer / moveSelectionToLayer）。跨图层移动遵循现有 setActiveLayer/removeLayer 的惯例 — 清空 undo/redo 栈。
+
 ## 0.9.5
 
 - Feature: 「版本管理」对话框新增提示：快照只保存在本地应用数据目录，换设备或重装应用会丢失。同时显示一个 (i) 图标，hover 可查看实际存储路径。

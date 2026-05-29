@@ -1,4 +1,4 @@
-import { useRef, useEffect, useCallback, useState } from "react";
+import { useRef, useEffect, useCallback, useState, useMemo } from "react";
 import { useEditorStore } from "../../store/editorStore";
 import { renderPixels, renderGrid } from "../../utils/canvasRenderer";
 import { MARD_COLORS } from "../../data/mard221";
@@ -8,6 +8,8 @@ import { playDone, playUnknown, playListenStart, speak, warmupAudio } from "../.
 import { PreviewThumbnail } from "./PreviewThumbnail";
 import { lineCells, rectCells, circleCells, constrainLine, constrainRect } from "../../utils/shapeDrawing";
 import { renderMarchingAnts, renderResizeHandles, renderFloatingSelection } from "../../utils/selectionRenderer";
+import { SelectionContextMenu } from "./SelectionContextMenu";
+import { ReplaceColorInSelectionDialog } from "./ReplaceColorInSelectionDialog";
 
 export function PixelCanvas() {
   const pixelCanvasRef = useRef<HTMLCanvasElement>(null);
@@ -57,6 +59,17 @@ export function PixelCanvas() {
   const clearSelection = useEditorStore((s) => s.clearSelection);
   const commitFloatingSelection = useEditorStore((s) => s.commitFloatingSelection);
 
+  // Selection context-menu actions
+  const mirrorSelection = useEditorStore((s) => s.mirrorSelection);
+  const moveSelectionToNewLayer = useEditorStore((s) => s.moveSelectionToNewLayer);
+  const moveSelectionToLayer = useEditorStore((s) => s.moveSelectionToLayer);
+  const copySelection = useEditorStore((s) => s.copySelection);
+  const duplicateSelectionAsFloating = useEditorStore((s) => s.duplicateSelectionAsFloating);
+  const replaceColorInSelection = useEditorStore((s) => s.replaceColorInSelection);
+
+  const [contextMenu, setContextMenu] = useState<{ x: number; y: number } | null>(null);
+  const [replaceOpen, setReplaceOpen] = useState(false);
+
   // Track dragging state
   const isDragging = useRef(false);
   const dragStart = useRef({ x: 0, y: 0, ox: 0, oy: 0 });
@@ -83,6 +96,23 @@ export function PixelCanvas() {
 
   // Preview thumbnail
   const [showThumbnail, setShowThumbnail] = useState(false);
+
+  // Color counts inside the current selection (for the replace-color dialog).
+  const selectionColorCounts = useMemo(() => {
+    const counts = new Map<number, number>();
+    if (!selection) return counts;
+    const layerIdx = layers.findIndex((l) => l.id === activeLayerId);
+    if (layerIdx === -1) return counts;
+    const data = layers[layerIdx].data;
+    for (const key of selection) {
+      const [r, c] = key.split(",").map(Number);
+      const idx = data[r]?.[c]?.colorIndex;
+      if (idx !== null && idx !== undefined) {
+        counts.set(idx, (counts.get(idx) ?? 0) + 1);
+      }
+    }
+    return counts;
+  }, [selection, layers, activeLayerId]);
 
   // Blueprint mode: focused 5×5 grid group highlight
   const [focusGroup, setFocusGroup] = useState<{ groupCol: number; groupRow: number } | null>(null);
@@ -1216,7 +1246,12 @@ export function PixelCanvas() {
         onMouseUp={handleMouseUp}
         onMouseLeave={handleMouseUp}
         onDoubleClick={handleDoubleClick}
-        onContextMenu={(e) => e.preventDefault()}
+        onContextMenu={(e) => {
+          e.preventDefault();
+          if (selection && selection.size > 0 && !floatingSelectionState) {
+            setContextMenu({ x: e.clientX, y: e.clientY });
+          }
+        }}
       >
         <canvas
           ref={refCanvasRef}
@@ -1240,6 +1275,30 @@ export function PixelCanvas() {
           />
         )}
       </div>
+      {contextMenu && (
+        <SelectionContextMenu
+          x={contextMenu.x}
+          y={contextMenu.y}
+          layers={layers}
+          activeLayerId={activeLayerId}
+          onMirror={(dir) => mirrorSelection(dir)}
+          onMoveToNewLayer={() => moveSelectionToNewLayer()}
+          onMoveToLayer={(id) => moveSelectionToLayer(id)}
+          onCopy={() => copySelection()}
+          onDuplicateDraggable={() => duplicateSelectionAsFloating()}
+          onReplaceColor={() => setReplaceOpen(true)}
+          onClose={() => setContextMenu(null)}
+        />
+      )}
+      {replaceOpen && (
+        <ReplaceColorInSelectionDialog
+          selectionColorCounts={selectionColorCounts}
+          currentDrawingColorIndex={selectedColorIndex}
+          colorOverrides={colorOverrides}
+          onConfirm={(from, to) => replaceColorInSelection(from, to)}
+          onClose={() => setReplaceOpen(false)}
+        />
+      )}
     </div>
   );
 }

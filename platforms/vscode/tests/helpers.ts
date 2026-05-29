@@ -291,11 +291,37 @@ export async function callAction<T = any>(
   );
 }
 
-/** setState shortcut for arbitrary store fields. */
+/** setState shortcut for arbitrary store fields.
+ * Automatically converts Set values to arrays for JSON serialization, then
+ * reconstructs them as Sets in the browser context. Map values are similarly
+ * handled as [key, value] entry arrays.
+ */
 export async function setStoreState(page: Page, patch: Record<string, any>): Promise<void> {
-  await page.evaluate((p) => {
-    (window as any).__pindouStore.setState(p);
-  }, patch);
+  // Serialize Sets/Maps so they survive JSON serialization through page.evaluate.
+  const setFields: string[] = [];
+  const mapFields: string[] = [];
+  const serializable: Record<string, any> = {};
+  for (const [k, v] of Object.entries(patch)) {
+    if (v instanceof Set) {
+      serializable[k] = [...v];
+      setFields.push(k);
+    } else if (v instanceof Map) {
+      serializable[k] = [...v.entries()];
+      mapFields.push(k);
+    } else {
+      serializable[k] = v;
+    }
+  }
+  await page.evaluate(
+    ({ p, setFields, mapFields }) => {
+      const store = (window as any).__pindouStore;
+      const patch: Record<string, any> = { ...p };
+      for (const f of setFields) patch[f] = new Set(p[f]);
+      for (const f of mapFields) patch[f] = new Map(p[f]);
+      store.setState(patch);
+    },
+    { p: serializable, setFields, mapFields }
+  );
 }
 
 /** Click a button by its visible text (handles emoji + text patterns). */
