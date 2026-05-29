@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.9.7
+
+- Fix: 选区右键菜单点击无反应。两个同因 bug：
+  - 菜单按钮的 `mousedown` 未阻止冒泡到 canvas 容器，当当前工具为「选区」且点击坐标在选区外时，`handleMouseDown` 会先调 `clearSelection()`，导致后续菜单 action（`mirrorSelection` / `moveSelectionToNewLayer` 等）读到 `selection==null` 而静默 no-op。
+  - 菜单内部的 `Item` 子组件定义在父组件函数体内，PixelCanvas 因选区蚂蚁线动画每 ~100ms 重渲染时，Item 被当成新组件类型，菜单按钮整体 unmount→remount，使部分点击事件无法到达正确的 onClick handler。
+  - 修复：菜单根 div 和替换颜色对话框遮罩层都加 `onMouseDown={(e) => e.stopPropagation()}`；`Item` 提升到模块作用域、`onClose` 改为通过 props 注入。
+
 ## 0.9.6
 
 - Feature: 选区右键菜单。当画布上存在选区时右键弹出菜单，提供 6 个动作：镜像（水平/垂直子菜单）、移到新图层、移到指定图层（子菜单列出其他图层）、复制、原地复制并拖动、替换选区内颜色（弹小对话框选 from/to，to 可以用当前画笔色）。

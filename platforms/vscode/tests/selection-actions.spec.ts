@@ -237,4 +237,46 @@ test.describe("Selection actions — UI", () => {
     // Menu must NOT appear.
     await expect(page.getByRole("menuitem", { name: /^镜像$/ })).toHaveCount(0);
   });
+
+  test("clicking 水平翻转 actually applies the mirror (regression: mousedown must not bubble to canvas)", async ({ page }) => {
+    // Repro for bug "右键这几个菜单都点不了，点了没反映":
+    // Without stopPropagation on the menu root, the menu button's mousedown
+    // bubbles to the canvas container's handleMouseDown, which (when the
+    // current tool is "select" and the click coordinate falls outside the
+    // selection bounds) calls clearSelection() BEFORE the React onClick
+    // handler runs. The action then sees selection==null and no-ops.
+    await setupPage(page);
+    await loadProject(page);
+    await seedSelection(page);
+    // Use the "select" tool — this is what triggers handleMouseDown's
+    // clearSelection() path.
+    await callAction(page, "setTool", ["select"]);
+
+    const canvas = page.locator("canvas").first();
+    const box = await canvas.boundingBox();
+    if (!box) throw new Error("canvas not visible");
+
+    // Open the menu near the canvas origin.
+    await page.mouse.click(box.x + 20, box.y + 20, { button: "right" });
+    await expect(page.getByRole("menuitem", { name: /^移到新图层$/ })).toBeVisible();
+
+    // Click a TOP-LEVEL item that doesn't require a hover-opened submenu — if
+    // the action runs, layer count goes 1 → 2 and the seeded cells transfer.
+    const layersBefore = await getStoreState<any[]>(page, "layers");
+    expect(layersBefore.length).toBe(1);
+
+    await page.getByRole("menuitem", { name: /^移到新图层$/ }).click();
+
+    const layersAfter = await getStoreState<any[]>(page, "layers");
+    // BUG: if mousedown bubbles to canvas, currentTool==="select" clears the
+    // selection before the React onClick fires; moveSelectionToNewLayer then
+    // sees selection==null and no-ops, so layer count stays at 1.
+    expect(layersAfter.length).toBe(2);
+    // The new (top) layer must hold the moved cells.
+    expect(await cellColor(page, 1, 1, 1)).toBe(2);
+    expect(await cellColor(page, 1, 3, 3)).toBe(1);
+    // Source layer cleared at the selection's positions.
+    expect(await cellColor(page, 0, 1, 1)).toBe(null);
+    expect(await cellColor(page, 0, 3, 3)).toBe(null);
+  });
 });

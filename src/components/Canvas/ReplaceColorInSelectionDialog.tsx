@@ -64,7 +64,10 @@ export function ReplaceColorInSelectionDialog({
   const canConfirm = from !== null && to !== null && from !== to;
 
   return (
-    <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-[55]">
+    <div
+      className="fixed inset-0 bg-black/40 flex items-center justify-center z-[55]"
+      onMouseDown={(e) => e.stopPropagation()}
+    >
       <div className="bg-white rounded-lg shadow-xl w-[420px] max-w-[90vw]">
         <div className="px-4 py-3 border-b text-sm font-semibold">替换选区内颜色</div>
         <div className="p-4 flex flex-col gap-3">
