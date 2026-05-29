@@ -279,4 +279,73 @@ test.describe("Selection actions — UI", () => {
     expect(await cellColor(page, 0, 1, 1)).toBe(null);
     expect(await cellColor(page, 0, 3, 3)).toBe(null);
   });
+
+  test("SelectionActionsChip is visible when selection exists and opens the menu on click", async ({ page }) => {
+    await setupPage(page);
+    await loadProject(page);
+    await seedSelection(page);
+
+    // Chip should be visible with the discoverability label.
+    const chip = page.getByRole("button", { name: /右键查看操作/ });
+    await expect(chip).toBeVisible();
+
+    // Clicking the chip opens the same context menu (assert via a menuitem).
+    await chip.click();
+    await expect(page.getByRole("menuitem", { name: /^镜像$/ })).toBeVisible();
+    await expect(page.getByRole("menuitem", { name: /^移到新图层$/ })).toBeVisible();
+  });
+
+  test("SelectionActionsChip disappears when selection is cleared", async ({ page }) => {
+    await setupPage(page);
+    await loadProject(page);
+    await seedSelection(page);
+    await expect(page.getByRole("button", { name: /右键查看操作/ })).toBeVisible();
+
+    await setStoreState(page, { selection: null, selectionBounds: null });
+
+    await expect(page.getByRole("button", { name: /右键查看操作/ })).toHaveCount(0);
+  });
+
+  test("Replace-color dialog: add rule, pick from/to, execute replaces in-selection cells", async ({ page }) => {
+    await setupPage(page);
+    await loadProject(page);
+    await seedSelection(page);
+
+    // Open the menu via the chip (the chip click path doubles as a smoke test).
+    await page.getByRole("button", { name: /右键查看操作/ }).click();
+    await page.getByRole("menuitem", { name: /^替换颜色/ }).click();
+
+    // Dialog open; empty-state placeholder shown.
+    await expect(page.getByText("暂无替换规则。点下方「+ 添加替换规则」开始。")).toBeVisible();
+    await expect(page.getByRole("button", { name: /执行替换/ })).toBeDisabled();
+
+    // Add a rule — auto-opens the from-picker.
+    await page.getByRole("button", { name: /^\+ 添加替换规则$/ }).click();
+
+    // From-picker visible. Pick the first selection-color swatch.
+    const fromPicker = page.locator('[data-testid="replace-from-picker"]');
+    await expect(fromPicker).toBeVisible();
+    await fromPicker.locator("button").first().click();
+
+    // After picking from, the to-picker auto-opens with the full MARD palette.
+    const toPicker = page.locator('[data-testid="replace-to-picker"]');
+    await expect(toPicker).toBeVisible();
+    await toPicker.locator("button").first().click();
+
+    // Confirm enabled, then execute.
+    await expect(page.getByRole("button", { name: /执行替换/ })).toBeEnabled();
+    const beforeColor = await page.evaluate(() => {
+      const store = (window as any).__pindouStore;
+      return store.getState().layers[0].data[1][1].colorIndex;
+    });
+    await page.getByRole("button", { name: /执行替换/ }).click();
+    const afterColor = await page.evaluate(() => {
+      const store = (window as any).__pindouStore;
+      return store.getState().layers[0].data[1][1].colorIndex;
+    });
+    // The selected from-color was the most-common one in the selection
+    // (the seed has multiple cells of color 2). After replace, that color
+    // in the selection should be gone, so cell (1,1) must change.
+    expect(afterColor).not.toBe(beforeColor);
+  });
 });

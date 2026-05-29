@@ -10,6 +10,7 @@ import { lineCells, rectCells, circleCells, constrainLine, constrainRect } from 
 import { renderMarchingAnts, renderResizeHandles, renderFloatingSelection } from "../../utils/selectionRenderer";
 import { SelectionContextMenu } from "./SelectionContextMenu";
 import { ReplaceColorInSelectionDialog } from "./ReplaceColorInSelectionDialog";
+import { SelectionActionsChip } from "./SelectionActionsChip";
 
 export function PixelCanvas() {
   const pixelCanvasRef = useRef<HTMLCanvasElement>(null);
@@ -1275,6 +1276,24 @@ export function PixelCanvas() {
           />
         )}
       </div>
+      {selection && selection.size > 0 && selectionBounds && !floatingSelectionState && (() => {
+        // Compute the chip's anchor in VIEWPORT coordinates from the selection
+        // bounds + current pan/zoom + the canvas container's screen position.
+        // Marching ants uses bounds.c1*cellSize + offsetX (no mirror handling)
+        // so we follow the same convention for the visual top-right corner.
+        const rect = containerRef.current?.getBoundingClientRect();
+        if (!rect) return null;
+        const selectionTop = rect.top + selectionBounds.r1 * cellSize + offsetY;
+        const selectionRight = rect.left + (selectionBounds.c2 + 1) * cellSize + offsetX;
+        return (
+          <SelectionActionsChip
+            selectionTop={selectionTop}
+            selectionRight={selectionRight}
+            containerTop={rect.top}
+            onClick={(x, y) => setContextMenu({ x, y })}
+          />
+        );
+      })()}
       {contextMenu && (
         <SelectionContextMenu
           x={contextMenu.x}
@@ -1293,9 +1312,12 @@ export function PixelCanvas() {
       {replaceOpen && (
         <ReplaceColorInSelectionDialog
           selectionColorCounts={selectionColorCounts}
-          currentDrawingColorIndex={selectedColorIndex}
           colorOverrides={colorOverrides}
-          onConfirm={(from, to) => replaceColorInSelection(from, to)}
+          onConfirm={(rules) => {
+            for (const r of rules) {
+              replaceColorInSelection(r.from, r.to);
+            }
+          }}
           onClose={() => setReplaceOpen(false)}
         />
       )}
