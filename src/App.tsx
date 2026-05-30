@@ -5,6 +5,7 @@ import { ColorPalette } from "./components/Palette/ColorPalette";
 import { BeadCounter } from "./components/Stats/BeadCounter";
 import { ImageImportDialog } from "./components/Import/ImageImportDialog";
 import { BlueprintImportDialog } from "./components/Import/BlueprintImportDialog";
+import { BlueprintDimsConfirmDialog } from "./components/Import/BlueprintDimsConfirmDialog";
 import { ExportDialog } from "./components/Export/ExportDialog";
 import { CloudDialog } from "./components/Cloud/CloudDialog";
 import { ProjectInfoDialog } from "./components/ProjectInfo/ProjectInfoDialog";
@@ -12,7 +13,7 @@ import { ChangesCompareDialog } from "./components/Canvas/ChangesCompareDialog";
 import { DialogHost, appPrompt, appAlert, appConfirm } from "./components/Dialog/AppDialog";
 import { useEditorStore } from "./store/editorStore";
 import { getAdapter } from "./adapters";
-import type { BlueprintImportResult } from "./adapters";
+import type { BlueprintImportResult, ImagePreview } from "./adapters";
 import { MARD_COLORS } from "./data/mard221";
 import { getEffectiveColor, getEffectiveHex, type ColorOverrideMap } from "./utils/colorHelper";
 import { hasToken, clearGitHubToken, requestDeviceCode, pollForToken, type DeviceCodeInfo } from "./utils/llmVoice";
@@ -120,6 +121,14 @@ function App() {
     name: string;
   } | null>(null);
   const [blueprintImporting, setBlueprintImporting] = useState(false);
+  const [blueprintDimsPending, setBlueprintDimsPending] = useState<{
+    path: string;
+    preview: ImagePreview;
+    detectedWidth: number;
+    detectedHeight: number;
+    detectedBBox: { left: number; top: number; right: number; bottom: number };
+    hasMetadata: boolean;
+  } | null>(null);
   const [blueprintProgress, setBlueprintProgress] = useState("");
   const [blueprintResult, setBlueprintResult] = useState<BlueprintImportResult | null>(null);
   const [rightTab, setRightTab] = useState<"palette" | "stats" | "layers">("palette");
@@ -432,47 +441,40 @@ function App() {
             ]);
             if (!path) return;
 
-            // Ask user for grid dimensions (optional, improves accuracy)
-            const sizeInput = await appPrompt(
-              "输入图纸网格尺寸（宽x高），留空自动检测：\n例如: 100x100 或 52x52",
-              "",
-              { title: "图纸网格尺寸" }
-            );
-            let gridWidth: number | undefined;
-            let gridHeight: number | undefined;
-            if (sizeInput) {
-              const match = sizeInput.match(/(\d+)\s*[x×,]\s*(\d+)/i);
-              if (match) {
-                gridWidth = parseInt(match[1]);
-                gridHeight = parseInt(match[2]);
-              }
-            }
-
+            // Fast pre-detection + thumbnail in parallel. Slow-spinner state
+            // here so the user has feedback even though detect_blueprint_dims
+            // returns in <1s for typical inputs.
             setBlueprintImporting(true);
-            setBlueprintProgress(gridWidth ? `正在导入 ${gridWidth}×${gridHeight} 图纸...` : "正在自动检测网格...");
+            setBlueprintProgress("正在分析图纸结构...");
             try {
-              const palette = MARD_COLORS
-                .map((c, i) => ({ c, i }))
-                .filter(({ c }) => c.rgb)
-                .map(({ c, i }) => {
-                  const eff = getEffectiveColor(i, colorOverrides);
-                  return { code: c.code, r: eff.rgb![0], g: eff.rgb![1], b: eff.rgb![2] };
-                });
-
-              setBlueprintProgress("正在分析网格结构和识别颜色...");
-              const result = await adapter.importBlueprint(path, palette, gridWidth, gridHeight);
-
+              const [preview, dims] = await Promise.all([
+                adapter.previewImage(path),
+                adapter.detectBlueprintDims(path),
+              ]);
               setBlueprintImporting(false);
-              setBlueprintResult(result);
+              setBlueprintDimsPending({
+                path,
+                preview,
+                detectedWidth: dims.width,
+                detectedHeight: dims.height,
+                detectedBBox: dims.bbox,
+                hasMetadata: dims.hasMetadata,
+              });
             } catch (e) {
-              await appAlert(`图纸导入失败: ${e}`);
               setBlueprintImporting(false);
+              await appAlert(`图纸分析失败: ${e}`);
             }
           }}
           disabled={blueprintImporting}
-          className={`px-2 py-1 rounded hover:bg-gray-200 ${blueprintImporting ? "opacity-50" : ""}`}
+          className={`px-2 py-1 rounded hover:bg-gray-200 inline-flex items-center gap-1 ${blueprintImporting ? "opacity-50" : ""}`}
         >
           导入图纸
+          <span
+            className="text-[8px] bg-amber-100 text-amber-700 px-1 rounded font-semibold tracking-wider"
+            title="自动识别尚在实验阶段，建议核对网格尺寸"
+          >
+            BETA
+          </span>
         </button>
         <button
           onClick={() => setShowExport(true)}
@@ -899,6 +901,46 @@ function App() {
             <p className="text-xs text-gray-500 text-center whitespace-pre-line">{blueprintProgress}</p>
           </div>
         </div>
+      )}
+
+      {/* Blueprint pre-import dims confirmation (BETA) */}
+      {blueprintDimsPending && (
+        <BlueprintDimsConfirmDialog
+          filePath={blueprintDimsPending.path}
+          detectedWidth={blueprintDimsPending.detectedWidth}
+          detectedHeight={blueprintDimsPending.detectedHeight}
+          detectedBBox={blueprintDimsPending.detectedBBox}
+          hasMetadata={blueprintDimsPending.hasMetadata}
+          preview={blueprintDimsPending.preview}
+          onCancel={() => setBlueprintDimsPending(null)}
+          onRedetect={async (bbox) => {
+            const adapter = getAdapter();
+            return await adapter.detectBlueprintDims(blueprintDimsPending.path, bbox);
+          }}
+          onConfirm={async (w, h, bbox) => {
+            const pending = blueprintDimsPending;
+            setBlueprintDimsPending(null);
+            const adapter = getAdapter();
+            setBlueprintImporting(true);
+            setBlueprintProgress(`正在导入 ${w}×${h} 图纸...`);
+            try {
+              const palette = MARD_COLORS
+                .map((c, i) => ({ c, i }))
+                .filter(({ c }) => c.rgb)
+                .map(({ c, i }) => {
+                  const eff = getEffectiveColor(i, colorOverrides);
+                  return { code: c.code, r: eff.rgb![0], g: eff.rgb![1], b: eff.rgb![2] };
+                });
+              setBlueprintProgress("正在识别颜色...");
+              const result = await adapter.importBlueprint(pending.path, palette, w, h, undefined, bbox);
+              setBlueprintImporting(false);
+              setBlueprintResult(result);
+            } catch (e) {
+              setBlueprintImporting(false);
+              await appAlert(`图纸导入失败: ${e}`);
+            }
+          }}
+        />
       )}
 
       {/* Blueprint Import Preview Dialog */}

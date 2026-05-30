@@ -6,6 +6,53 @@ use std::collections::HashMap;
 
 use super::image_decorations::{bold_font, draw_header, draw_watermark, header_height, DrawHeaderOpts, DrawWatermarkOpts};
 
+/// Encode an RGBA image to a PNG file. Optional text_chunks are written as
+/// PNG tEXt chunks before IDAT. Keep keyword + value Latin-1 (PNG spec); we
+/// only use ASCII keys + JSON values which are ASCII-safe.
+fn write_png(path: &str, img: &image::RgbaImage, text_chunks: &[(&str, &str)]) -> Result<(), String> {
+
+    let file = std::fs::File::create(path)
+        .map_err(|e| format!("Failed to create PNG file: {}", e))?;
+    let w = std::io::BufWriter::new(file);
+    let (width, height) = img.dimensions();
+    let mut encoder = png::Encoder::new(w, width, height);
+    encoder.set_color(png::ColorType::Rgba);
+    encoder.set_depth(png::BitDepth::Eight);
+    for (k, v) in text_chunks {
+        encoder
+            .add_text_chunk(k.to_string(), v.to_string())
+            .map_err(|e| format!("Failed to add PNG text chunk: {}", e))?;
+    }
+    let mut writer = encoder
+        .write_header()
+        .map_err(|e| format!("Failed to write PNG header: {}", e))?;
+    writer
+        .write_image_data(img.as_raw())
+        .map_err(|e| format!("Failed to write PNG data: {}", e))?;
+    Ok(())
+}
+
+/// Metadata chunk schema embedded in PNG exports as a `pindouverse-blueprint`
+/// tEXt chunk. The importer's fast path reads this and skips all detection.
+#[derive(serde::Serialize)]
+struct BlueprintMetadata {
+    v: u32,
+    #[serde(rename = "gridWidth")]
+    grid_width: u32,
+    #[serde(rename = "gridHeight")]
+    grid_height: u32,
+    #[serde(rename = "cellSize")]
+    cell_size: u32,
+    /// X pixel coord of the top-left of the first grid cell (excluding any
+    /// outer border/padding that's not part of the grid sampling area).
+    #[serde(rename = "originX")]
+    origin_x: u32,
+    /// Y pixel coord of the top-left of the first grid cell. This is
+    /// `header_height + margin` in the exporter's layout.
+    #[serde(rename = "originY")]
+    origin_y: u32,
+}
+
 #[derive(Deserialize, Clone)]
 pub struct CellData {
     pub color_code: String,
@@ -406,6 +453,21 @@ pub fn export_image(request: ExportRequest) -> Result<String, String> {
         }
     }
 
+    // Build the metadata payload. The grid's origin in pixel coords is:
+    //   originX = margin (cells start at x = margin)
+    //   originY = header_h + margin (cells start below header band, then margin)
+    // The variables `header_h`, `margin`, `cs` are already in scope.
+    let metadata = BlueprintMetadata {
+        v: 1,
+        grid_width: request.width,
+        grid_height: request.height,
+        cell_size: cs,
+        origin_x: margin,
+        origin_y: header_h + margin,
+    };
+    let metadata_json = serde_json::to_string(&metadata)
+        .map_err(|e| format!("Failed to serialize metadata: {}", e))?;
+
     match request.format.as_str() {
         "jpeg" | "jpg" => {
             // JPEG doesn't support alpha — convert RGBA to RGB
@@ -414,8 +476,13 @@ pub fn export_image(request: ExportRequest) -> Result<String, String> {
                 .map_err(|e| format!("Failed to save JPEG: {}", e))?;
         }
         _ => {
-            img.save_with_format(&request.output_path, image::ImageFormat::Png)
-                .map_err(|e| format!("Failed to save PNG: {}", e))?;
+            // Embed a pindouverse-blueprint tEXt chunk so the importer can
+            // reconstruct the grid exactly without running detection.
+            write_png(
+                &request.output_path,
+                &img,
+                &[("pindouverse-blueprint", &metadata_json)],
+            )?;
         }
     }
 

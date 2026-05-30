@@ -122,6 +122,10 @@ mod tests {
             palette: palette.clone(),
             grid_width: None,
             grid_height: None,
+            bbox_left: None,
+            bbox_top: None,
+            bbox_right: None,
+            bbox_bottom: None,
             mode: None,
         };
         let result = import_blueprint(import_request).expect("Import failed");
@@ -208,5 +212,120 @@ mod tests {
 
         let (l, _a, _b) = rgb_to_lab(0, 0, 0);
         assert!(l.abs() < 1.0, "Black L* should be ~0, got {}", l);
+    }
+
+    #[test]
+    fn test_metadata_chunk_roundtrip() {
+        use crate::commands::image_export::{ExportRequest, export_image};
+        let palette = make_test_palette();
+        let cells = make_cells(20, 20, &palette);
+
+        let test_dir = std::env::temp_dir().join("pindouverse_test");
+        std::fs::create_dir_all(&test_dir).unwrap();
+        let export_path = test_dir.join("test_metadata_20x20.png");
+        let path_str = export_path.to_string_lossy().to_string();
+
+        let request = ExportRequest {
+            width: 20,
+            height: 20,
+            cell_size: 25,
+            cells: cells.clone(),
+            output_path: path_str.clone(),
+            format: "png".to_string(),
+            start_x: Some(1),
+            start_y: Some(1),
+            edge_padding: Some(0),
+            watermark: None,
+        };
+        export_image(request).expect("Export failed");
+
+        // Read the file with the png crate and look for our tEXt chunk.
+        let file = std::fs::File::open(&export_path).unwrap();
+        let decoder = png::Decoder::new(std::io::BufReader::new(file));
+        let reader = decoder.read_info().expect("decode info");
+        let info = reader.info();
+        let chunk_text = info
+            .uncompressed_latin1_text
+            .iter()
+            .find(|c| c.keyword == "pindouverse-blueprint")
+            .map(|c| c.text.clone())
+            .or_else(|| {
+                info.utf8_text
+                    .iter()
+                    .find(|c| c.keyword == "pindouverse-blueprint")
+                    .and_then(|c: &png::text_metadata::ITXtChunk| c.get_text().ok())
+            })
+            .expect("pindouverse-blueprint chunk not found");
+
+        // Parse JSON and verify fields.
+        let v: serde_json::Value = serde_json::from_str(&chunk_text).expect("JSON parse");
+        assert_eq!(v["v"], 1);
+        assert_eq!(v["gridWidth"], 20);
+        assert_eq!(v["gridHeight"], 20);
+        assert_eq!(v["cellSize"], 25);
+        assert_eq!(v["originX"], 25); // margin = cs = 25
+        assert_eq!(v["originY"], 25); // no watermark → header_h = 0; total = 0 + 25
+
+        // Cleanup
+        let _ = std::fs::remove_file(&export_path);
+    }
+
+    #[test]
+    fn test_metadata_path_exact_reconstruction() {
+        // Round-trip a non-square grid and verify the metadata path gives
+        // 100% cell accuracy (no detection involved).
+        let palette = make_test_palette();
+        let w: u32 = 73;
+        let h: u32 = 98;
+        let cells = make_cells(w, h, &palette);
+
+        let test_dir = std::env::temp_dir().join("pindouverse_test");
+        std::fs::create_dir_all(&test_dir).unwrap();
+        let export_path = test_dir.join(format!("test_meta_{}x{}.png", w, h));
+        let path_str = export_path.to_string_lossy().to_string();
+
+        let request = crate::commands::image_export::ExportRequest {
+            width: w,
+            height: h,
+            cell_size: 20,
+            cells: cells.clone(),
+            output_path: path_str.clone(),
+            format: "png".to_string(),
+            start_x: Some(1),
+            start_y: Some(1),
+            edge_padding: Some(0),
+            watermark: None,
+        };
+        crate::commands::image_export::export_image(request).expect("Export failed");
+
+        let import_request = BlueprintImportRequest {
+            path: path_str.clone(),
+            palette: palette.clone(),
+            grid_width: None,
+            grid_height: None,
+            bbox_left: None,
+            bbox_top: None,
+            bbox_right: None,
+            bbox_bottom: None,
+            mode: None,
+        };
+        let result = import_blueprint(import_request).expect("Import failed");
+
+        assert_eq!(result.width, w);
+        assert_eq!(result.height, h);
+        assert_eq!(result.cell_size_detected, 20);
+        assert_eq!(result.confidence, 1.0, "Metadata path should report perfect confidence");
+
+        let mut mismatches = 0;
+        for row in 0..h as usize {
+            for col in 0..w as usize {
+                let expected = &cells[row][col].as_ref().unwrap().color_code;
+                let got = &result.cells[row][col].final_code;
+                if expected != got { mismatches += 1; }
+            }
+        }
+        assert_eq!(mismatches, 0, "Metadata path should give 100% accuracy, got {} mismatches", mismatches);
+
+        let _ = std::fs::remove_file(&export_path);
     }
 }

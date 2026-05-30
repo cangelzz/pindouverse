@@ -64,9 +64,35 @@ export class TauriAdapter implements PlatformAdapter {
     await invoke("export_preview", { request });
   }
 
-  async importBlueprint(path: string, palette: PaletteColor[], gridWidth?: number, gridHeight?: number, mode?: ImportMode): Promise<BlueprintImportResult> {
+  async importBlueprint(path: string, palette: PaletteColor[], gridWidth?: number, gridHeight?: number, mode?: ImportMode, bbox?: { left: number; top: number; right: number; bottom: number }): Promise<BlueprintImportResult> {
     return await invoke<BlueprintImportResult>("import_blueprint", {
-      request: { path, palette, grid_width: gridWidth ?? null, grid_height: gridHeight ?? null, mode: mode ?? "color_priority" }
+      request: {
+        path, palette,
+        grid_width: gridWidth ?? null,
+        grid_height: gridHeight ?? null,
+        bbox_left: bbox?.left ?? null,
+        bbox_top: bbox?.top ?? null,
+        bbox_right: bbox?.right ?? null,
+        bbox_bottom: bbox?.bottom ?? null,
+        mode: mode ?? "color_priority",
+      },
     });
+  }
+
+  async detectBlueprintDims(path: string, bbox?: { left: number; top: number; right: number; bottom: number }): Promise<{ width: number; height: number; cellSize: number; bbox: { left: number; top: number; right: number; bottom: number }; hasMetadata: boolean }> {
+    const raw = await invoke<{
+      width: number; height: number; cell_size: number;
+      bbox_left: number; bbox_top: number; bbox_right: number; bbox_bottom: number;
+      has_metadata: boolean;
+    }>("detect_blueprint_dims", {
+      request: { path, bbox: bbox ? { left: bbox.left, top: bbox.top, right: bbox.right, bottom: bbox.bottom } : null },
+    });
+    return {
+      width: raw.width,
+      height: raw.height,
+      cellSize: raw.cell_size,
+      bbox: { left: raw.bbox_left, top: raw.bbox_top, right: raw.bbox_right, bottom: raw.bbox_bottom },
+      hasMetadata: raw.has_metadata,
+    };
   }
 }

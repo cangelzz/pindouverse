@@ -499,7 +499,11 @@ export class BrowserAdapter implements PlatformAdapter {
     downloadBlob(blob, filename);
   }
 
-  async importBlueprint(_path: string, _palette: PaletteColor[], _gridWidth?: number, _gridHeight?: number, _mode?: ImportMode): Promise<BlueprintImportResult> {
+  async importBlueprint(_path: string, _palette: PaletteColor[], _gridWidth?: number, _gridHeight?: number, _mode?: ImportMode, _bbox?: { left: number; top: number; right: number; bottom: number }): Promise<BlueprintImportResult> {
+    throw new Error("Blueprint import not yet supported in browser. Use desktop app.");
+  }
+
+  async detectBlueprintDims(_path: string, _bbox?: { left: number; top: number; right: number; bottom: number }): Promise<{ width: number; height: number; cellSize: number; bbox: { left: number; top: number; right: number; bottom: number }; hasMetadata: boolean }> {
     throw new Error("Blueprint import not yet supported in browser. Use desktop app.");
   }
 }

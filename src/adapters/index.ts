@@ -156,7 +156,24 @@ export interface PlatformAdapter {
   exportPreview(request: ExportPreviewRequest): Promise<void>;
 
   // Blueprint import
-  importBlueprint(path: string, palette: PaletteColor[], gridWidth?: number, gridHeight?: number, mode?: ImportMode): Promise<BlueprintImportResult>;
+  importBlueprint(path: string, palette: PaletteColor[], gridWidth?: number, gridHeight?: number, mode?: ImportMode, bbox?: { left: number; top: number; right: number; bottom: number }): Promise<BlueprintImportResult>;
+  /**
+   * Fast pre-detection of grid dimensions for the import dialog. Skips full
+   * color sampling — only runs bbox + autocorr + snap-to-lines. Returns
+   * `hasMetadata: true` when the PNG carries a pindouverse-blueprint chunk
+   * (signals to the UI that the subsequent full import will be exact).
+   *
+   * When `bbox` is supplied, auto-bbox detection is skipped and the grid is
+   * recovered within the user-provided pixel rectangle. Lets the UI redraw
+   * the detection region when auto-detect picked the wrong area.
+   */
+  detectBlueprintDims(path: string, bbox?: { left: number; top: number; right: number; bottom: number }): Promise<{
+    width: number;
+    height: number;
+    cellSize: number;
+    bbox: { left: number; top: number; right: number; bottom: number };
+    hasMetadata: boolean;
+  }>;
 }
 
 // ─── Singleton adapter instance ──────────────────────────────────
