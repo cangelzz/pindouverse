@@ -64,7 +64,7 @@ export class TauriAdapter implements PlatformAdapter {
     await invoke("export_preview", { request });
   }
 
-  async importBlueprint(path: string, palette: PaletteColor[], gridWidth?: number, gridHeight?: number, mode?: ImportMode, bbox?: { left: number; top: number; right: number; bottom: number }): Promise<BlueprintImportResult> {
+  async importBlueprint(path: string, palette: PaletteColor[], gridWidth?: number, gridHeight?: number, mode?: ImportMode, bbox?: { left: number; top: number; right: number; bottom: number }, _opts?: { onProgress?: (stage: string, fraction: number) => void; signal?: AbortSignal }): Promise<BlueprintImportResult> {
     return await invoke<BlueprintImportResult>("import_blueprint", {
       request: {
         path, palette,
@@ -79,7 +79,7 @@ export class TauriAdapter implements PlatformAdapter {
     });
   }
 
-  async detectBlueprintDims(path: string, bbox?: { left: number; top: number; right: number; bottom: number }): Promise<{ width: number; height: number; cellSize: number; bbox: { left: number; top: number; right: number; bottom: number }; hasMetadata: boolean }> {
+  async detectBlueprintDims(path: string, bbox?: { left: number; top: number; right: number; bottom: number }, _opts?: { onProgress?: (stage: string, fraction: number) => void; signal?: AbortSignal }): Promise<{ width: number; height: number; cellSize: number; bbox: { left: number; top: number; right: number; bottom: number }; hasMetadata: boolean }> {
     const raw = await invoke<{
       width: number; height: number; cell_size: number;
       bbox_left: number; bbox_top: number; bbox_right: number; bbox_bottom: number;
@@ -94,5 +94,9 @@ export class TauriAdapter implements PlatformAdapter {
       bbox: { left: raw.bbox_left, top: raw.bbox_top, right: raw.bbox_right, bottom: raw.bbox_bottom },
       hasMetadata: raw.has_metadata,
     };
+  }
+
+  async readFileBase64(_path: string): Promise<string> {
+    throw new Error("readFileBase64 not used on Tauri; the Rust import command reads the file directly.");
   }
 }

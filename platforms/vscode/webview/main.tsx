@@ -18,6 +18,9 @@ setAdapter(adapter);
 // production (the global is unreachable from any normal user flow) but
 // gives tests a stable hook to read state and dispatch actions.
 (window as any).__pindouStore = useEditorStore;
+// Expose the platform adapter for Playwright tests (e.g. blueprint import).
+// Same rationale as __pindouStore — unreachable from any normal user flow.
+(window as any).__pindouAdapter = adapter;
 
 // Provide VS Code-native GitHub login for the app's "登录 GitHub" button.
 // App.tsx checks for this function and uses it instead of the Tauri device code flow.

@@ -130,7 +130,17 @@ function App() {
     hasMetadata: boolean;
   } | null>(null);
   const [blueprintProgress, setBlueprintProgress] = useState("");
+  const [blueprintProgressFraction, setBlueprintProgressFraction] = useState(0);
+  const [blueprintAbort, setBlueprintAbort] = useState<AbortController | null>(null);
   const [blueprintResult, setBlueprintResult] = useState<BlueprintImportResult | null>(null);
+  // Captured at the moment the user first confirms in the dims dialog —
+  // remembered so that 「重新导入 W×H」 in the preview dialog can re-run
+  // importBlueprint against the same file + bbox without bouncing back to
+  // the dims dialog.
+  const [blueprintReimportCtx, setBlueprintReimportCtx] = useState<{
+    path: string;
+    bbox?: { left: number; top: number; right: number; bottom: number };
+  } | null>(null);
   const [rightTab, setRightTab] = useState<"palette" | "stats" | "layers">("palette");
 
   // GitHub login state
@@ -894,11 +904,19 @@ function App() {
 
       {/* Blueprint Import Progress Modal */}
       {blueprintImporting && (
-        <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50">
-          <div className="bg-white rounded-lg shadow-xl w-[320px] p-6 flex flex-col items-center gap-3">
-            <div className="w-8 h-8 border-3 border-blue-500 border-t-transparent rounded-full animate-spin" />
-            <h3 className="font-semibold text-sm">导入图纸中</h3>
-            <p className="text-xs text-gray-500 text-center whitespace-pre-line">{blueprintProgress}</p>
+        <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-[60]">
+          <div className="bg-white rounded-lg shadow-xl w-[360px] p-4 flex flex-col gap-3">
+            <div className="text-sm font-semibold">正在导入图纸</div>
+            <div className="text-xs text-gray-600 truncate" title={blueprintProgress}>{blueprintProgress}</div>
+            <div className="h-1.5 bg-gray-200 rounded overflow-hidden">
+              <div className="h-full bg-blue-500 transition-all" style={{ width: `${Math.round(blueprintProgressFraction * 100)}%` }} />
+            </div>
+            <div className="flex justify-end">
+              <button
+                onClick={() => blueprintAbort?.abort()}
+                className="px-3 py-1 border border-red-300 text-red-600 rounded text-sm hover:bg-red-50"
+              >取消</button>
+            </div>
           </div>
         </div>
       )}
@@ -913,16 +931,19 @@ function App() {
           hasMetadata={blueprintDimsPending.hasMetadata}
           preview={blueprintDimsPending.preview}
           onCancel={() => setBlueprintDimsPending(null)}
-          onRedetect={async (bbox) => {
+          onRedetect={async (bbox, opts) => {
             const adapter = getAdapter();
-            return await adapter.detectBlueprintDims(blueprintDimsPending.path, bbox);
+            return await adapter.detectBlueprintDims(blueprintDimsPending.path, bbox, opts);
           }}
           onConfirm={async (w, h, bbox) => {
             const pending = blueprintDimsPending;
             setBlueprintDimsPending(null);
             const adapter = getAdapter();
+            const controller = new AbortController();
             setBlueprintImporting(true);
+            setBlueprintAbort(controller);
             setBlueprintProgress(`正在导入 ${w}×${h} 图纸...`);
+            setBlueprintProgressFraction(0);
             try {
               const palette = MARD_COLORS
                 .map((c, i) => ({ c, i }))
@@ -932,12 +953,30 @@ function App() {
                   return { code: c.code, r: eff.rgb![0], g: eff.rgb![1], b: eff.rgb![2] };
                 });
               setBlueprintProgress("正在识别颜色...");
-              const result = await adapter.importBlueprint(pending.path, palette, w, h, undefined, bbox);
-              setBlueprintImporting(false);
+              const result = await adapter.importBlueprint(
+                pending.path,
+                palette,
+                w,
+                h,
+                undefined,
+                bbox,
+                {
+                  onProgress: (stage, frac) => {
+                    setBlueprintProgress(stage);
+                    setBlueprintProgressFraction(frac);
+                  },
+                  signal: controller.signal,
+                },
+              );
               setBlueprintResult(result);
+              setBlueprintReimportCtx({ path: pending.path, bbox });
             } catch (e) {
+              if ((e as Error)?.name !== "AbortError") {
+                await appAlert(`图纸导入失败: ${e}`);
+              }
+            } finally {
               setBlueprintImporting(false);
-              await appAlert(`图纸导入失败: ${e}`);
+              setBlueprintAbort(null);
             }
           }}
         />
@@ -947,7 +986,25 @@ function App() {
       {blueprintResult && (
         <BlueprintImportDialog
           result={blueprintResult}
-          onClose={() => setBlueprintResult(null)}
+          onClose={() => { setBlueprintResult(null); setBlueprintReimportCtx(null); }}
+          onReimport={blueprintReimportCtx ? async (w, h) => {
+            const adapter = getAdapter();
+            const palette = MARD_COLORS
+              .map((c, i) => ({ c, i }))
+              .filter(({ c }) => c.rgb)
+              .map(({ c, i }) => {
+                const eff = getEffectiveColor(i, colorOverrides);
+                return { code: c.code, r: eff.rgb![0], g: eff.rgb![1], b: eff.rgb![2] };
+              });
+            return await adapter.importBlueprint(
+              blueprintReimportCtx.path,
+              palette,
+              w,
+              h,
+              undefined,
+              blueprintReimportCtx.bbox,
+            );
+          } : undefined}
           onConfirm={(result) => {
             const codeToIndex = new Map<string, number>();
             MARD_COLORS.forEach((c, i) => codeToIndex.set(c.code, i));
@@ -966,6 +1023,7 @@ function App() {
               0,
             );
             setBlueprintResult(null);
+            setBlueprintReimportCtx(null);
           }}
         />
       )}

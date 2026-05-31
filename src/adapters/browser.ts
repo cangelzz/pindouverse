@@ -18,6 +18,7 @@ import {
   drawHeader,
   drawWatermark,
 } from "../utils/blueprintDecorations";
+import { importBlueprintTS, detectBlueprintDimsTS } from "../utils/blueprintImportTS";
 import appIconUrl from "../../src-tauri/icons/64x64.png";
 
 let _cachedIcon: HTMLImageElement | null = null;
@@ -499,11 +500,36 @@ export class BrowserAdapter implements PlatformAdapter {
     downloadBlob(blob, filename);
   }
 
-  async importBlueprint(_path: string, _palette: PaletteColor[], _gridWidth?: number, _gridHeight?: number, _mode?: ImportMode, _bbox?: { left: number; top: number; right: number; bottom: number }): Promise<BlueprintImportResult> {
-    throw new Error("Blueprint import not yet supported in browser. Use desktop app.");
+  async importBlueprint(
+    path: string,
+    palette: PaletteColor[],
+    gridWidth?: number,
+    gridHeight?: number,
+    mode?: ImportMode,
+    bbox?: { left: number; top: number; right: number; bottom: number },
+    opts?: { onProgress?: (stage: string, fraction: number) => void; signal?: AbortSignal },
+  ): Promise<BlueprintImportResult> {
+    return await importBlueprintTS(
+      { path, palette, gridWidth, gridHeight, bbox, mode },
+      this,
+      opts,
+    );
   }
 
-  async detectBlueprintDims(_path: string, _bbox?: { left: number; top: number; right: number; bottom: number }): Promise<{ width: number; height: number; cellSize: number; bbox: { left: number; top: number; right: number; bottom: number }; hasMetadata: boolean }> {
-    throw new Error("Blueprint import not yet supported in browser. Use desktop app.");
+  async detectBlueprintDims(
+    path: string,
+    bbox?: { left: number; top: number; right: number; bottom: number },
+    opts?: { onProgress?: (stage: string, fraction: number) => void; signal?: AbortSignal },
+  ): Promise<{ width: number; height: number; cellSize: number; bbox: { left: number; top: number; right: number; bottom: number }; hasMetadata: boolean }> {
+    return await detectBlueprintDimsTS(path, this, bbox, opts);
+  }
+
+  async readFileBase64(path: string): Promise<string> {
+    if (path.startsWith("data:")) {
+      const comma = path.indexOf(",");
+      if (comma < 0) throw new Error("Invalid data URL");
+      return path.slice(comma + 1);
+    }
+    throw new Error("readFileBase64 in browser only supports data: URLs (full file access via picker not implemented yet)");
   }
 }

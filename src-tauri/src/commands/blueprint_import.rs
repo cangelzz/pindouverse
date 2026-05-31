@@ -901,28 +901,75 @@ fn sample_cell_color(
 
 // ─── Result assembly helper ─────────────────────────────────────
 
+/// Compute pixel origin for a grid cell using signed column/row offsets
+/// (negative = cell is to the left/above the detected origin). Returns None
+/// when the cell's top-left falls outside the image — caller treats that as
+/// an empty/transparent cell.
+fn cell_origin_signed(
+    origin_x: u32,
+    origin_y: u32,
+    cs_x: f64,
+    cs_y: f64,
+    col_signed: i32,
+    row_signed: i32,
+    img_dims: (u32, u32),
+) -> Option<(u32, u32)> {
+    let x0_f = origin_x as f64 + col_signed as f64 * cs_x;
+    let y0_f = origin_y as f64 + row_signed as f64 * cs_y;
+    if x0_f < 0.0 || y0_f < 0.0 { return None; }
+    let x0 = x0_f.round() as u32;
+    let y0 = y0_f.round() as u32;
+    let (img_w, img_h) = img_dims;
+    if x0 >= img_w || y0 >= img_h { return None; }
+    Some((x0, y0))
+}
+
 fn build_import_result(
     grid_w: u32,
     grid_h: u32,
     cell_size: u32,
     origin_x: u32,
     origin_y: u32,
+    // Number of "extra" cells inserted before the detected origin on each
+    // axis (when user-supplied grid dims exceed what detection found). Zero
+    // when no padding is in play (metadata fast path, or detected dims
+    // match user dims).
+    pad_left: i32,
+    pad_top: i32,
+    cs_x: f64,
+    cs_y: f64,
     img: &RgbaImage,
     color_results: &[Vec<(String, f64)>],
     palette: &[PaletteColor],
     avg_confidence: f64,
     mode: ImportMode,
 ) -> BlueprintImportResult {
-    // Detect which cells have text (to distinguish empty vs white/H2)
+    // Detect which cells have text (to distinguish empty vs white/H2). Use
+    // the same signed-offset scheme as the color-sampling pass so padded
+    // cells (those before the detected origin or beyond the image edge) get
+    // checked at the right pixel coords — or get a definitive "no text"
+    // for cells that fall off the image entirely.
+    let img_dims = img.dimensions();
     let mut has_text_grid: Vec<Vec<bool>> = vec![vec![false; grid_w as usize]; grid_h as usize];
-    let text_detect_tasks: Vec<(u32, u32, u32, u32)> = (0..grid_h)
-        .flat_map(|row| (0..grid_w).map(move |col| (row, col, origin_x + col * cell_size, origin_y + row * cell_size)))
+    let text_detect_tasks: Vec<(u32, u32, Option<(u32, u32)>)> = (0..grid_h)
+        .flat_map(|row| (0..grid_w).map(move |col| {
+            let col_s = col as i32 - pad_left;
+            let row_s = row as i32 - pad_top;
+            let pos = cell_origin_signed(origin_x, origin_y, cs_x, cs_y, col_s, row_s, img_dims);
+            (row, col, pos)
+        }))
         .collect();
 
     let text_detect_results: Vec<(u32, u32, bool)> = text_detect_tasks.par_iter()
-        .map(|&(row, col, x0, y0)| {
-            let cell_bin = extract_cell_binary(img, x0, y0, cell_size);
-            (row, col, cell_has_text(&cell_bin, cell_size))
+        .map(|&(row, col, pos)| {
+            let has_text = match pos {
+                Some((x0, y0)) => {
+                    let cell_bin = extract_cell_binary(img, x0, y0, cell_size);
+                    cell_has_text(&cell_bin, cell_size)
+                }
+                None => false,
+            };
+            (row, col, has_text)
         })
         .collect();
 
@@ -1031,6 +1078,10 @@ pub fn import_blueprint(request: BlueprintImportRequest) -> Result<BlueprintImpo
             meta.cell_size,
             meta.origin_x,
             meta.origin_y,
+            0,
+            0,
+            meta.cell_size as f64,
+            meta.cell_size as f64,
             &img,
             &color_results,
             &request.palette,
@@ -1075,6 +1126,20 @@ pub fn import_blueprint(request: BlueprintImportRequest) -> Result<BlueprintImpo
         return Err("Detected grid is too small".to_string());
     }
 
+    // When user-supplied dims exceed what detection found, the missing cells
+    // were likely truncated on one or both sides of the detected bbox (faint
+    // outer grid lines, blue-tinted background bleed, etc.). Split the
+    // surplus cells evenly around the detected origin and sample using
+    // signed col/row offsets — cells that fall outside the image become
+    // empty/transparent in the result, which is the correct visual outcome
+    // for a row/column that the user knows is there but the detector missed.
+    let extra_w = grid_w.saturating_sub(recovered_w) as i32;
+    let extra_h = grid_h.saturating_sub(recovered_h) as i32;
+    let pad_left = extra_w / 2;
+    let pad_top = extra_h / 2;
+
+    let img_dims = img.dimensions();
+
     // Step 4: Color sampling for all cells
     let mut color_results: Vec<Vec<(String, f64)>> = Vec::new();
     let mut total_confidence = 0.0;
@@ -1083,15 +1148,15 @@ pub fn import_blueprint(request: BlueprintImportRequest) -> Result<BlueprintImpo
     for row in 0..grid_h {
         let mut row_results: Vec<(String, f64)> = Vec::new();
         for col in 0..grid_w {
-            let x0_f = origin_x as f64 + col as f64 * cs_x;
-            let y0_f = origin_y as f64 + row as f64 * cs_y;
-            let x0 = x0_f.round() as u32;
-            let y0 = y0_f.round() as u32;
+            let col_signed = col as i32 - pad_left;
+            let row_signed = row as i32 - pad_top;
             // Per-cell pixel width can vary by 1px when cs is non-integer;
             // use the smaller of (cs_x, cs_y) rounded for sampling so we
             // stay safely inside the cell.
             let sample_cs = cs_x.min(cs_y).round().max(2.0) as u32;
-            match sample_cell_color(&img, x0, y0, sample_cs, &config) {
+            let sampled = cell_origin_signed(origin_x, origin_y, cs_x, cs_y, col_signed, row_signed, img_dims)
+                .and_then(|(x0, y0)| sample_cell_color(&img, x0, y0, sample_cs, &config));
+            match sampled {
                 Some((r, g, b)) => {
                     let (code, conf) = match_color(r, g, b, &request.palette);
                     row_results.push((code, conf));
@@ -1115,6 +1180,10 @@ pub fn import_blueprint(request: BlueprintImportRequest) -> Result<BlueprintImpo
         cell_size_int,
         origin_x,
         origin_y,
+        pad_left,
+        pad_top,
+        cs_x,
+        cs_y,
         &img,
         &color_results,
         &request.palette,

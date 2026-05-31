@@ -17,7 +17,10 @@ interface Props {
   preview: ImagePreview;
   /** Re-run quick detection with a user-provided bbox. Returns updated dims
    * + the actual bbox the backend used (may be lightly snapped). */
-  onRedetect: (bbox: BBox) => Promise<{
+  onRedetect: (
+    bbox: BBox,
+    opts?: { onProgress?: (stage: string, fraction: number) => void; signal?: AbortSignal },
+  ) => Promise<{
     width: number;
     height: number;
     cellSize: number;
@@ -61,7 +64,10 @@ export function BlueprintDimsConfirmDialog({
   const [h, setH] = useState(detectedHeight);
   const [bbox, setBBox] = useState<BBox>(detectedBBox);
   const [drag, setDrag] = useState<Drag | null>(null);
-  const [redetecting, setRedetecting] = useState(false);
+  const [busyStage, setBusyStage] = useState("");
+  const [busyFraction, setBusyFraction] = useState(0);
+  const [abortController, setAbortController] = useState<AbortController | null>(null);
+  const busy = abortController !== null;
   const [redetectError, setRedetectError] = useState<string | null>(null);
   const [metadata, setMetadata] = useState(hasMetadata);
 
@@ -151,18 +157,29 @@ export function BlueprintDimsConfirmDialog({
     bbox.bottom !== detectedBBox.bottom;
 
   const handleRedetect = async () => {
-    setRedetecting(true);
+    const controller = new AbortController();
+    setAbortController(controller);
+    setBusyStage("");
+    setBusyFraction(0);
     setRedetectError(null);
     try {
-      const r = await onRedetect(bbox);
+      const r = await onRedetect(bbox, {
+        onProgress: (stage, frac) => {
+          setBusyStage(stage);
+          setBusyFraction(frac);
+        },
+        signal: controller.signal,
+      });
       setW(r.width);
       setH(r.height);
       setBBox(r.bbox);
       setMetadata(r.hasMetadata);
     } catch (e) {
-      setRedetectError(e instanceof Error ? e.message : String(e));
+      if ((e as Error)?.name !== "AbortError") {
+        setRedetectError(e instanceof Error ? e.message : String(e));
+      }
     } finally {
-      setRedetecting(false);
+      setAbortController(null);
     }
   };
 
@@ -282,16 +299,28 @@ export function BlueprintDimsConfirmDialog({
               <div className="flex flex-col gap-1.5">
                 <button
                   onClick={handleRedetect}
-                  disabled={redetecting}
+                  disabled={busy}
                   className={`self-start px-3 py-1 text-xs border rounded ${
-                    bboxDirty && !redetecting
+                    bboxDirty && !busy
                       ? "border-blue-400 text-blue-700 hover:bg-blue-50"
                       : "border-gray-300 text-gray-500"
-                  } ${redetecting ? "opacity-60 cursor-wait" : ""}`}
+                  } ${busy ? "opacity-60 cursor-wait" : ""}`}
                   title={bboxDirty ? "用蓝框范围重新识别" : "蓝框未改动"}
                 >
-                  {redetecting ? "正在重新识别..." : "用此范围重新识别"}
+                  {busy ? "正在重新识别..." : "用此范围重新识别"}
                 </button>
+                {busy && (
+                  <div className="flex items-center gap-2 text-[11px] mt-1">
+                    <div className="flex-1 h-1.5 bg-gray-200 rounded overflow-hidden">
+                      <div className="h-full bg-blue-500 transition-all" style={{ width: `${Math.round(busyFraction * 100)}%` }} />
+                    </div>
+                    <span className="text-gray-500 shrink-0 min-w-[8em] truncate" title={busyStage}>{busyStage}</span>
+                    <button
+                      onClick={() => abortController?.abort()}
+                      className="px-2 py-0.5 border border-red-300 text-red-600 rounded text-[11px] hover:bg-red-50"
+                    >取消</button>
+                  </div>
+                )}
                 {redetectError && (
                   <div className="text-[10px] text-red-600">{redetectError}</div>
                 )}
@@ -316,9 +345,9 @@ export function BlueprintDimsConfirmDialog({
           </button>
           <button
             onClick={() => { if (valid) onConfirm(w, h, bbox); }}
-            disabled={!valid}
+            disabled={!valid || busy}
             className={`px-3 py-1 rounded text-sm text-white ${
-              valid ? "bg-blue-500 hover:bg-blue-600" : "bg-blue-300 cursor-not-allowed"
+              valid && !busy ? "bg-blue-500 hover:bg-blue-600" : "bg-blue-300 cursor-not-allowed"
             }`}
           >
             导入 {w}×{h}

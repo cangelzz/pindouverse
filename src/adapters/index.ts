@@ -151,12 +151,25 @@ export interface PlatformAdapter {
   previewImage(path: string): Promise<ImagePreview>;
   importImage(path: string, maxDimension: number, crop: CropRect | null, sharp: boolean, widthRatio?: number): Promise<PixelData>;
 
+  /** Read the file at `path` and return its raw bytes as a base64 string.
+   *  Used by the TS blueprint importer (webview + browser) to load the
+   *  source image at full resolution. */
+  readFileBase64(path: string): Promise<string>;
+
   // Image export
   exportImage(request: ExportImageRequest): Promise<void>;
   exportPreview(request: ExportPreviewRequest): Promise<void>;
 
   // Blueprint import
-  importBlueprint(path: string, palette: PaletteColor[], gridWidth?: number, gridHeight?: number, mode?: ImportMode, bbox?: { left: number; top: number; right: number; bottom: number }): Promise<BlueprintImportResult>;
+  importBlueprint(
+    path: string,
+    palette: PaletteColor[],
+    gridWidth?: number,
+    gridHeight?: number,
+    mode?: ImportMode,
+    bbox?: { left: number; top: number; right: number; bottom: number },
+    opts?: { onProgress?: (stage: string, fraction: number) => void; signal?: AbortSignal },
+  ): Promise<BlueprintImportResult>;
   /**
    * Fast pre-detection of grid dimensions for the import dialog. Skips full
    * color sampling — only runs bbox + autocorr + snap-to-lines. Returns
@@ -167,7 +180,11 @@ export interface PlatformAdapter {
    * recovered within the user-provided pixel rectangle. Lets the UI redraw
    * the detection region when auto-detect picked the wrong area.
    */
-  detectBlueprintDims(path: string, bbox?: { left: number; top: number; right: number; bottom: number }): Promise<{
+  detectBlueprintDims(
+    path: string,
+    bbox?: { left: number; top: number; right: number; bottom: number },
+    opts?: { onProgress?: (stage: string, fraction: number) => void; signal?: AbortSignal },
+  ): Promise<{
     width: number;
     height: number;
     cellSize: number;

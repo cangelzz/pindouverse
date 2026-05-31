@@ -22,6 +22,7 @@ import {
   drawHeader,
   drawWatermark,
 } from "../../../src/utils/blueprintDecorations";
+import { importBlueprintTS, detectBlueprintDimsTS } from "../../../src/utils/blueprintImportTS";
 import appIconUrl from "../../../src-tauri/icons/64x64.png";
 
 let _cachedIcon: HTMLImageElement | null = null;
@@ -503,11 +504,37 @@ export class VScodeAdapter implements PlatformAdapter {
     await sendRequest("writeFile", { path: output_path, data: base64 });
   }
 
-  async importBlueprint(_path: string, _palette: PaletteColor[], _gridWidth?: number, _gridHeight?: number, _mode?: ImportMode, _bbox?: { left: number; top: number; right: number; bottom: number }): Promise<BlueprintImportResult> {
-    throw new Error("Blueprint import not yet supported in VS Code extension. Use desktop app.");
+  async importBlueprint(
+    path: string,
+    palette: PaletteColor[],
+    gridWidth?: number,
+    gridHeight?: number,
+    mode?: ImportMode,
+    bbox?: { left: number; top: number; right: number; bottom: number },
+    opts?: { onProgress?: (stage: string, fraction: number) => void; signal?: AbortSignal },
+  ): Promise<BlueprintImportResult> {
+    return await importBlueprintTS(
+      { path, palette, gridWidth, gridHeight, bbox, mode },
+      this,
+      opts,
+    );
   }
 
-  async detectBlueprintDims(_path: string, _bbox?: { left: number; top: number; right: number; bottom: number }): Promise<{ width: number; height: number; cellSize: number; bbox: { left: number; top: number; right: number; bottom: number }; hasMetadata: boolean }> {
-    throw new Error("Blueprint import not yet supported in VS Code extension. Use desktop app.");
+  async detectBlueprintDims(
+    path: string,
+    bbox?: { left: number; top: number; right: number; bottom: number },
+    opts?: { onProgress?: (stage: string, fraction: number) => void; signal?: AbortSignal },
+  ): Promise<{ width: number; height: number; cellSize: number; bbox: { left: number; top: number; right: number; bottom: number }; hasMetadata: boolean }> {
+    return await detectBlueprintDimsTS(path, this, bbox, opts);
+  }
+
+  async readFileBase64(path: string): Promise<string> {
+    // The existing host-side handler for the "readFile" message reads the file
+    // via vscode.workspace.fs.readFile and returns it base64-encoded. Reuse it.
+    const result = await sendRequest("readFile", { path });
+    if (!result?.data || typeof result.data !== "string") {
+      throw new Error(`Read failed: ${result?.error ?? "unknown error"}`);
+    }
+    return result.data;
   }
 }

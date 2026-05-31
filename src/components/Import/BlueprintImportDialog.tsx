@@ -1,4 +1,4 @@
-import { useState, useMemo, useRef, useCallback } from "react";
+import { useState, useMemo, useRef, useCallback, useEffect } from "react";
 import { MARD_COLORS } from "../../data/mard221";
 import { useEditorStore } from "../../store/editorStore";
 import { getEffectiveRgb } from "../../utils/colorHelper";
@@ -31,13 +31,59 @@ interface BlueprintImportDialogProps {
   result: BlueprintImportResult;
   onClose: () => void;
   onConfirm: (result: BlueprintImportResult) => void;
+  /** Re-run importBlueprint with new dims and replace the displayed result
+   *  in place. Wired from App.tsx, which closes over the file path + bbox
+   *  used for the original import. Omit to hide the in-dialog reimport UI. */
+  onReimport?: (gridWidth: number, gridHeight: number) => Promise<BlueprintImportResult>;
 }
 
 export function BlueprintImportDialog({
-  result,
+  result: initialResult,
   onClose,
   onConfirm,
+  onReimport,
 }: BlueprintImportDialogProps) {
+  // Display the most recent result — starts as the prop, updates after a
+  // successful in-dialog reimport. Resets when the prop reference changes
+  // (e.g., user closes + reopens with a different image).
+  const [currentResult, setCurrentResult] = useState(initialResult);
+  useEffect(() => { setCurrentResult(initialResult); }, [initialResult]);
+  const result = currentResult;
+
+  // Editable W/H — the inputs next to 「重新导入」. Kept in sync with
+  // currentResult whenever the result changes (initial mount, after each
+  // successful reimport, or when the prop swaps to a fresh image).
+  const [editW, setEditW] = useState(initialResult.width);
+  const [editH, setEditH] = useState(initialResult.height);
+  useEffect(() => { setEditW(currentResult.width); setEditH(currentResult.height); }, [currentResult]);
+
+  // Reimport busy state — distinct from the App.tsx-level blueprintImporting
+  // overlay because we want a smaller inline spinner in the dialog header,
+  // not a fullscreen blocker.
+  const [reimportBusy, setReimportBusy] = useState(false);
+  const [reimportError, setReimportError] = useState<string | null>(null);
+
+  const handleReimport = useCallback(async () => {
+    if (!onReimport) return;
+    if (editW === currentResult.width && editH === currentResult.height) return;
+    if (editW < 1 || editH < 1 || editW > 4096 || editH > 4096) {
+      setReimportError("尺寸需在 1-4096 之间");
+      return;
+    }
+    setReimportError(null);
+    setReimportBusy(true);
+    try {
+      const r = await onReimport(editW, editH);
+      setCurrentResult(r);
+    } catch (e) {
+      setReimportError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setReimportBusy(false);
+    }
+  }, [onReimport, editW, editH, currentResult.width, currentResult.height]);
+
+  const dimsDirty = editW !== currentResult.width || editH !== currentResult.height;
+
   const [selectedCell, setSelectedCell] = useState<[number, number] | null>(null);
   const [zoom, setZoom] = useState(1.0);
   const gridRef = useRef<HTMLDivElement>(null);
@@ -82,15 +128,59 @@ export function BlueprintImportDialog({
         style={{ width: "min(92vw, 1200px)", height: "min(88vh, 800px)" }}>
 
         {/* ─── Header ─── */}
-        <div className="px-5 py-3 border-b flex items-center justify-between shrink-0">
-          <div className="flex items-center gap-3">
-            <h2 className="text-base font-semibold">图纸导入预览</h2>
-            <span className="text-xs text-gray-500">
-              {result.width}×{result.height} · 格子 {result.cell_size_detected}px ·
-              置信度 {Math.round(result.confidence * 100)}%
+        <div className="px-5 py-3 border-b flex items-center justify-between shrink-0 gap-3">
+          <div className="flex items-center gap-3 min-w-0">
+            <h2 className="text-base font-semibold shrink-0">图纸导入预览</h2>
+            <span className="text-xs text-gray-500 truncate">
+              格子 {result.cell_size_detected}px · 置信度 {Math.round(result.confidence * 100)}%
             </span>
           </div>
-          <button onClick={onClose} className="text-gray-400 hover:text-gray-600 text-xl leading-none">×</button>
+
+          {/* In-place reimport: edit dims and re-run import without leaving
+              the preview. Hidden when caller didn't wire onReimport. */}
+          {onReimport && (
+            <div className="flex items-center gap-1.5 text-xs shrink-0">
+              <span className="text-gray-500">尺寸</span>
+              <input
+                type="number"
+                min={1}
+                max={4096}
+                value={editW}
+                disabled={reimportBusy}
+                onChange={(e) => setEditW(parseInt(e.target.value) || 0)}
+                className="w-16 px-1.5 py-0.5 border rounded text-center"
+                aria-label="宽"
+              />
+              <span className="text-gray-400">×</span>
+              <input
+                type="number"
+                min={1}
+                max={4096}
+                value={editH}
+                disabled={reimportBusy}
+                onChange={(e) => setEditH(parseInt(e.target.value) || 0)}
+                className="w-16 px-1.5 py-0.5 border rounded text-center"
+                aria-label="高"
+              />
+              <button
+                onClick={handleReimport}
+                disabled={!dimsDirty || reimportBusy}
+                className={`px-2 py-0.5 rounded border ${
+                  dimsDirty && !reimportBusy
+                    ? "border-blue-400 text-blue-700 hover:bg-blue-50"
+                    : "border-gray-300 text-gray-400 cursor-not-allowed"
+                }`}
+                title={dimsDirty ? "用新尺寸重新导入" : "尺寸未改动"}
+              >
+                {reimportBusy ? "重新导入中..." : "重新导入"}
+              </button>
+              {reimportError && (
+                <span className="text-[10px] text-red-600 max-w-[16em] truncate" title={reimportError}>{reimportError}</span>
+              )}
+            </div>
+          )}
+
+          <button onClick={onClose} className="text-gray-400 hover:text-gray-600 text-xl leading-none shrink-0">×</button>
         </div>
 
         {/* ─── Toolbar ─── */}
