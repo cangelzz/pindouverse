@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.0.1
+
+- Fix: 「版本管理」对话框在 VS Code 扩展里能正常列出和删除快照了。之前 `listSnapshots()` 直接返回 `[]`、`deleteSnapshot()` 抛 "not yet supported",导致对话框打开后永远空、删除按钮报错。host 端新增 `listSnapshots` / `deleteSnapshot` 两个消息:前者枚举 autosave 目录里的 `.pindou` 文件按修改时间倒序返回;后者带路径安全校验(必须是 `.pindou_autosave` 目录下的 `.pindou` 文件),对应桌面端 Tauri `delete_snapshot` 的 canonicalize 校验。
+
 ## 1.0.0
 
 - Milestone: VS Code 扩展 1.0,功能与桌面端基本对齐(导入图纸/快照/选区操作/导出等全部可用)。
