@@ -277,16 +277,20 @@ export class VScodeAdapter implements PlatformAdapter {
   }
 
   async listSnapshots(): Promise<SnapshotInfo[]> {
-    // Simplified: return empty for now (full implementation would list files)
-    return [];
+    const dir = await this.getAutosaveDir();
+    const result = await sendRequest("listSnapshots", { dir });
+    return Array.isArray(result.data) ? (result.data as SnapshotInfo[]) : [];
   }
 
   async loadSnapshot(path: string): Promise<ProjectFile> {
     return this.loadProject(path);
   }
 
-  async deleteSnapshot(_path: string): Promise<void> {
-    throw new Error("Snapshot delete not yet supported on this platform.");
+  async deleteSnapshot(path: string): Promise<void> {
+    const result = await sendRequest("deleteSnapshot", { path });
+    if (result.success === false) {
+      throw new Error(result.error || "Delete failed");
+    }
   }
 
   async previewImage(path: string): Promise<ImagePreview> {

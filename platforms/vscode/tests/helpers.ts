@@ -138,6 +138,24 @@ export function createTestHtml(): string {
                 data: stage || "/tmp/autosave",
               };
               break;
+            case "listSnapshots":
+              // stage is an array of SnapshotInfo, or null for "no snapshots"
+              reply = {
+                type: "fileResult",
+                requestId: msg.requestId,
+                success: true,
+                data: Array.isArray(stage) ? stage : [],
+              };
+              break;
+            case "deleteSnapshot":
+              // stage is { success: false, error: '...' } to simulate failure
+              reply = {
+                type: "fileResult",
+                requestId: msg.requestId,
+                success: !stage || stage.success !== false,
+                error: stage && stage.success === false ? stage.error : undefined,
+              };
+              break;
             case "getGitHubToken":
               reply = {
                 type: "githubToken",

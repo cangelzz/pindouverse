@@ -269,6 +269,73 @@ class PindouEditorProvider implements vscode.CustomTextEditorProvider {
           break;
         }
 
+        case "listSnapshots": {
+          try {
+            const dirPath = String(msg.dir ?? "");
+            const items: Array<{ path: string; name: string; modified: string; mtimeMs: number }> = [];
+            if (dirPath && fs.existsSync(dirPath)) {
+              for (const entry of fs.readdirSync(dirPath, { withFileTypes: true })) {
+                if (!entry.isFile() || !entry.name.toLowerCase().endsWith(".pindou")) continue;
+                const full = path.join(dirPath, entry.name);
+                const stat = fs.statSync(full);
+                const d = new Date(stat.mtimeMs);
+                const pad = (n: number) => String(n).padStart(2, "0");
+                const modified = `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`;
+                items.push({
+                  path: full,
+                  name: entry.name.replace(/\.pindou$/i, ""),
+                  modified,
+                  mtimeMs: stat.mtimeMs,
+                });
+              }
+              items.sort((a, b) => b.mtimeMs - a.mtimeMs);
+            }
+            webviewPanel.webview.postMessage({
+              type: "fileResult",
+              requestId: msg.requestId,
+              success: true,
+              data: items.map(({ mtimeMs: _m, ...rest }) => rest),
+            });
+          } catch (e: any) {
+            webviewPanel.webview.postMessage({
+              type: "fileResult",
+              requestId: msg.requestId,
+              success: false,
+              error: e.message,
+            });
+          }
+          break;
+        }
+
+        case "deleteSnapshot": {
+          try {
+            const target = String(msg.path ?? "");
+            // Safety: only allow deletes of .pindou files living directly
+            // inside a .pindou_autosave directory. Mirrors the Tauri command's
+            // canonicalize+starts_with check.
+            if (!target.toLowerCase().endsWith(".pindou")) {
+              throw new Error("Refusing to delete: not a .pindou file");
+            }
+            if (path.basename(path.dirname(target)) !== ".pindou_autosave") {
+              throw new Error("Refusing to delete: path is outside .pindou_autosave");
+            }
+            fs.unlinkSync(target);
+            webviewPanel.webview.postMessage({
+              type: "fileResult",
+              requestId: msg.requestId,
+              success: true,
+            });
+          } catch (e: any) {
+            webviewPanel.webview.postMessage({
+              type: "fileResult",
+              requestId: msg.requestId,
+              success: false,
+              error: e.message,
+            });
+          }
+          break;
+        }
+
         case "info":
           vscode.window.showInformationMessage(msg.message);
           break;
