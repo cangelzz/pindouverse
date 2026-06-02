@@ -1,5 +1,5 @@
 {
-  "version": 1,
+  "version": 2,
   "canvasSize": {
     "width": 87,
     "height": 97
@@ -8507,15 +8507,6 @@
         "colorIndex": 153
       },
       {
-        "colorIndex": 189
-      },
-      {
-        "colorIndex": 189
-      },
-      {
-        "colorIndex": 126
-      },
-      {
         "colorIndex": 126
       },
       {
@@ -8528,19 +8519,7 @@
         "colorIndex": 126
       },
       {
-        "colorIndex": 126
-      },
-      {
-        "colorIndex": 198
-      },
-      {
         "colorIndex": 189
-      },
-      {
-        "colorIndex": 126
-      },
-      {
-        "colorIndex": 126
       },
       {
         "colorIndex": 189
@@ -8555,10 +8534,31 @@
         "colorIndex": 198
       },
       {
-        "colorIndex": 198
+        "colorIndex": 189
+      },
+      {
+        "colorIndex": 189
       },
       {
         "colorIndex": 126
+      },
+      {
+        "colorIndex": 189
+      },
+      {
+        "colorIndex": 189
+      },
+      {
+        "colorIndex": 189
+      },
+      {
+        "colorIndex": 126
+      },
+      {
+        "colorIndex": 198
+      },
+      {
+        "colorIndex": 189
       },
       {
         "colorIndex": 126
@@ -8770,7 +8770,7 @@
         "colorIndex": 153
       },
       {
-        "colorIndex": 189
+        "colorIndex": 126
       },
       {
         "colorIndex": 126
@@ -25528,6 +25528,6 @@
     "groupLineColor": "rgba(0,0,0,0.5)",
     "groupLineWidth": 2.0
   },
-  "createdAt": "3:18:22 PM",
-  "updatedAt": "2026-05-24T07:31:24.278Z"
+  "createdAt": "10:53:07 AM",
+  "updatedAt": "2026-06-02T03:02:36.397Z"
 }
