@@ -71,12 +71,17 @@ export function buildLegendItems(cells: (LegendCell | null)[][]): { byCount: Leg
   return { byCount, byAlpha };
 }
 
+// Legend cells/text are rendered at 2× the grid's cell size — the grid
+// itself can be tiny while the legend still needs to be readable. Both
+// computeLegendLayout and drawLegend MUST stay in sync on this scale.
+const LEGEND_SCALE = 2;
+
 function codeFontPx(cellSize: number): number {
-  return Math.max(7, Math.min(cellSize * 0.4, 14));
+  return Math.max(14, Math.min(cellSize * LEGEND_SCALE * 0.4, 28));
 }
 
 function titleFontPx(cellSize: number): number {
-  return Math.max(8, cellSize * 0.5);
+  return Math.max(16, cellSize * LEGEND_SCALE * 0.5);
 }
 
 /** Count how many rows `items` need given the inner width and pre-computed item widths. */
@@ -102,9 +107,9 @@ export function computeLegendLayout(
   cellSize: number,
 ): LegendLayout {
   const { byCount, byAlpha } = buildLegendItems(cells);
-  const swatchH = cellSize;
-  const gap = Math.floor(cellSize / 2);
-  const sectionTitleH = cellSize;
+  const swatchH = cellSize * LEGEND_SCALE;
+  const gap = Math.floor(cellSize * LEGEND_SCALE / 2);
+  const sectionTitleH = cellSize * LEGEND_SCALE;
 
   // Measure with an offscreen canvas — works in browser and in VS Code webview
   const offscreen = document.createElement("canvas");
@@ -124,7 +129,7 @@ export function computeLegendLayout(
       const items = layoutItems(byCount);
       const totalBeads = byCount.reduce((s, x) => s + x.count, 0);
       return {
-        title: `By Count (${byCount.length} colors, ${totalBeads} beads)`,
+        title: `按数量 (${byCount.length} 色, ${totalBeads} 颗)`,
         items,
         rowsCount: countRows(items, Math.max(0, innerW)),
       };
@@ -132,7 +137,7 @@ export function computeLegendLayout(
     (() => {
       const items = layoutItems(byAlpha);
       return {
-        title: `By Code (${byAlpha.length} colors)`,
+        title: `按代号 (${byAlpha.length} 色)`,
         items,
         rowsCount: countRows(items, Math.max(0, innerW)),
       };
@@ -156,8 +161,8 @@ export function drawLegend(
 ): void {
   const { swatchH, sections, cellSize } = layout;
   const innerW = (ctx.canvas.width - margin * 2);
-  const gap = Math.floor(cellSize / 2);
-  const sectionTitleH = cellSize;
+  const gap = Math.floor(cellSize * LEGEND_SCALE / 2);
+  const sectionTitleH = cellSize * LEGEND_SCALE;
   const codeFont = codeFontPx(cellSize);
   const titleFont = titleFontPx(cellSize);
 

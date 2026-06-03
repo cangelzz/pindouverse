@@ -16,6 +16,11 @@ export default defineConfig({
     outDir: path.resolve(__dirname, "../dist/webview"),
     emptyOutDir: true,
     cssCodeSplit: false,
+    // Inline assets up to 8 KB as base64 data URLs. The 64x64 app icon is
+    // ~5.5 KB; without this it ships as /assets/64x64.png which resolves to
+    // the webview CDN root (vscode-cdn.net) and 404s — so the export header
+    // band renders without an icon.
+    assetsInlineLimit: 8192,
     rollupOptions: {
       input: path.resolve(__dirname, "index.html"),
       output: {
