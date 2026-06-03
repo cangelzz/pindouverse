@@ -13,9 +13,21 @@
  * so browser/VS Code/Tauri exports look the same.
  */
 
-export const LEGEND_PAD = 6;       // px, horizontal padding inside each sub-cell
-export const LEGEND_GAP = 6;       // px, horizontal gap between items
-export const LEGEND_ROW_GAP = 2;   // px, vertical gap between rows (unchanged)
+// Legend cells/text are rendered at LEGEND_SCALE × the grid's cell size —
+// the grid itself can be tiny while the legend still needs to be readable.
+// At LEGEND_SCALE = 5/3, a 30 px grid cell yields a 50 px legend swatch.
+// Both computeLegendLayout and drawLegend MUST stay in sync on this scale.
+const LEGEND_SCALE = 5 / 3;
+
+export const LEGEND_PAD = 6 * LEGEND_SCALE;       // px, horizontal padding inside each sub-cell
+export const LEGEND_GAP = 10 * LEGEND_SCALE;      // px, horizontal gap between items
+export const LEGEND_ROW_GAP = 9 * LEGEND_SCALE;   // px, vertical gap between rows
+export const LEGEND_CORNER_RADIUS = 8;            // px, rounded-corner radius for item tile
+
+// Sans-serif stack used by all legend text (titles + codes + counts) — keeps
+// the look unified with the header band and avoids the cramped feel of
+// monospace digits packed into the tiny right-hand count sub-cell.
+const LEGEND_FONT_FAMILY = `"Segoe UI", -apple-system, "Microsoft YaHei", "PingFang SC", "Hiragino Sans GB", sans-serif`;
 
 export interface LegendCell {
   color_code: string;
@@ -74,14 +86,13 @@ export function buildLegendItems(cells: (LegendCell | null)[][]): { byCount: Leg
 // Legend cells/text are rendered at 2× the grid's cell size — the grid
 // itself can be tiny while the legend still needs to be readable. Both
 // computeLegendLayout and drawLegend MUST stay in sync on this scale.
-const LEGEND_SCALE = 2;
 
 function codeFontPx(cellSize: number): number {
-  return Math.max(14, Math.min(cellSize * LEGEND_SCALE * 0.4, 28));
+  return Math.max(18, Math.min(cellSize * LEGEND_SCALE * 0.55, 36));
 }
 
 function titleFontPx(cellSize: number): number {
-  return Math.max(16, cellSize * LEGEND_SCALE * 0.5);
+  return Math.max(20, Math.min(cellSize * LEGEND_SCALE * 0.6, 40));
 }
 
 /** Count how many rows `items` need given the inner width and pre-computed item widths. */
@@ -108,13 +119,13 @@ export function computeLegendLayout(
 ): LegendLayout {
   const { byCount, byAlpha } = buildLegendItems(cells);
   const swatchH = cellSize * LEGEND_SCALE;
-  const gap = Math.floor(cellSize * LEGEND_SCALE / 2);
-  const sectionTitleH = cellSize * LEGEND_SCALE;
+  const gap = Math.floor(cellSize * LEGEND_SCALE * 0.75);
+  const sectionTitleH = Math.floor(cellSize * LEGEND_SCALE * 1.3);
 
   // Measure with an offscreen canvas — works in browser and in VS Code webview
   const offscreen = document.createElement("canvas");
   const ctx = offscreen.getContext("2d")!;
-  ctx.font = `${codeFontPx(cellSize)}px monospace`;
+  ctx.font = `${codeFontPx(cellSize)}px ${LEGEND_FONT_FAMILY}`;
 
   const layoutItems = (items: LegendItem[]): LegendItemLayout[] =>
     items.map((it) => ({
@@ -161,8 +172,8 @@ export function drawLegend(
 ): void {
   const { swatchH, sections, cellSize } = layout;
   const innerW = (ctx.canvas.width - margin * 2);
-  const gap = Math.floor(cellSize * LEGEND_SCALE / 2);
-  const sectionTitleH = cellSize * LEGEND_SCALE;
+  const gap = Math.floor(cellSize * LEGEND_SCALE * 0.75);
+  const sectionTitleH = Math.floor(cellSize * LEGEND_SCALE * 1.3);
   const codeFont = codeFontPx(cellSize);
   const titleFont = titleFontPx(cellSize);
 
@@ -170,7 +181,7 @@ export function drawLegend(
   for (const section of sections) {
     // Section title
     ctx.fillStyle = "rgba(0,0,0,0.85)";
-    ctx.font = `${titleFont}px monospace`;
+    ctx.font = `600 ${titleFont}px ${LEGEND_FONT_FAMILY}`;
     ctx.textAlign = "left";
     ctx.textBaseline = "top";
     ctx.fillText(section.title, margin, y + 2);
@@ -179,7 +190,7 @@ export function drawLegend(
     let x = margin;
     let rowIdx = 0;
 
-    ctx.font = `${codeFont}px monospace`;
+    ctx.font = `${codeFont}px ${LEGEND_FONT_FAMILY}`;
     for (let i = 0; i < section.items.length; i++) {
       const it = section.items[i];
       const itemW = it.leftW + it.rightW;
@@ -188,6 +199,14 @@ export function drawLegend(
         x = margin;
       }
       const sy = rowStartY + rowIdx * (swatchH + LEGEND_ROW_GAP);
+      const radius = Math.min(LEGEND_CORNER_RADIUS, swatchH / 2, itemW / 2);
+
+      // Rounded outer shape — clip to it so the two-color fill respects the
+      // rounded corners on the outside while the inner divider stays straight.
+      ctx.save();
+      ctx.beginPath();
+      ctx.roundRect(x, sy, itemW, swatchH, radius);
+      ctx.clip();
 
       // Left sub-cell — color background
       ctx.fillStyle = `rgb(${it.r},${it.g},${it.b})`;
@@ -197,15 +216,19 @@ export function drawLegend(
       ctx.fillStyle = "rgb(255,255,255)";
       ctx.fillRect(x + it.leftW, sy, it.rightW, swatchH);
 
-      // Outer border around both sub-cells
+      ctx.restore();
+
+      // Outer rounded border around both sub-cells
+      ctx.beginPath();
+      ctx.roundRect(x + 0.5, sy + 0.5, itemW - 1, swatchH - 1, radius);
       ctx.strokeStyle = "rgb(160,160,160)";
       ctx.lineWidth = 1;
-      ctx.strokeRect(x + 0.5, sy + 0.5, itemW - 1, swatchH - 1);
+      ctx.stroke();
 
-      // Divider line between left and right
+      // Divider line between left and right (straight, inside the rounded box)
       ctx.beginPath();
-      ctx.moveTo(x + it.leftW + 0.5, sy + 1);
-      ctx.lineTo(x + it.leftW + 0.5, sy + swatchH - 1);
+      ctx.moveTo(x + it.leftW + 0.5, sy + radius * 0.4);
+      ctx.lineTo(x + it.leftW + 0.5, sy + swatchH - radius * 0.4);
       ctx.stroke();
 
       // Left text — code, centered, adaptive color

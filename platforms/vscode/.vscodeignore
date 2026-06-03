@@ -10,4 +10,5 @@ tsconfig.json
 playwright.config.ts
 TESTING.md
 *.ts
+scripts/render-export-preview.mjs
 !dist/**

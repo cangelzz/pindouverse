@@ -1,5 +1,14 @@
 # Changelog
 
+## 1.0.2
+
+- Fix: 导出图纸 PNG 现在与桌面端输出对齐,且布局/视觉做了几处针对 VS Code 的增强:
+  - 之前所有空格子没有网格线 —— 单元格描边在 `if (!cell) continue` 内,空格子直接跳过。改为画桌面端那套三层全画布网格线(细 1px 每格 + 中 2px 每 5 格 + 粗 3px 每 10 格 + 外框),空格子也有边线。
+  - 之前坐标编号(行/列序号)看不见 —— 画布尺寸没留 axis label 的边距,在 `edge_padding=0`(默认值)时坐标被画到 `y = -labelSize`,直接被裁掉。
+  - 现在画布上下左右各预留一个 cellSize 的空白条:上下放列号,左右放行号。比桌面端的"只上+左"更易读。
+  - 之前导出 PNG 顶部没有应用图标 —— vite 把 64x64 图标当外部 asset(`/assets/64x64.png`)发布,在 webview 里这个绝对路径解析到 `vscode-cdn.net` 根目录直接 404。提高 vite `assetsInlineLimit` 到 8KB 让 5.5KB 的图标 inline 成 base64 data URL(CSP 已允许 `data:` 图片源)。
+  - 色谱图例 swatch / 字号统一放大到 2× —— 大图小格时图例太挤看不清。同时把 "By Count / By Code" 改成中文 "按数量 / 按代号"。
+
 ## 1.0.1
 
 - Fix: 「版本管理」对话框在 VS Code 扩展里能正常列出和删除快照了。之前 `listSnapshots()` 直接返回 `[]`、`deleteSnapshot()` 抛 "not yet supported",导致对话框打开后永远空、删除按钮报错。host 端新增 `listSnapshots` / `deleteSnapshot` 两个消息:前者枚举 autosave 目录里的 `.pindou` 文件按修改时间倒序返回;后者带路径安全校验(必须是 `.pindou_autosave` 目录下的 `.pindou` 文件),对应桌面端 Tauri `delete_snapshot` 的 canonicalize 校验。
