@@ -335,8 +335,13 @@ export class VScodeAdapter implements PlatformAdapter {
   async exportImage(request: ExportImageRequest): Promise<void> {
     const { width, height, cell_size, cells, output_path, format, start_x, start_y, edge_padding, watermark } = request;
 
-    const imgW = width * cell_size;
-    const gridAreaH = height * cell_size;
+    // Reserve a single-cell margin on the top + left for axis labels, mirroring
+    // the Rust impl (src-tauri/src/commands/image_export.rs). Without this,
+    // axis numbers land at negative y/x and get clipped out of the image,
+    // and there's nowhere "outside the canvas" to put them.
+    const margin = cell_size;
+    const imgW = width * cell_size + margin;
+    const gridAreaH = height * cell_size + margin;
     const headerH = computeHeaderHeight(cell_size, !!watermark?.show_header);
     const legend = computeLegendLayout(cells as any, width, cell_size);
     const imgH = headerH + gridAreaH + legend.totalHeight;
@@ -361,14 +366,33 @@ export class VScodeAdapter implements PlatformAdapter {
       });
     }
 
-    // Translate grid/label drawing down by headerH
-    const useTranslate = headerH > 0;
-    if (useTranslate) {
-      ctx.save();
-      ctx.translate(0, headerH);
+    // Grid origin (top-left of cell [0,0]) in image-absolute coordinates.
+    const gridX = margin;
+    const gridY = headerH + margin;
+
+    // Axis labels — drawn in the top + left margin strips, NOT in translated
+    // space. Mirror Rust: label every cell within [edge_padding, dim-edge_padding).
+    const axisFontPx = Math.max(8, cell_size * 0.45);
+    ctx.font = `${axisFontPx}px monospace`;
+    ctx.fillStyle = "rgb(80,80,80)";
+    ctx.textAlign = "left";
+    ctx.textBaseline = "top";
+    for (let col = edge_padding; col < width - edge_padding; col++) {
+      const label = String(col - edge_padding + start_x);
+      ctx.fillText(label, gridX + col * cell_size + cell_size / 6, headerH + cell_size / 4);
+    }
+    for (let row = edge_padding; row < height - edge_padding; row++) {
+      const label = String(row - edge_padding + start_y);
+      ctx.fillText(label, cell_size / 8, gridY + row * cell_size + cell_size / 4);
     }
 
-    // Draw cells
+    // Translate into grid-local coordinates for cells + grid lines.
+    ctx.save();
+    ctx.translate(gridX, gridY);
+
+    // Draw cells (filled rect only; the universal thin grid below provides
+    // borders for empty cells too — earlier version drew strokeRect only for
+    // non-empty cells, leaving empty regions with no visible grid).
     for (let row = 0; row < height; row++) {
       for (let col = 0; col < width; col++) {
         const cell = cells[row]?.[col];
@@ -378,12 +402,6 @@ export class VScodeAdapter implements PlatformAdapter {
         ctx.fillStyle = `rgb(${cell.r},${cell.g},${cell.b})`;
         ctx.fillRect(x, y, cell_size, cell_size);
 
-        // Cell border
-        ctx.strokeStyle = "rgba(0,0,0,0.15)";
-        ctx.lineWidth = 1;
-        ctx.strokeRect(x, y, cell_size, cell_size);
-
-        // Color code text
         if (cell_size >= 16) {
           const fontSize = Math.max(7, Math.min(cell_size * 0.4, 14));
           ctx.font = `${fontSize}px "Segoe UI", Arial, sans-serif`;
@@ -396,58 +414,89 @@ export class VScodeAdapter implements PlatformAdapter {
       }
     }
 
-    // Group grid lines
-    const groupSize = 5;
-    ctx.strokeStyle = "rgba(0,0,0,0.5)";
+    // Three-layer grid (matches Rust thin/mid/thick passes). Draw order matters:
+    // mid overwrites thin, thick overwrites mid, so a position that's both a
+    // 5-step and a 10-step line ends up thick.
+    const gridW = width * cell_size;
+    const gridH = height * cell_size;
+
+    // Thin per-cell grid covers the FULL grid area, including empty cells.
+    ctx.strokeStyle = "rgb(180,180,180)";
+    ctx.lineWidth = 1;
+    for (let col = 0; col <= width; col++) {
+      const x = col * cell_size + 0.5;
+      ctx.beginPath();
+      ctx.moveTo(x, 0);
+      ctx.lineTo(x, gridH);
+      ctx.stroke();
+    }
+    for (let row = 0; row <= height; row++) {
+      const y = row * cell_size + 0.5;
+      ctx.beginPath();
+      ctx.moveTo(0, y);
+      ctx.lineTo(gridW, y);
+      ctx.stroke();
+    }
+
+    // Mid 5-cell grid
+    ctx.strokeStyle = "rgb(80,80,80)";
     ctx.lineWidth = 2;
-    for (let col = edge_padding; col <= width - edge_padding; col += groupSize) {
+    for (let col = edge_padding; col <= width - edge_padding; col += 5) {
       const x = col * cell_size;
       ctx.beginPath();
-      ctx.moveTo(x, edge_padding * cell_size);
-      ctx.lineTo(x, (height - edge_padding) * cell_size);
+      ctx.moveTo(x, 0);
+      ctx.lineTo(x, gridH);
       ctx.stroke();
     }
-    for (let row = edge_padding; row <= height - edge_padding; row += groupSize) {
+    for (let row = edge_padding; row <= height - edge_padding; row += 5) {
       const y = row * cell_size;
       ctx.beginPath();
-      ctx.moveTo(edge_padding * cell_size, y);
-      ctx.lineTo((width - edge_padding) * cell_size, y);
+      ctx.moveTo(0, y);
+      ctx.lineTo(gridW, y);
       ctx.stroke();
     }
 
-    // Coordinate labels
-    const labelSize = Math.max(8, cell_size * 0.35);
-    ctx.font = `${labelSize}px sans-serif`;
-    ctx.fillStyle = "rgba(0,0,0,0.6)";
-    ctx.textAlign = "center";
-    ctx.textBaseline = "middle";
-    for (let col = edge_padding; col < width - edge_padding; col += groupSize) {
-      ctx.fillText(String(col - edge_padding + start_x), (col + groupSize / 2) * cell_size, edge_padding > 0 ? (edge_padding * cell_size) / 2 : -labelSize);
+    // Thick 10-cell grid
+    ctx.strokeStyle = "rgb(0,0,0)";
+    ctx.lineWidth = 3;
+    for (let col = edge_padding; col <= width - edge_padding; col += 10) {
+      const x = col * cell_size;
+      ctx.beginPath();
+      ctx.moveTo(x, 0);
+      ctx.lineTo(x, gridH);
+      ctx.stroke();
     }
-    for (let row = edge_padding; row < height - edge_padding; row += groupSize) {
-      ctx.fillText(String(row - edge_padding + start_y), edge_padding > 0 ? (edge_padding * cell_size) / 2 : -labelSize, (row + groupSize / 2) * cell_size);
+    for (let row = edge_padding; row <= height - edge_padding; row += 10) {
+      const y = row * cell_size;
+      ctx.beginPath();
+      ctx.moveTo(0, y);
+      ctx.lineTo(gridW, y);
+      ctx.stroke();
     }
 
-    if (useTranslate) {
-      ctx.restore();
-    }
+    // Outer thick border around the grid
+    ctx.strokeStyle = "rgb(0,0,0)";
+    ctx.lineWidth = 3;
+    ctx.strokeRect(0, 0, gridW, gridH);
 
-    // Watermark over the grid area (absolute coords, after header offset)
-    // drawWatermark clips to the grid rect so it never overlaps the legend
-    // below — ordering relative to drawLegend doesn't matter visually.
+    ctx.restore();
+
+    // Watermark over the grid area (absolute coords)
     if (watermark && watermark.watermark_lines.length > 0) {
       drawWatermark(ctx, {
         cellSize: cell_size,
-        gridX: 0,
-        gridY: headerH,
-        gridW: imgW,
-        gridH: gridAreaH,
+        gridX,
+        gridY,
+        gridW,
+        gridH,
         lines: watermark.watermark_lines,
       });
     }
 
-    // Bead-count legend below grid (y starts at headerH + gridAreaH)
-    drawLegend(ctx, legend, cell_size, headerH + gridAreaH);
+    // Bead-count legend below grid. drawLegend's `margin` param drives both
+    // left padding and innerW = canvas.width - margin*2; passing cell_size
+    // keeps it consistent with the grid's left margin.
+    drawLegend(ctx, legend, margin, headerH + gridAreaH);
 
     // Export to blob and save via extension host
     const mimeType = format === "jpeg" ? "image/jpeg" : "image/png";

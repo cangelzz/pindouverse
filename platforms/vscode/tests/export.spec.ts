@@ -255,4 +255,44 @@ test.describe("Export", () => {
     expect(header.slice(0, 3)).toEqual([0xff, 0xd8, 0xff]); // JPEG SOI
     await dismissAppAlert(page);
   });
+
+  // Regression: prior to this fix, exported blueprint canvas width = width * cs
+  // (no left margin for row axis labels) and height = height * cs (no top
+  // margin for column axis labels). Result: axis numbers were drawn at y = -labelSize
+  // and clipped out of the image, and there was no space outside the cell grid
+  // for them at all. The Tauri/Rust desktop export reserves margin = cellSize
+  // on the top + left for these labels. Match that behavior in the TS export.
+  test("blueprint export: canvas dimensions include axis-label margin (matches desktop)", async ({ page }) => {
+    await setupPage(page);
+    await loadProject(page); // default sample is 71×100 (asuka71x100.pindou)
+    await openExportDialog(page);
+
+    // Disable header to make height arithmetic independent of header band.
+    await page.getByLabel(/顶部应用标题/).uncheck();
+
+    await stageReply(page, "showSaveDialog", "/out/margin-check.png");
+    await clearMessages(page);
+    await page.getByRole("button", { name: /^导出$/ }).last().click();
+
+    await page.waitForFunction(
+      () => (window as any)._writes.some((w: any) => w.kind === "writeFile" && /margin-check/.test(w.path)),
+      null,
+      { timeout: 10_000 }
+    );
+
+    const writes = await getWrites(page);
+    const pngWrite = writes.find((w: any) => w.kind === "writeFile" && /margin-check/.test(w.path));
+    expect(pngWrite).toBeTruthy();
+
+    const bin = Buffer.from(pngWrite.data, "base64");
+    const width = bin.readUInt32BE(16);
+
+    // Default cellSize=30, sample width=71 → image width must be 71*30 + 30 = 2160
+    // (with margin), not 2130 (without margin = old buggy behavior).
+    const SAMPLE_W = 71;
+    const CELL = 30;
+    expect(width).toBe(SAMPLE_W * CELL + CELL);
+
+    await dismissAppAlert(page);
+  });
 });
