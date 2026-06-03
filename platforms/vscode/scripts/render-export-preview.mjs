@@ -6,7 +6,7 @@
  * Usage (from platforms/vscode/):
  *   node scripts/render-export-preview.mjs
  *
- * Output: ../../export-preview.png (project root)
+ * Output: ../../temp/export-preview.png (gitignored).
  */
 import { chromium } from "playwright";
 import * as path from "path";
@@ -18,7 +18,8 @@ const DIST_DIR = path.resolve(__dirname, "../dist/webview");
 const SAMPLES_DIR = path.resolve(__dirname, "../../../samples");
 const PROJECT_ROOT = path.resolve(__dirname, "../../..");
 const SAMPLE = path.join(SAMPLES_DIR, "hogwarts.pindou");
-const OUT = path.join(PROJECT_ROOT, "export-preview.png");
+const OUT_DIR = path.join(PROJECT_ROOT, "temp");
+const OUT = path.join(OUT_DIR, "export-preview.png");
 
 function harnessHtml() {
   const scriptPath = path.join(DIST_DIR, "assets/index.js").replace(/\\/g, "/");
@@ -114,6 +115,7 @@ function harnessHtml() {
 
   const writes = await page.evaluate(() => window._writes.slice());
   const png = writes.find((w) => w.path === "/out/preview.png");
+  fs.mkdirSync(OUT_DIR, { recursive: true });
   fs.writeFileSync(OUT, Buffer.from(png.data, "base64"));
   console.log(`SAVED → ${OUT} (${(fs.statSync(OUT).size / 1024).toFixed(1)} KB)`);
 
