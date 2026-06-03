@@ -257,12 +257,12 @@ test.describe("Export", () => {
   });
 
   // Regression: prior to this fix, exported blueprint canvas width = width * cs
-  // (no left margin for row axis labels) and height = height * cs (no top
-  // margin for column axis labels). Result: axis numbers were drawn at y = -labelSize
-  // and clipped out of the image, and there was no space outside the cell grid
-  // for them at all. The Tauri/Rust desktop export reserves margin = cellSize
-  // on the top + left for these labels. Match that behavior in the TS export.
-  test("blueprint export: canvas dimensions include axis-label margin (matches desktop)", async ({ page }) => {
+  // (no margin for row axis labels) and height = height * cs (no margin for
+  // column axis labels). Result: axis numbers were drawn at y = -labelSize
+  // and clipped out of the image. We now reserve margin = cellSize on ALL
+  // four sides for axis labels (top/bottom for column numbers, left/right
+  // for row numbers).
+  test("blueprint export: canvas dimensions include axis-label margin on all 4 sides", async ({ page }) => {
     await setupPage(page);
     await loadProject(page); // default sample is 71×100 (asuka71x100.pindou)
     await openExportDialog(page);
@@ -287,11 +287,11 @@ test.describe("Export", () => {
     const bin = Buffer.from(pngWrite.data, "base64");
     const width = bin.readUInt32BE(16);
 
-    // Default cellSize=30, sample width=71 → image width must be 71*30 + 30 = 2160
-    // (with margin), not 2130 (without margin = old buggy behavior).
+    // Default cellSize=30, sample width=71 → image width must be 71*30 + 2*30 = 2190
+    // (left + right margin for row labels). Old buggy behavior was 2130 (no margin).
     const SAMPLE_W = 71;
     const CELL = 30;
-    expect(width).toBe(SAMPLE_W * CELL + CELL);
+    expect(width).toBe(SAMPLE_W * CELL + 2 * CELL);
 
     await dismissAppAlert(page);
   });

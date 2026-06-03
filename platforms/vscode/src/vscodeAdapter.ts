@@ -335,13 +335,12 @@ export class VScodeAdapter implements PlatformAdapter {
   async exportImage(request: ExportImageRequest): Promise<void> {
     const { width, height, cell_size, cells, output_path, format, start_x, start_y, edge_padding, watermark } = request;
 
-    // Reserve a single-cell margin on the top + left for axis labels, mirroring
-    // the Rust impl (src-tauri/src/commands/image_export.rs). Without this,
-    // axis numbers land at negative y/x and get clipped out of the image,
-    // and there's nowhere "outside the canvas" to put them.
+    // Reserve a single-cell margin on ALL four sides for axis labels.
+    // Top + bottom carry column numbers; left + right carry row numbers.
+    // Without these strips, labels land at negative y/x and get clipped.
     const margin = cell_size;
-    const imgW = width * cell_size + margin;
-    const gridAreaH = height * cell_size + margin;
+    const imgW = width * cell_size + margin * 2;
+    const gridAreaH = height * cell_size + margin * 2;
     const headerH = computeHeaderHeight(cell_size, !!watermark?.show_header);
     const legend = computeLegendLayout(cells as any, width, cell_size);
     const imgH = headerH + gridAreaH + legend.totalHeight;
@@ -370,20 +369,26 @@ export class VScodeAdapter implements PlatformAdapter {
     const gridX = margin;
     const gridY = headerH + margin;
 
-    // Axis labels — drawn in the top + left margin strips, NOT in translated
-    // space. Mirror Rust: label every cell within [edge_padding, dim-edge_padding).
+    // Axis labels — drawn in the four margin strips, NOT in translated space.
+    // Top + bottom = column numbers; left + right = row numbers.
     const axisFontPx = Math.max(8, cell_size * 0.45);
     ctx.font = `${axisFontPx}px monospace`;
     ctx.fillStyle = "rgb(80,80,80)";
     ctx.textAlign = "left";
     ctx.textBaseline = "top";
+    const rightLabelX = gridX + width * cell_size + cell_size / 8;
+    const bottomLabelY = gridY + height * cell_size + cell_size / 4;
     for (let col = edge_padding; col < width - edge_padding; col++) {
       const label = String(col - edge_padding + start_x);
-      ctx.fillText(label, gridX + col * cell_size + cell_size / 6, headerH + cell_size / 4);
+      const labelX = gridX + col * cell_size + cell_size / 6;
+      ctx.fillText(label, labelX, headerH + cell_size / 4);   // top
+      ctx.fillText(label, labelX, bottomLabelY);              // bottom
     }
     for (let row = edge_padding; row < height - edge_padding; row++) {
       const label = String(row - edge_padding + start_y);
-      ctx.fillText(label, cell_size / 8, gridY + row * cell_size + cell_size / 4);
+      const labelY = gridY + row * cell_size + cell_size / 4;
+      ctx.fillText(label, cell_size / 8, labelY);             // left
+      ctx.fillText(label, rightLabelX, labelY);               // right
     }
 
     // Translate into grid-local coordinates for cells + grid lines.
