@@ -8,6 +8,15 @@ import { playDone, playUnknown, playListenStart, speak, warmupAudio } from "../.
 import { PreviewThumbnail } from "./PreviewThumbnail";
 import { lineCells, rectCells, circleCells, constrainLine, constrainRect } from "../../utils/shapeDrawing";
 import { renderMarchingAnts, renderResizeHandles, renderFloatingSelection } from "../../utils/selectionRenderer";
+import {
+  isRectangularSelection,
+  hitTestResizeHandle,
+  computeResizedBounds,
+  cellsFromBounds,
+  cursorForHandle,
+  type Bounds,
+  type ResizeHandle,
+} from "../../utils/selectionResize";
 import { SelectionContextMenu } from "./SelectionContextMenu";
 import { ReplaceColorInSelectionDialog } from "./ReplaceColorInSelectionDialog";
 import { SelectionActionsChip } from "./SelectionActionsChip";
@@ -79,6 +88,11 @@ export function PixelCanvas() {
   const selectionStart = useRef<{ row: number; col: number } | null>(null);
   const isDraggingSelection = useRef(false);
   const selectionDragStart = useRef<{ row: number; col: number; mouseX: number; mouseY: number; initialOffsetRow: number; initialOffsetCol: number } | null>(null);
+
+  // Resize-handle drag state. anchor is the selectionBounds at drag-start;
+  // non-driven edges stay anchored, driven edges follow the cursor.
+  const resizingHandle = useRef<{ handle: ResizeHandle; anchor: Bounds } | null>(null);
+  const [hoveredResizeHandle, setHoveredResizeHandle] = useState<ResizeHandle | null>(null);
 
   // Shape tool state: track start cell and current preview cells
   const shapeStart = useRef<{ row: number; col: number } | null>(null);
@@ -534,7 +548,11 @@ export function PixelCanvas() {
 
     if (selection && selection.size > 0) {
       renderMarchingAnts(ctx, selection, cellSize, offsetX, offsetY, antOffset);
-      if (selectionBounds) {
+      // Only show resize handles for true rectangle selections. Irregular
+      // shapes (e.g. magic-wand blobs) shouldn't expose handles, because
+      // dragging would silently rect-ify a selection the user didn't ask
+      // to flatten.
+      if (selectionBounds && isRectangularSelection(selection, selectionBounds)) {
         renderResizeHandles(ctx, selectionBounds, cellSize, offsetX, offsetY);
       }
     }
@@ -818,6 +836,66 @@ export function PixelCanvas() {
           if (!cell) return;
           const { row, col } = cell;
 
+          // Resize handle hit-test takes priority over every other select
+          // gesture: the handles can sit on cells outside the selection (NW
+          // sits ON the top-left corner of cell r1,c1; SE sits one cell past
+          // r2,c2), so without this check, clicking a handle would either
+          // clear the selection or start a new rect.
+          if (
+            !floatingSelectionState &&
+            selection &&
+            selectionBounds &&
+            isRectangularSelection(selection, selectionBounds)
+          ) {
+            const rect = containerRef.current?.getBoundingClientRect();
+            if (rect) {
+              const localX = e.clientX - rect.left;
+              const localY = e.clientY - rect.top;
+              const hit = hitTestResizeHandle(
+                localX, localY, selectionBounds,
+                { cellSize, offsetX, offsetY },
+              );
+              if (hit) {
+                const anchor = { ...selectionBounds };
+                resizingHandle.current = { handle: hit, anchor };
+
+                // Track the drag on window so it works past the canvas edge —
+                // the canvas's own onMouseLeave aborts other drags, but for a
+                // resize we want clamp-to-canvas behavior, not abort.
+                const onMove = (ev: MouseEvent) => {
+                  if (!resizingHandle.current) return;
+                  const rectNow = containerRef.current?.getBoundingClientRect();
+                  if (!rectNow) return;
+                  const store = useEditorStore.getState();
+                  const cs = store.cellSize;
+                  const ox = store.offsetX;
+                  const oy = store.offsetY;
+                  const size = store.canvasSize;
+                  const lx = ev.clientX - rectNow.left;
+                  const ly = ev.clientY - rectNow.top;
+                  let rawCol = Math.floor((lx - ox) / cs);
+                  const rawRow = Math.floor((ly - oy) / cs);
+                  if (store.isMirror) rawCol = size.width - 1 - rawCol;
+                  const newBounds = computeResizedBounds(
+                    resizingHandle.current.handle,
+                    resizingHandle.current.anchor,
+                    rawRow, rawCol, size,
+                  );
+                  store.setSelection(cellsFromBounds(newBounds));
+                };
+                const onUp = () => {
+                  resizingHandle.current = null;
+                  setHoveredResizeHandle(null);
+                  window.removeEventListener("mousemove", onMove);
+                  window.removeEventListener("mouseup", onUp);
+                };
+                window.addEventListener("mousemove", onMove);
+                window.addEventListener("mouseup", onUp);
+                return;
+              }
+            }
+          }
+
           // Check if clicking inside floating selection → start dragging it
           if (floatingSelectionState) {
             const { offsetRow, offsetCol, cells: fCells } = floatingSelectionState;
@@ -901,7 +979,7 @@ export function PixelCanvas() {
         }
       }
     },
-    [currentTool, offsetX, offsetY, screenToCell, applyTool, isShapeTool, selection, floatingSelectionState, commitFloatingSelection, setSelection, clearSelection]
+    [currentTool, offsetX, offsetY, cellSize, screenToCell, applyTool, isShapeTool, selection, selectionBounds, floatingSelectionState, commitFloatingSelection, setSelection, clearSelection]
   );
 
   const handleMouseMove = useCallback(
@@ -970,12 +1048,32 @@ export function PixelCanvas() {
         return;
       }
 
-      // Update hover cursor for floating selection / selection
+      // Update hover cursor for floating selection / selection / resize handle
       if (currentTool === "select" || currentTool === "wand") {
+        // Resize handle hover (only meaningful for rectangle selections)
+        let onHandle: ResizeHandle | null = null;
+        const sel = useEditorStore.getState().selection;
+        const bounds = useEditorStore.getState().selectionBounds;
+        if (
+          currentTool === "select" &&
+          !useEditorStore.getState().floatingSelection &&
+          sel && bounds && isRectangularSelection(sel, bounds)
+        ) {
+          const rect = containerRef.current?.getBoundingClientRect();
+          if (rect) {
+            onHandle = hitTestResizeHandle(
+              e.clientX - rect.left,
+              e.clientY - rect.top,
+              bounds,
+              { cellSize, offsetX, offsetY },
+            );
+          }
+        }
+        setHoveredResizeHandle(onHandle);
+
         const cell = screenToCell(e.clientX, e.clientY);
         if (cell) {
           const fs = useEditorStore.getState().floatingSelection;
-          const sel = useEditorStore.getState().selection;
           if (fs) {
             const localR = cell.row - fs.offsetRow;
             const localC = cell.col - fs.offsetCol;
@@ -989,14 +1087,19 @@ export function PixelCanvas() {
           setHoverOnFloat(false);
         }
       } else {
+        setHoveredResizeHandle(null);
         setHoverOnFloat(false);
       }
     },
-    [screenToCell, applyTool, setOffset, isShapeTool, computeShapeCells, currentTool, setSelection]
+    [screenToCell, applyTool, setOffset, isShapeTool, computeShapeCells, currentTool, setSelection, canvasSize, cellSize, offsetX, offsetY]
   );
 
   const handleMouseUp = useCallback(
     (_e: React.MouseEvent) => {
+      // Note: resize-handle drag is cleaned up by its own window-level mouseup
+      // listener (attached in handleMouseDown), so it works even past the
+      // canvas edge. We don't touch resizingHandle here.
+
       // Finish selection rectangle
       if (currentTool === "select" && selectionStart.current) {
         selectionStart.current = null;
@@ -1168,17 +1271,21 @@ export function PixelCanvas() {
   // Cursor style
   const [hoverOnFloat, setHoverOnFloat] = useState(false);
   const cursor =
-    isDraggingSelection.current
-      ? "grabbing"
-      : hoverOnFloat
-        ? "grab"
-        : currentTool === "pan"
-          ? "grab"
-          : currentTool === "eyedropper" || currentTool === "fill" || currentTool === "eraserFill"
-            ? "crosshair"
-            : currentTool === "select" || currentTool === "wand"
-              ? "crosshair"
-              : "default";
+    resizingHandle.current
+      ? cursorForHandle(resizingHandle.current.handle)
+      : hoveredResizeHandle
+        ? cursorForHandle(hoveredResizeHandle)
+        : isDraggingSelection.current
+          ? "grabbing"
+          : hoverOnFloat
+            ? "grab"
+            : currentTool === "pan"
+              ? "grab"
+              : currentTool === "eyedropper" || currentTool === "fill" || currentTool === "eraserFill"
+                ? "crosshair"
+                : currentTool === "select" || currentTool === "wand"
+                  ? "crosshair"
+                  : "default";
 
   return (
     <div className="flex flex-col flex-1 min-w-0 min-h-0">

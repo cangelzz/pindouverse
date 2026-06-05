@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.0.3
+
+- Fix: 矩形选区周围的 8 个 resize handle 现在真的能拖了。以前 `renderResizeHandles` 只把小方块画在 canvas 上,`handleMouseDown` 根本没做命中检测 — 点 handle 要么清掉选区要么开始新框选,从来没 resize 过。新加 `src/utils/selectionResize.ts` 提供纯函数 `hitTestResizeHandle` / `computeResizedBounds` / `cellsFromBounds` / `isRectangularSelection`,PixelCanvas 在 mousedown 时优先做 handle 命中,命中后挂 window 级 mousemove/mouseup(画布级 onMouseLeave 会清状态,挂在 window 让 drag 过画布边界仍能跟踪),mousemove 重算 bounds + `setSelection`,mouseup 解绑。拖出画布时坐标 clamp 到 canvas 内 (1.0.2 behavior choice: clamp not extend)。不规则选区(魔棒、shift-add 等)不显示 handle,避免误操作把不规则形状压成矩形。
+
 ## 1.0.2
 
 - Fix: 导出图纸 PNG 现在与桌面端输出对齐,且布局/视觉做了几处针对 VS Code 的增强:

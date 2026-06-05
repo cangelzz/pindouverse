@@ -52,11 +52,12 @@ function singleColorGrid(code: string, count: number): (LegendCell | null)[][] {
 }
 
 describe("constants", () => {
-  it("exports LEGEND_PAD = 6", () => {
-    expect(LEGEND_PAD).toBe(6);
+  // LEGEND_SCALE = 5/3, so PAD/GAP/ROW_GAP are 6/10/9 multiplied + rounded.
+  it("exports LEGEND_PAD = 10", () => {
+    expect(LEGEND_PAD).toBe(10);
   });
-  it("exports LEGEND_GAP = 6", () => {
-    expect(LEGEND_GAP).toBe(6);
+  it("exports LEGEND_GAP = 17", () => {
+    expect(LEGEND_GAP).toBe(17);
   });
 });
 
@@ -90,11 +91,11 @@ describe("computeLegendLayout", () => {
     expect(item.rightW).toBe(2 * CHAR_W + LEGEND_PAD * 2);
   });
 
-  it("returns swatchH equal to cellSize", () => {
+  it("returns swatchH = cellSize × LEGEND_SCALE (5/3)", () => {
     const cells = singleColorGrid("X", 1);
-    const layout = computeLegendLayout(cells, 5, 24);
-    expect(layout.swatchH).toBe(24);
-    expect(layout.cellSize).toBe(24);
+    const layout = computeLegendLayout(cells, 5, 30);
+    expect(layout.swatchH).toBe(50);   // 30 * 5/3
+    expect(layout.cellSize).toBe(30);  // raw grid cellSize is still preserved
   });
 
   it("wraps items when the row is full", () => {
@@ -125,10 +126,14 @@ describe("computeLegendLayout", () => {
   it("computes totalHeight = 3*gap + 2*sectionH where sectionH = titleH + rows*(swatchH+rowGap)", () => {
     const cells = singleColorGrid("X1", 5);
     const layout = computeLegendLayout(cells, 10, 30);
-    // gap = floor(30/2) = 15, titleH = 30, swatchH = 30, rowGap = 2, rows = 1 each section
-    // sectionH = 30 + 1*(30+2) = 62
-    // totalHeight = 15 + 62 + 15 + 62 + 15 = 169
-    expect(layout.totalHeight).toBe(15 + 62 + 15 + 62 + 15);
+    // With LEGEND_SCALE = 5/3 and cellSize = 30:
+    //   swatchH      = 30 * 5/3 = 50
+    //   gap          = floor(30 * 5/3 * 0.75) = floor(37.5) = 37
+    //   sectionTitle = floor(30 * 5/3 * 1.3)  = floor(65)   = 65
+    //   rowGap       = round(9 * 5/3)         = 15
+    //   sectionH (1 row) = 65 + 1*(50 + 15) = 130
+    //   totalHeight  = 37 + 130 + 37 + 130 + 37 = 371
+    expect(layout.totalHeight).toBe(371);
   });
 
   it("section totalHeight reflects multi-row wrap", () => {

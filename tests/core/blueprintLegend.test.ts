@@ -77,9 +77,9 @@ describe("computeLegendLayout", () => {
     expect(layout.sections[1].items[0].code).toBe("A"); // alpha first
   });
 
-  it("computes swatchH equal to cellSize", () => {
+  it("computes swatchH = cellSize × LEGEND_SCALE (5/3)", () => {
     const cells: (LegendCell | null)[][] = [[mk("A", 1, 1, 1)]];
-    expect(computeLegendLayout(cells, 4, 30).swatchH).toBe(30);
-    expect(computeLegendLayout(cells, 1, 20).swatchH).toBe(20);
+    expect(computeLegendLayout(cells, 4, 30).swatchH).toBe(50);
+    expect(computeLegendLayout(cells, 1, 18).swatchH).toBe(30);
   });
 });

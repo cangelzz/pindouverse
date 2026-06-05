@@ -19,9 +19,9 @@
 // Both computeLegendLayout and drawLegend MUST stay in sync on this scale.
 const LEGEND_SCALE = 5 / 3;
 
-export const LEGEND_PAD = 6 * LEGEND_SCALE;       // px, horizontal padding inside each sub-cell
-export const LEGEND_GAP = 10 * LEGEND_SCALE;      // px, horizontal gap between items
-export const LEGEND_ROW_GAP = 9 * LEGEND_SCALE;   // px, vertical gap between rows
+export const LEGEND_PAD = Math.round(6 * LEGEND_SCALE);       // px, horizontal padding inside each sub-cell
+export const LEGEND_GAP = Math.round(10 * LEGEND_SCALE);      // px, horizontal gap between items
+export const LEGEND_ROW_GAP = Math.round(9 * LEGEND_SCALE);   // px, vertical gap between rows
 export const LEGEND_CORNER_RADIUS = 8;            // px, rounded-corner radius for item tile
 
 // Sans-serif stack used by all legend text (titles + codes + counts) — keeps
