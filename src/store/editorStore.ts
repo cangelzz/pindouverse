@@ -46,6 +46,7 @@ interface EditorState {
   gridFocusMode: boolean;
   voiceControlEnabled: boolean;
   aiVoiceEnabled: boolean; // feature switch for LLM voice, default off
+  showActiveLayerTag: boolean; // floating "active layer" tag on canvas, default on
 
   // Tool state
   currentTool: EditorTool;
@@ -109,6 +110,7 @@ interface EditorState {
   setGridFocusMode: (on: boolean) => void;
   setVoiceControlEnabled: (on: boolean) => void;
   setAiVoiceEnabled: (on: boolean) => void;
+  setShowActiveLayerTag: (on: boolean) => void;
   setBetaFeature: (key: string, on: boolean) => void;
   addCustomColorGroup: (name: string) => void;
   removeCustomColorGroup: (id: string) => void;
@@ -346,6 +348,7 @@ export const useEditorStore = create<EditorState>((set, get) => ({
   gridFocusMode: false,
   voiceControlEnabled: false,
   aiVoiceEnabled: false,
+  showActiveLayerTag: true,
 
   beadLayerVisible: true,
   beadLayerOpacity: 1,
@@ -536,6 +539,8 @@ export const useEditorStore = create<EditorState>((set, get) => ({
   setVoiceControlEnabled: (on) => set({ voiceControlEnabled: on }),
 
   setAiVoiceEnabled: (on) => set({ aiVoiceEnabled: on }),
+
+  setShowActiveLayerTag: (on) => set({ showActiveLayerTag: on }),
 
   setBetaFeature: (key, on) => set((state) => ({
     betaFeatures: { ...state.betaFeatures, [key]: on },

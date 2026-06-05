@@ -11,4 +11,5 @@ playwright.config.ts
 TESTING.md
 *.ts
 scripts/render-export-preview.mjs
+scripts/render-layer-indicator-preview.mjs
 !dist/**

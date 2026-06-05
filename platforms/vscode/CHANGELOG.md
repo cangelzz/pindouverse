@@ -1,5 +1,12 @@
 # Changelog
 
+## 1.0.4
+
+- Feature: 图层面板的激活行加粗背景 + 左侧色 bar,选中的图层一眼能看出。每个图层(包括未选中的)都显示左色 bar,激活的更宽更深。色板用深一档莫兰迪 — blue / green / terracotta / violet / coral / teal / amber / plum,饱和度足够在小尺寸下也分得清;默认层用 warm stone。
+- Feature: 当选中非默认图层时,画布上鼠标**右上方**(+24, -24)出现浮动小标签(白底圆角 + 小色块 + 图层名),跟随鼠标移动,鼠标离开画布消失 — 帮你避免在错误的图层上画半天才发现。`pointer-events: none` 不抢交互。
+- Feature: 图层面板顶部新增「画布上显示浮动图层提示」开关(只在图层数 ≥ 2 时显示),默认勾选;不需要这个提示的时候关掉即可。
+- 新增 `src/utils/layerColors.ts` 提供 `layerAccentColor(idx)`(idx=0 → 默认色;idx ≥ 1 → palette 取模循环)。6 个单测 + 5 个集成测试。
+
 ## 1.0.3
 
 - Fix: 矩形选区周围的 8 个 resize handle 现在真的能拖了。以前 `renderResizeHandles` 只把小方块画在 canvas 上,`handleMouseDown` 根本没做命中检测 — 点 handle 要么清掉选区要么开始新框选,从来没 resize 过。新加 `src/utils/selectionResize.ts` 提供纯函数 `hitTestResizeHandle` / `computeResizedBounds` / `cellsFromBounds` / `isRectangularSelection`,PixelCanvas 在 mousedown 时优先做 handle 命中,命中后挂 window 级 mousemove/mouseup(画布级 onMouseLeave 会清状态,挂在 window 让 drag 过画布边界仍能跟踪),mousemove 重算 bounds + `setSelection`,mouseup 解绑。拖出画布时坐标 clamp 到 canvas 内 (1.0.2 behavior choice: clamp not extend)。不规则选区(魔棒、shift-add 等)不显示 handle,避免误操作把不规则形状压成矩形。

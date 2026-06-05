@@ -17,6 +17,7 @@ import type { BlueprintImportResult, ImagePreview } from "./adapters";
 import { MARD_COLORS } from "./data/mard221";
 import { getEffectiveColor, getEffectiveHex, type ColorOverrideMap } from "./utils/colorHelper";
 import { hasToken, clearGitHubToken, requestDeviceCode, pollForToken, type DeviceCodeInfo } from "./utils/llmVoice";
+import { layerAccentColor } from "./utils/layerColors";
 import type { HistoryAction, HistoryEntry, CanvasData, CanvasSize } from "./types";
 
 /** Render a small color swatch (or hatched empty marker for null) */
@@ -188,6 +189,8 @@ function App() {
   const duplicateLayer = useEditorStore((s) => s.duplicateLayer);
   const moveLayer = useEditorStore((s) => s.moveLayer);
   const renameLayer = useEditorStore((s) => s.renameLayer);
+  const showActiveLayerTag = useEditorStore((s) => s.showActiveLayerTag);
+  const setShowActiveLayerTag = useEditorStore((s) => s.setShowActiveLayerTag);
   const gridConfig = useEditorStore((s) => s.gridConfig);
   const setGridStartCoords = useEditorStore((s) => s.setGridStartCoords);
   const setEdgePadding = useEditorStore((s) => s.setEdgePadding);
@@ -684,13 +687,41 @@ function App() {
                   </button>
                 </div>
 
+                {layers.length > 1 && (
+                  <label
+                    className="flex items-center gap-1.5 text-[11px] text-gray-600 cursor-pointer select-none border border-gray-200 rounded px-2 py-1 bg-white"
+                    title="鼠标在画布上时显示当前激活图层的浮动提示"
+                  >
+                    <input
+                      type="checkbox"
+                      checked={showActiveLayerTag}
+                      onChange={(e) => setShowActiveLayerTag(e.target.checked)}
+                      className="w-3 h-3"
+                    />
+                    <span>画布上显示浮动图层提示</span>
+                  </label>
+                )}
+
                 {[...layers].reverse().map((layer) => {
                   const isActive = layer.id === activeLayerId;
+                  const layerIdx = layers.findIndex((l) => l.id === layer.id);
+                  const accent = layerAccentColor(layerIdx);
                   return (
                     <div
                       key={layer.id}
-                      className={`border rounded p-1.5 ${isActive ? "bg-blue-50 border-blue-300" : "bg-gray-50"}`}
+                      className={`relative border rounded p-1.5 pl-2.5 transition-colors ${
+                        isActive
+                          ? "bg-blue-200/70 border-2 border-blue-500 shadow-sm"
+                          : "bg-gray-50 border-gray-200"
+                      }`}
                     >
+                      <div
+                        className={`absolute left-0 top-0 bottom-0 rounded-l ${
+                          isActive ? "w-1.5" : "w-1 opacity-70"
+                        }`}
+                        style={{ background: accent }}
+                        aria-hidden
+                      />
                       <div className="flex items-center gap-1">
                         <input
                           type="checkbox"
@@ -704,7 +735,9 @@ function App() {
                             const name = await appPrompt("重命名图层", layer.name, { title: "重命名图层" });
                             if (name !== null && name.trim()) renameLayer(layer.id, name.trim());
                           }}
-                          className={`flex-1 text-left truncate ${isActive ? "font-semibold text-blue-700" : "text-gray-600"}`}
+                          className={`flex-1 text-left truncate ${
+                            isActive ? "font-bold text-blue-900 text-sm" : "text-gray-600"
+                          }`}
                           title="双击重命名"
                         >
                           {layer.name}

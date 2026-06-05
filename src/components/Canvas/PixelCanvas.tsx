@@ -17,6 +17,7 @@ import {
   type Bounds,
   type ResizeHandle,
 } from "../../utils/selectionResize";
+import { layerAccentColor } from "../../utils/layerColors";
 import { SelectionContextMenu } from "./SelectionContextMenu";
 import { ReplaceColorInSelectionDialog } from "./ReplaceColorInSelectionDialog";
 import { SelectionActionsChip } from "./SelectionActionsChip";
@@ -53,6 +54,7 @@ export function PixelCanvas() {
   // Layers
   const layers = useEditorStore((s) => s.layers);
   const activeLayerId = useEditorStore((s) => s.activeLayerId);
+  const showActiveLayerTag = useEditorStore((s) => s.showActiveLayerTag);
   const highlightColorIndex = useEditorStore((s) => s.highlightColorIndex);
   const blueprintMode = useEditorStore((s) => s.blueprintMode);
   const blueprintMirror = useEditorStore((s) => s.blueprintMirror);
@@ -93,6 +95,11 @@ export function PixelCanvas() {
   // non-driven edges stay anchored, driven edges follow the cursor.
   const resizingHandle = useRef<{ handle: ResizeHandle; anchor: Bounds } | null>(null);
   const [hoveredResizeHandle, setHoveredResizeHandle] = useState<ResizeHandle | null>(null);
+
+  // Floating "you're on layer X" tag — follows the cursor when over the canvas,
+  // shown only when the active layer isn't the default (first) one. Position is
+  // in container-local pixel coords (clientX/Y minus container's rect).
+  const [canvasMousePos, setCanvasMousePos] = useState<{ x: number; y: number } | null>(null);
 
   // Shape tool state: track start cell and current preview cells
   const shapeStart = useRef<{ row: number; col: number } | null>(null);
@@ -984,6 +991,17 @@ export function PixelCanvas() {
 
   const handleMouseMove = useCallback(
     (e: React.MouseEvent) => {
+      // Track mouse position for the floating "active layer" tag (only matters
+      // when activeLayerIdx > 0, but we always update so the tag is correctly
+      // positioned the moment the user switches off the default layer).
+      const containerRect = containerRef.current?.getBoundingClientRect();
+      if (containerRect) {
+        setCanvasMousePos({
+          x: e.clientX - containerRect.left,
+          y: e.clientY - containerRect.top,
+        });
+      }
+
       if (isPanning.current) {
         const dx = e.clientX - dragStart.current.x;
         const dy = e.clientY - dragStart.current.y;
@@ -1352,7 +1370,10 @@ export function PixelCanvas() {
         onMouseDown={handleMouseDown}
         onMouseMove={handleMouseMove}
         onMouseUp={handleMouseUp}
-        onMouseLeave={handleMouseUp}
+        onMouseLeave={(e) => {
+          handleMouseUp(e);
+          setCanvasMousePos(null);
+        }}
         onDoubleClick={handleDoubleClick}
         onContextMenu={(e) => {
           e.preventDefault();
@@ -1382,6 +1403,37 @@ export function PixelCanvas() {
             containerHeight={containerDims.h}
           />
         )}
+        {/* Floating "active layer" reminder. Shown when the active layer is
+            NOT the default first one — keeps the user from forgetting which
+            layer they're drawing on. Sits above-right of the cursor with a
+            comfortable gap. pointer-events: none so it can't intercept canvas
+            drags. transform translates up by its own height so `top` can be
+            given as the desired *bottom* edge in cursor coords. */}
+        {canvasMousePos && showActiveLayerTag && (() => {
+          const activeIdx = layers.findIndex((l) => l.id === activeLayerId);
+          if (activeIdx <= 0) return null;
+          const activeLayer = layers[activeIdx];
+          if (!activeLayer) return null;
+          const accent = layerAccentColor(activeIdx);
+          return (
+            <div
+              data-active-layer-tag
+              className="absolute pointer-events-none z-20 px-2 py-1 rounded shadow-md bg-white/95 border border-gray-200 text-xs font-medium text-gray-800 flex items-center gap-1.5 select-none whitespace-nowrap"
+              style={{
+                left: canvasMousePos.x + 24,
+                top: canvasMousePos.y - 24,
+                transform: "translateY(-100%)",
+              }}
+            >
+              <span
+                className="inline-block w-3 h-3 rounded-sm border border-gray-300"
+                style={{ background: accent }}
+                aria-hidden
+              />
+              <span>{activeLayer.name}</span>
+            </div>
+          );
+        })()}
       </div>
       {selection && selection.size > 0 && selectionBounds && !floatingSelectionState && (() => {
         // Compute the chip's anchor in VIEWPORT coordinates from the selection
