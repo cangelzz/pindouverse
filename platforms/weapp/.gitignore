@@ -1,0 +1,20 @@
+# Logs
+npm-debug.log*
+
+# Editor
+.DS_Store
+.idea/
+.vscode/
+
+# Build output
+dist/
+.temp/
+.cache/
+.swc/
+
+# Deps
+node_modules/
+
+# Wechat devtools local override (must not commit AppID)
+project.private.config.json
+.env.local
