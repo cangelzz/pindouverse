@@ -111,12 +111,21 @@ function countRows(items: LegendItemLayout[], innerW: number): number {
   return rows;
 }
 
+/** Section toggles passed through from the export request. */
+export interface LegendSectionOptions {
+  includeByCount?: boolean; // default true
+  includeByName?: boolean;  // default false (new in 1.0.5)
+}
+
 /** Compute layout dimensions; pre-measures text widths via an offscreen canvas. */
 export function computeLegendLayout(
   cells: (LegendCell | null)[][],
   width: number,
   cellSize: number,
+  options: LegendSectionOptions = {},
 ): LegendLayout {
+  const includeByCount = options.includeByCount !== false; // default true
+  const includeByName = options.includeByName === true;    // default false
   const { byCount, byAlpha } = buildLegendItems(cells);
   const swatchH = cellSize * LEGEND_SCALE;
   const gap = Math.floor(cellSize * LEGEND_SCALE * 0.75);
@@ -135,30 +144,33 @@ export function computeLegendLayout(
     }));
 
   const innerW = width * cellSize - cellSize * 2; // margin = cellSize on each side
-  const sections: LegendSectionLayout[] = [
-    (() => {
-      const items = layoutItems(byCount);
-      const totalBeads = byCount.reduce((s, x) => s + x.count, 0);
-      return {
-        title: `按数量 (${byCount.length} 色, ${totalBeads} 颗)`,
-        items,
-        rowsCount: countRows(items, Math.max(0, innerW)),
-      };
-    })(),
-    (() => {
-      const items = layoutItems(byAlpha);
-      return {
-        title: `按代号 (${byAlpha.length} 色)`,
-        items,
-        rowsCount: countRows(items, Math.max(0, innerW)),
-      };
-    })(),
-  ];
+  const sections: LegendSectionLayout[] = [];
+  if (includeByCount) {
+    const items = layoutItems(byCount);
+    const totalBeads = byCount.reduce((s, x) => s + x.count, 0);
+    sections.push({
+      title: `按数量 (${byCount.length} 色, ${totalBeads} 颗)`,
+      items,
+      rowsCount: countRows(items, Math.max(0, innerW)),
+    });
+  }
+  if (includeByName) {
+    const items = layoutItems(byAlpha);
+    sections.push({
+      title: `按代号 (${byAlpha.length} 色)`,
+      items,
+      rowsCount: countRows(items, Math.max(0, innerW)),
+    });
+  }
 
   const sectionH = (s: LegendSectionLayout): number =>
     sectionTitleH + s.rowsCount * (swatchH + LEGEND_ROW_GAP);
 
-  const totalHeight = gap + sectionH(sections[0]) + gap + sectionH(sections[1]) + gap;
+  // One gap before the first section, between each pair, and after the last —
+  // i.e. (N + 1) gaps total. Empty (no sections) → 0.
+  const totalHeight = sections.length === 0
+    ? 0
+    : gap * (sections.length + 1) + sections.reduce((acc, s) => acc + sectionH(s), 0);
 
   return { cellSize, swatchH, totalHeight, sections };
 }

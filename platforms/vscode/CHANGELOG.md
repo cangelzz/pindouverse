@@ -1,5 +1,10 @@
 # Changelog
 
+## 1.0.5
+
+- Change: 导出图纸默认**只画「按数量」一段**图例,不再同时画「按代号」(以前两段都画,大图最下面占两节通常没人看)。需要「按代号」可在导出对话框「图纸」选项下勾选「同时包含『按代号』图例」。
+- 同步改桌面端(Rust `image_export.rs`)+ VS Code/browser (TS `blueprintLegend.ts`),双端默认行为一致。Rust 端 legend title 改用 NotoSansSC 字体,中文标题"按数量/按代号"能正常渲染。
+
 ## 1.0.4
 
 - Feature: 图层面板的激活行加粗背景 + 左侧色 bar,选中的图层一眼能看出。每个图层(包括未选中的)都显示左色 bar,激活的更宽更深。色板用深一档莫兰迪 — blue / green / terracotta / violet / coral / teal / amber / plum,饱和度足够在小尺寸下也分得清;默认层用 warm stone。

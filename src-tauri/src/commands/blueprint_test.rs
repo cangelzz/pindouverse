@@ -88,6 +88,7 @@ mod tests {
             start_y: Some(1),
             edge_padding: Some(edge_padding),
             watermark: None,
+            legend_options: None,
         };
         export_image(request).expect("Export failed");
         assert!(export_path.exists(), "Exported file should exist");
@@ -236,6 +237,7 @@ mod tests {
             start_y: Some(1),
             edge_padding: Some(0),
             watermark: None,
+            legend_options: None,
         };
         export_image(request).expect("Export failed");
 
@@ -295,6 +297,7 @@ mod tests {
             start_y: Some(1),
             edge_padding: Some(0),
             watermark: None,
+            legend_options: None,
         };
         crate::commands::image_export::export_image(request).expect("Export failed");
 

@@ -46,6 +46,7 @@ export function ExportDialog({ onClose }: { onClose: () => void }) {
   const [exportBlueprint, setExportBlueprint] = useState(true);
   const [exportPreview, setExportPreview] = useState(false);
   const [exportMirror, setExportMirror] = useState(false);
+  const [includeByNameLegend, setIncludeByNameLegend] = useState(false);
 
   const outputWidth = canvasSize.width * cellSize;
   const outputHeight = canvasSize.height * cellSize;
@@ -118,6 +119,7 @@ export function ExportDialog({ onClose }: { onClose: () => void }) {
             start_y: gridConfig.startY,
             edge_padding: gridConfig.edgePadding,
             watermark: watermarkPayload,
+            legend_options: { include_by_count: true, include_by_name: includeByNameLegend },
           }),
         );
 
@@ -135,6 +137,7 @@ export function ExportDialog({ onClose }: { onClose: () => void }) {
               start_y: gridConfig.startY,
               edge_padding: gridConfig.edgePadding,
               watermark: watermarkPayload,
+              legend_options: { include_by_count: true, include_by_name: includeByNameLegend },
             }),
           );
         }
@@ -262,6 +265,17 @@ export function ExportDialog({ onClose }: { onClose: () => void }) {
                 />
                 <span>📋 图纸（带网格线、色号、坐标、色块统计）</span>
               </label>
+              {exportBlueprint && (
+                <label className="flex items-center gap-2 text-[11px] cursor-pointer pl-6 text-gray-600">
+                  <input
+                    type="checkbox"
+                    checked={includeByNameLegend}
+                    onChange={(e) => setIncludeByNameLegend(e.target.checked)}
+                    className="w-3 h-3"
+                  />
+                  <span>同时包含「按代号」图例（默认只画「按数量」）</span>
+                </label>
+              )}
               <label className="flex items-center gap-2 text-xs cursor-pointer">
                 <input
                   type="checkbox"

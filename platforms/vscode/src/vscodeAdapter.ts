@@ -333,7 +333,7 @@ export class VScodeAdapter implements PlatformAdapter {
   }
 
   async exportImage(request: ExportImageRequest): Promise<void> {
-    const { width, height, cell_size, cells, output_path, format, start_x, start_y, edge_padding, watermark } = request;
+    const { width, height, cell_size, cells, output_path, format, start_x, start_y, edge_padding, watermark, legend_options } = request;
 
     // Reserve a single-cell margin on ALL four sides for axis labels.
     // Top + bottom carry column numbers; left + right carry row numbers.
@@ -342,7 +342,10 @@ export class VScodeAdapter implements PlatformAdapter {
     const imgW = width * cell_size + margin * 2;
     const gridAreaH = height * cell_size + margin * 2;
     const headerH = computeHeaderHeight(cell_size, !!watermark?.show_header);
-    const legend = computeLegendLayout(cells as any, width, cell_size);
+    const legend = computeLegendLayout(cells as any, width, cell_size, {
+      includeByCount: legend_options?.include_by_count !== false,
+      includeByName: legend_options?.include_by_name === true,
+    });
     const imgH = headerH + gridAreaH + legend.totalHeight;
     const canvas = document.createElement("canvas");
     canvas.width = imgW;

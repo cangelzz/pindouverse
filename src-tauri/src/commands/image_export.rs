@@ -68,6 +68,12 @@ pub struct WatermarkPayload {
     pub watermark_lines: Vec<String>,
 }
 
+#[derive(Deserialize, Default)]
+pub struct LegendOptions {
+    pub include_by_count: Option<bool>,
+    pub include_by_name: Option<bool>,
+}
+
 #[derive(Deserialize)]
 pub struct ExportRequest {
     pub width: u32,
@@ -80,6 +86,7 @@ pub struct ExportRequest {
     pub start_y: Option<i32>,
     pub edge_padding: Option<u32>,
     pub watermark: Option<WatermarkPayload>,
+    pub legend_options: Option<LegendOptions>,
 }
 
 fn luminance(r: u8, g: u8, b: u8) -> f64 {
@@ -193,11 +200,27 @@ pub fn export_image(request: ExportRequest) -> Result<String, String> {
         section_title_h + rows * (swatch_h + LEGEND_ROW_GAP)
     };
 
-    let total_legend_h = legend_gap
-        + section_h(by_count_rows)
-        + legend_gap
-        + section_h(by_alpha_rows)
-        + legend_gap;
+    // Legend section toggles (defaults: include by-count, skip by-name).
+    let legend_opts = request.legend_options.as_ref();
+    let include_by_count = legend_opts.and_then(|o| o.include_by_count).unwrap_or(true);
+    let include_by_name = legend_opts.and_then(|o| o.include_by_name).unwrap_or(false);
+
+    // (N + 1) gaps total when N sections are drawn; 0 when none.
+    let mut section_count: u32 = 0;
+    let mut total_section_h: u32 = 0;
+    if include_by_count {
+        section_count += 1;
+        total_section_h += section_h(by_count_rows);
+    }
+    if include_by_name {
+        section_count += 1;
+        total_section_h += section_h(by_alpha_rows);
+    }
+    let total_legend_h = if section_count == 0 {
+        0
+    } else {
+        legend_gap * (section_count + 1) + total_section_h
+    };
 
     let grid_area_h = request.height * cs + margin;
     let img_width = request.width * cs + margin;
@@ -342,9 +365,12 @@ pub fn export_image(request: ExportRequest) -> Result<String, String> {
     draw_vline(&mut img, grid_x_end.saturating_sub(2), grid_y_start, grid_y_end, thick_color, 3);
 
     // === Draw legend below grid ===
+    // Title uses bold_font (NotoSansSC) so CJK characters render correctly;
+    // item codes/counts stay on the NotoSansMono font for fixed-width digits.
+    let title_font = bold_font()?;
     let draw_legend_section = |img: &mut RgbaImage, items: &[LegendLayoutItem], _rows: u32, y_start: u32, title: &str| {
         // Title
-        draw_text_mut(img, Rgba([0, 0, 0, 255]), margin as i32, y_start as i32 + 2, legend_title_scale, &font, title);
+        draw_text_mut(img, Rgba([0, 0, 0, 255]), margin as i32, y_start as i32 + 2, legend_title_scale, title_font, title);
 
         let row_start_y = y_start + section_title_h;
         let mut x: u32 = margin;
@@ -429,13 +455,17 @@ pub fn export_image(request: ExportRequest) -> Result<String, String> {
     };
 
     let mut legend_y = header_h + grid_area_h + legend_gap;
-    let total_beads: u32 = by_count.iter().map(|x| x.4).sum();
-    let title1 = format!("By Count ({} colors, {} beads)", by_count.len(), total_beads);
-    draw_legend_section(&mut img, &by_count_layout, by_count_rows, legend_y, &title1);
-    legend_y += section_h(by_count_rows) + legend_gap;
+    if include_by_count {
+        let total_beads: u32 = by_count.iter().map(|x| x.4).sum();
+        let title1 = format!("按数量 ({} 色, {} 颗)", by_count.len(), total_beads);
+        draw_legend_section(&mut img, &by_count_layout, by_count_rows, legend_y, &title1);
+        legend_y += section_h(by_count_rows) + legend_gap;
+    }
 
-    let title2 = format!("By Code ({} colors)", by_alpha.len());
-    draw_legend_section(&mut img, &by_alpha_layout, by_alpha_rows, legend_y, &title2);
+    if include_by_name {
+        let title2 = format!("按代号 ({} 色)", by_alpha.len());
+        draw_legend_section(&mut img, &by_alpha_layout, by_alpha_rows, legend_y, &title2);
+    }
 
     // Watermark (clipped to the grid area)
     if let Some(wm) = &request.watermark {

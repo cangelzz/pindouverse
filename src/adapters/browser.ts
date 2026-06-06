@@ -311,12 +311,15 @@ export class BrowserAdapter implements PlatformAdapter {
   async exportImage(request: ExportImageRequest): Promise<void> {
     const {
       width, height, cell_size, cells, output_path, format,
-      start_x, start_y, edge_padding, watermark,
+      start_x, start_y, edge_padding, watermark, legend_options,
     } = request;
     const cw = width * cell_size;
     const gridAreaH = height * cell_size;
     const headerH = computeHeaderHeight(cell_size, !!watermark?.show_header);
-    const legend = computeLegendLayout(cells as any, width, cell_size);
+    const legend = computeLegendLayout(cells as any, width, cell_size, {
+      includeByCount: legend_options?.include_by_count !== false,
+      includeByName: legend_options?.include_by_name === true,
+    });
     const ch = headerH + gridAreaH + legend.totalHeight;
     const canvas = document.createElement("canvas");
     canvas.width = cw;

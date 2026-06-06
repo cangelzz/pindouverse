@@ -47,6 +47,16 @@ export interface ExportImageRequest {
   start_y: number;
   edge_padding: number;
   watermark?: WatermarkPayload;
+  /** Legend section toggles. Missing → defaults (by-count only). */
+  legend_options?: LegendOptions;
+}
+
+export interface LegendOptions {
+  /** Always include the "按数量" section (default true). */
+  include_by_count?: boolean;
+  /** Include the "按代号" section. Defaults to false — added as a sub-option
+   *  in the export dialog. */
+  include_by_name?: boolean;
 }
 
 export interface ExportPreviewRequest {

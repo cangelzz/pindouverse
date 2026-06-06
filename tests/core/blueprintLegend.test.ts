@@ -64,15 +64,22 @@ describe("computeLegendLayout", () => {
     const cells: (LegendCell | null)[][] = [[mk("A", 1, 1, 1), mk("B", 2, 2, 2)]];
     const layout = computeLegendLayout(cells, 2, 30);
     expect(layout.totalHeight).toBeGreaterThan(0);
-    expect(layout.sections).toHaveLength(2);
+    // Default: only the byCount section is included.
+    expect(layout.sections).toHaveLength(1);
     expect(layout.sections[0].items.length).toBe(2);
   });
 
-  it("section items sorted by count in first section, alpha in second", () => {
+  it("includeByName: true adds the byAlpha section", () => {
+    const cells: (LegendCell | null)[][] = [[mk("A", 1, 1, 1), mk("B", 2, 2, 2)]];
+    const layout = computeLegendLayout(cells, 2, 30, { includeByName: true });
+    expect(layout.sections).toHaveLength(2);
+  });
+
+  it("section items sorted by count in first section, alpha in second (when byName included)", () => {
     const cells: (LegendCell | null)[][] = [[
       mk("B", 2, 2, 2), mk("A", 1, 1, 1), mk("A", 1, 1, 1),
     ]];
-    const layout = computeLegendLayout(cells, 10, 30);
+    const layout = computeLegendLayout(cells, 10, 30, { includeByName: true });
     expect(layout.sections[0].items[0].code).toBe("A"); // highest count
     expect(layout.sections[1].items[0].code).toBe("A"); // alpha first
   });
