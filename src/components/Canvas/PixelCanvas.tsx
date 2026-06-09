@@ -54,6 +54,7 @@ export function PixelCanvas() {
   // Layers
   const layers = useEditorStore((s) => s.layers);
   const activeLayerId = useEditorStore((s) => s.activeLayerId);
+  const setActiveLayer = useEditorStore((s) => s.setActiveLayer);
   const showActiveLayerTag = useEditorStore((s) => s.showActiveLayerTag);
   const highlightColorIndex = useEditorStore((s) => s.highlightColorIndex);
   const blueprintMode = useEditorStore((s) => s.blueprintMode);
@@ -100,6 +101,14 @@ export function PixelCanvas() {
   // shown only when the active layer isn't the default (first) one. Position is
   // in container-local pixel coords (clientX/Y minus container's rect).
   const [canvasMousePos, setCanvasMousePos] = useState<{ x: number; y: number } | null>(null);
+
+  // Status-bar layer-switcher dropdown. Hover opens (with a short grace period
+  // for moving the cursor down into the menu), click on an item switches.
+  const [layerMenuOpen, setLayerMenuOpen] = useState(false);
+  const layerMenuCloseTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  useEffect(() => () => {
+    if (layerMenuCloseTimer.current) clearTimeout(layerMenuCloseTimer.current);
+  }, []);
 
   // Shape tool state: track start cell and current preview cells
   const shapeStart = useRef<{ row: number; col: number } | null>(null);
@@ -1324,7 +1333,75 @@ export function PixelCanvas() {
           </span>
         )}
         <span className="text-blue-500">
-          图层: {layers.find((l) => l.id === activeLayerId)?.name ?? "—"}
+          图层:{" "}
+          {layers.length > 1 ? (
+            <span
+              data-layer-switcher
+              className="relative inline-block"
+              onMouseEnter={() => {
+                if (layerMenuCloseTimer.current) {
+                  clearTimeout(layerMenuCloseTimer.current);
+                  layerMenuCloseTimer.current = null;
+                }
+                setLayerMenuOpen(true);
+              }}
+              onMouseLeave={() => {
+                if (layerMenuCloseTimer.current) clearTimeout(layerMenuCloseTimer.current);
+                layerMenuCloseTimer.current = setTimeout(() => setLayerMenuOpen(false), 220);
+              }}
+            >
+              <button
+                type="button"
+                className="cursor-pointer hover:bg-gray-200 px-1 rounded inline-flex items-center gap-1"
+                onClick={() => setLayerMenuOpen((v) => !v)}
+                title="切换图层"
+              >
+                <span
+                  className="inline-block w-2.5 h-2.5 rounded-sm border border-gray-300"
+                  style={{
+                    background: layerAccentColor(layers.findIndex((l) => l.id === activeLayerId)),
+                  }}
+                  aria-hidden
+                />
+                {layers.find((l) => l.id === activeLayerId)?.name ?? "—"}
+                <span className="text-[9px] text-gray-500">▾</span>
+              </button>
+              {layerMenuOpen && (
+                <div
+                  data-layer-switcher-menu
+                  className="absolute left-0 top-full mt-1 z-30 min-w-[120px] bg-white border border-gray-300 rounded shadow-lg py-1"
+                >
+                  {[...layers].reverse().map((l) => {
+                    const idx = layers.findIndex((x) => x.id === l.id);
+                    const isActive = l.id === activeLayerId;
+                    return (
+                      <button
+                        key={l.id}
+                        type="button"
+                        onClick={() => {
+                          setActiveLayer(l.id);
+                          setLayerMenuOpen(false);
+                        }}
+                        className={`w-full text-left px-2 py-1 flex items-center gap-2 text-xs hover:bg-gray-100 ${
+                          isActive ? "bg-blue-50 font-semibold" : ""
+                        }`}
+                      >
+                        <span
+                          className="inline-block w-3 h-3 rounded-sm border border-gray-300 shrink-0"
+                          style={{ background: layerAccentColor(idx) }}
+                          aria-hidden
+                        />
+                        <span className="truncate text-gray-700">{l.name}</span>
+                        {isActive && <span className="text-[9px] text-blue-500 ml-auto">●</span>}
+                      </button>
+                    );
+                  })}
+                </div>
+              )}
+            </span>
+          ) : (
+            layers.find((l) => l.id === activeLayerId)?.name ?? "—"
+          )}
         </span>
         {blueprintMode && blueprintMirror && (
           <span className="text-purple-500">🪞 镜像</span>
