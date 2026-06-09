@@ -81,7 +81,9 @@ test.describe("Snapshot export (另存为)", () => {
     );
     const exportedProject = JSON.parse(decoded);
     expect(exportedProject.canvasSize).toEqual({ width: 4, height: 4 });
-    expect(exportedProject.canvasData[0][0].colorIndex).toBe(1);
+    // v3 format: cells are flat numbers/null, not {colorIndex} objects
+    expect(exportedProject.version).toBe(3);
+    expect(exportedProject.canvasData[0][0]).toBe(1);
 
     // Dismiss the success modal so the dialog stays clean for any later steps.
     const modal = page.locator("div.fixed.inset-0").filter({ hasText: /确定/ }).last();

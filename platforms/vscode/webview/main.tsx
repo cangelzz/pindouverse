@@ -5,6 +5,7 @@ import { setAdapter } from "../../../src/adapters";
 import { VScodeAdapter, setDocumentLoadHandler, signalReady, requestGitHubToken, requestNewProject } from "../src/vscodeAdapter";
 import { useEditorStore } from "../../../src/store/editorStore";
 import { setGitHubToken, clearGitHubToken } from "../../../src/utils/llmVoice";
+import { normalizeProjectFromDisk } from "../../../src/utils/projectSerialization";
 import "./styles.css";
 
 declare const __PINDOU_VERSION__: string;
@@ -48,7 +49,7 @@ setAdapter(adapter);
 // Handle document load from extension host
 setDocumentLoadHandler((content: string, path: string, isUntitled: boolean) => {
   try {
-    const project = JSON.parse(content);
+    const project = normalizeProjectFromDisk(content);
     if (project.canvasSize && project.canvasData) {
       const store = useEditorStore.getState();
       if (Array.isArray(project.layers) && project.layers.length > 0) {

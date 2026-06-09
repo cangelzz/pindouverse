@@ -18,6 +18,10 @@ import type {
 import type { ProjectFile } from "../../../src/types";
 import { computeLegendLayout, drawLegend } from "../../../src/utils/blueprintLegend";
 import {
+  normalizeProjectFromDisk,
+  serializeProjectToV3,
+} from "../../../src/utils/projectSerialization";
+import {
   computeHeaderHeight,
   drawHeader,
   drawWatermark,
@@ -224,7 +228,7 @@ export class VScodeAdapter implements PlatformAdapter {
   }
 
   async saveProject(path: string, project: ProjectFile): Promise<void> {
-    const content = JSON.stringify(project, null, 2);
+    const content = serializeProjectToV3(project);
     // If a path was supplied that differs from the active document, this is
     // "Save As": write to the new file and re-open it in the custom editor.
     // Otherwise (no path or same path), do an in-place save of the active doc.
@@ -249,7 +253,7 @@ export class VScodeAdapter implements PlatformAdapter {
     // EXPORT-ONLY write: never route through saveAs/openWith. The caller
     // (e.g. snapshot 另存为) wants the file on disk without disturbing
     // the currently open editor. Always use raw writeFile.
-    const content = JSON.stringify(project, null, 2);
+    const content = serializeProjectToV3(project);
     const data = btoa(unescape(encodeURIComponent(content)));
     await sendRequest("writeFile", { path, data });
   }
@@ -259,7 +263,7 @@ export class VScodeAdapter implements PlatformAdapter {
     // If called with a different path, read the file
     const result = await sendRequest("readFile", { path: _path });
     const content = atob(result.data);
-    return JSON.parse(content);
+    return normalizeProjectFromDisk(content);
   }
 
   async getAutosaveDir(): Promise<string> {
@@ -271,7 +275,7 @@ export class VScodeAdapter implements PlatformAdapter {
     const dir = await this.getAutosaveDir();
     const filename = `snapshot_${Date.now()}_${label.replace(/[^a-zA-Z0-9]/g, "_")}.pindou`;
     const path = `${dir}/${filename}`;
-    const content = JSON.stringify(project, null, 2);
+    const content = serializeProjectToV3(project);
     const data = btoa(content);
     await sendRequest("writeFile", { path, data });
   }

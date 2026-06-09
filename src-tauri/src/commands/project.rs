@@ -1,4 +1,4 @@
-use serde::{Deserialize, Serialize};
+use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use std::fs;
 use std::path::Path;
 
@@ -9,6 +9,8 @@ pub struct ProjectFile {
     pub canvas_size: CanvasSize,
     #[serde(rename = "canvasData")]
     pub canvas_data: Vec<Vec<CellData>>,
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub layers: Option<Vec<BeadLayer>>,
     #[serde(rename = "gridConfig", skip_serializing_if = "Option::is_none", default)]
     pub grid_config: Option<GridConfig>,
     #[serde(rename = "projectInfo", skip_serializing_if = "Option::is_none", default)]
@@ -59,14 +61,53 @@ pub struct CanvasSize {
 }
 
 #[derive(Serialize, Deserialize)]
+pub struct BeadLayer {
+    pub id: String,
+    pub name: String,
+    pub visible: bool,
+    pub opacity: f64,
+    pub data: Vec<Vec<CellData>>,
+}
+
+#[derive(Debug, Clone, Copy)]
 pub struct CellData {
-    #[serde(rename = "colorIndex")]
     pub color_index: Option<u32>,
 }
 
+impl Serialize for CellData {
+    /// v3 flat form: `null` or a number.
+    fn serialize<S: Serializer>(&self, s: S) -> Result<S::Ok, S::Error> {
+        match self.color_index {
+            Some(n) => s.serialize_u32(n),
+            None => s.serialize_none(),
+        }
+    }
+}
+
+impl<'de> Deserialize<'de> for CellData {
+    /// Accepts either the v2 verbose form `{ "colorIndex": null | number }`
+    /// or the v3 flat form `null | number`.
+    fn deserialize<D: Deserializer<'de>>(d: D) -> Result<Self, D::Error> {
+        #[derive(Deserialize)]
+        #[serde(untagged)]
+        enum Repr {
+            Flat(Option<u32>),
+            Verbose {
+                #[serde(rename = "colorIndex")]
+                color_index: Option<u32>,
+            },
+        }
+        Ok(match Repr::deserialize(d)? {
+            Repr::Flat(v) => CellData { color_index: v },
+            Repr::Verbose { color_index } => CellData { color_index },
+        })
+    }
+}
+
 #[tauri::command]
-pub fn save_project(path: String, project: ProjectFile) -> Result<(), String> {
-    let json = serde_json::to_string_pretty(&project)
+pub fn save_project(path: String, mut project: ProjectFile) -> Result<(), String> {
+    project.version = 3;
+    let json = serde_json::to_string(&project)
         .map_err(|e| format!("Serialize failed: {}", e))?;
     fs::write(&path, json).map_err(|e| format!("Write failed: {}", e))?;
     Ok(())
@@ -259,5 +300,76 @@ fn cleanup_old_files(dir: &Path, keep: usize) {
         for f in files.iter().skip(keep) {
             let _ = fs::remove_file(f.path());
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn deserialises_v2_verbose_cells() {
+        let json = r#"{
+            "version": 2,
+            "canvasSize": { "width": 2, "height": 1 },
+            "canvasData": [[{"colorIndex": null}, {"colorIndex": 5}]],
+            "createdAt": "t", "updatedAt": "t"
+        }"#;
+        let p: ProjectFile = serde_json::from_str(json).unwrap();
+        assert_eq!(p.canvas_data[0][0].color_index, None);
+        assert_eq!(p.canvas_data[0][1].color_index, Some(5));
+    }
+
+    #[test]
+    fn deserialises_v3_flat_cells() {
+        let json = r#"{
+            "version": 3,
+            "canvasSize": { "width": 2, "height": 1 },
+            "canvasData": [[null, 7]],
+            "createdAt": "t", "updatedAt": "t"
+        }"#;
+        let p: ProjectFile = serde_json::from_str(json).unwrap();
+        assert_eq!(p.canvas_data[0][0].color_index, None);
+        assert_eq!(p.canvas_data[0][1].color_index, Some(7));
+    }
+
+    #[test]
+    fn serialises_to_flat_v3_no_indent() {
+        let mut p = ProjectFile {
+            version: 2,
+            canvas_size: CanvasSize { width: 2, height: 1 },
+            canvas_data: vec![vec![
+                CellData { color_index: None },
+                CellData { color_index: Some(5) },
+            ]],
+            layers: None,
+            grid_config: None,
+            project_info: None,
+            created_at: "t".into(),
+            updated_at: "t".into(),
+        };
+        p.version = 3;
+        let s = serde_json::to_string(&p).unwrap();
+        assert!(!s.contains('\n'), "expected no newlines, got: {}", s);
+        assert!(s.contains("\"canvasData\":[[null,5]]"), "actual: {}", s);
+        assert!(s.contains("\"version\":3"), "actual: {}", s);
+    }
+
+    #[test]
+    fn round_trips_with_layers() {
+        let json = r#"{
+            "version": 3,
+            "canvasSize": { "width": 1, "height": 1 },
+            "canvasData": [[3]],
+            "layers": [{
+                "id": "l1", "name": "底", "visible": true, "opacity": 1.0,
+                "data": [[3]]
+            }],
+            "createdAt": "t", "updatedAt": "t"
+        }"#;
+        let p: ProjectFile = serde_json::from_str(json).unwrap();
+        assert_eq!(p.layers.as_ref().unwrap().len(), 1);
+        let s = serde_json::to_string(&p).unwrap();
+        assert!(s.contains("\"data\":[[3]]"), "actual: {}", s);
     }
 }

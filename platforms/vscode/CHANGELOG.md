@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.0.7
+
+- Change: `.pindou` 文件格式升级 v3 — cell 从 `{"colorIndex":null}` 改成裸 `null` 或数字,配合 `JSON.stringify` 无 indent,典型文件磁盘体积降 10–20×(实测 `shinzo_wo_sasageyo.pindou` 从 1.3 MB → 115 KB,11× 压缩)。
+- 老 v1/v2 文件可正常打开,下次保存自动升级 v3。Tauri 桌面端 + VS Code/browser/weapp 同步支持(都走 `src/utils/projectSerialization.ts` + Rust `CellData` untagged 反序列化)。
+- Rust `ProjectFile` 顺手补了 `layers` 字段 — 之前桌面端 `save_project` 会静默丢图层(pre-existing bug)。
+
 ## 1.0.6
 
 - Feature: 画布顶部状态栏的「图层: <名字>」当图层数 ≥ 2 时变成一个下拉切换器 — 鼠标 hover 弹出菜单(220ms grace period 让你能把鼠标移进菜单),列出所有图层(每行带色块 + 名字,激活的高亮),点哪个切到哪个。这样不用再点右侧「图层」面板切。只有 1 个图层时仍是静态文本。
