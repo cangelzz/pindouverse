@@ -2,6 +2,12 @@ import * as vscode from "vscode";
 import * as path from "path";
 import * as fs from "fs";
 
+// The custom editor panel that currently has focus. Used by the
+// pindouverse.undo/redo commands (bound to Ctrl+Z/Y) to forward undo/redo into
+// the active webview, which owns the single undo stack. See the keybindings in
+// package.json (scoped via when: activeCustomEditorId).
+let activePindouWebview: vscode.WebviewPanel | undefined;
+
 async function createUntitledProject(
   context: vscode.ExtensionContext,
   width: number = 52,
@@ -54,6 +60,20 @@ export function activate(context: vscode.ExtensionContext) {
       await vscode.commands.executeCommand("vscode.openWith", uris[0], "pindouverse.editor");
     })
   );
+
+  // Commands: undo / redo. Bound to Ctrl+Z / Ctrl+Y / Ctrl+Shift+Z in
+  // package.json, scoped to our custom editor. They forward to the focused
+  // webview instead of letting VS Code undo the underlying TextDocument (which
+  // would revert the whole .pindou file to its last-saved state and wipe every
+  // unsaved edit).
+  context.subscriptions.push(
+    vscode.commands.registerCommand("pindouverse.undo", () => {
+      activePindouWebview?.webview.postMessage({ type: "undo" });
+    }),
+    vscode.commands.registerCommand("pindouverse.redo", () => {
+      activePindouWebview?.webview.postMessage({ type: "redo" });
+    })
+  );
 }
 
 export function deactivate() {}
@@ -104,6 +124,22 @@ class PindouEditorProvider implements vscode.CustomTextEditorProvider {
       document.uri.fsPath.startsWith(tmpDirPath) &&
       /[\\/]untitled_\d+\.pindou$/i.test(document.uri.fsPath);
 
+    // A document living inside a .pindou_autosave folder is a backup the user
+    // opened to inspect/recover. The webview turns off autosave for these so the
+    // 60s timer can't overwrite (or, pre-fix, nest more copies under) the backup.
+    const isBackup = /[\\/]\.pindou_autosave[\\/]/.test(document.uri.fsPath);
+
+    // Track this panel as the active one while it has focus, so the
+    // pindouverse.undo/redo commands forward keystrokes to the right webview.
+    if (webviewPanel.active) activePindouWebview = webviewPanel;
+    const viewStateSub = webviewPanel.onDidChangeViewState(() => {
+      if (webviewPanel.active) {
+        activePindouWebview = webviewPanel;
+      } else if (activePindouWebview === webviewPanel) {
+        activePindouWebview = undefined;
+      }
+    });
+
     // Send initial document content to webview
     const sendDocument = () => {
       webviewPanel.webview.postMessage({
@@ -111,6 +147,7 @@ class PindouEditorProvider implements vscode.CustomTextEditorProvider {
         content: document.getText(),
         path: document.uri.fsPath,
         isUntitled,
+        isBackup,
       });
     };
 
@@ -253,10 +290,14 @@ class PindouEditorProvider implements vscode.CustomTextEditorProvider {
         }
 
         case "getAutosaveDir": {
-          const dir = path.join(
-            path.dirname(document.uri.fsPath),
-            ".pindou_autosave"
-          );
+          const docDir = path.dirname(document.uri.fsPath);
+          // Don't nest backups: if the open document already lives inside a
+          // .pindou_autosave folder (e.g. the user opened a backup to recover),
+          // reuse that folder instead of stacking .pindou_autosave/.pindou_autosave/...
+          const dir =
+            path.basename(docDir) === ".pindou_autosave"
+              ? docDir
+              : path.join(docDir, ".pindou_autosave");
           if (!fs.existsSync(dir)) {
             fs.mkdirSync(dir, { recursive: true });
           }
@@ -396,6 +437,8 @@ class PindouEditorProvider implements vscode.CustomTextEditorProvider {
 
     webviewPanel.onDidDispose(() => {
       changeDocSub.dispose();
+      viewStateSub.dispose();
+      if (activePindouWebview === webviewPanel) activePindouWebview = undefined;
     });
   }
 

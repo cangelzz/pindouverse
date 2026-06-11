@@ -1200,10 +1200,16 @@ export function PixelCanvas() {
       if (tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT") return;
 
       const mod = e.ctrlKey || e.metaKey;
+      // In VS Code, undo/redo are driven by the extension host (Ctrl+Z/Y are
+      // bound to the pindouverse.undo/redo commands, which post a message that
+      // the webview entry handles). Standing down here avoids a double-undo.
+      const hostHandlesUndo = !!(window as any).__pindouHostHandlesUndo;
       if (mod && e.key === "z" && !e.shiftKey && !e.repeat) {
+        if (hostHandlesUndo) return;
         e.preventDefault();
         useEditorStore.getState().undo();
       } else if ((mod && e.key === "y" && !e.repeat) || (mod && e.key === "z" && e.shiftKey && !e.repeat)) {
+        if (hostHandlesUndo) return;
         e.preventDefault();
         useEditorStore.getState().redo();
       } else if (mod && e.key === "c") {

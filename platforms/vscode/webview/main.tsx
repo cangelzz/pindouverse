@@ -46,8 +46,28 @@ setAdapter(adapter);
   requestNewProject(width, height);
 };
 
+// VS Code owns Ctrl+Z / Ctrl+Y. The extension binds those keys (scoped to our
+// custom editor) to the pindouverse.undo/redo commands, which post {type:'undo'}
+// / {type:'redo'} here. This keeps VS Code's built-in document-text undo from
+// reverting the whole .pindou file to its last-saved state — the bug that wiped
+// every unsaved edit and emptied the redo stack on a single Ctrl+Z.
+//
+// __pindouHostHandlesUndo tells PixelCanvas to stand down its own Ctrl+Z/Y
+// handler in VS Code so we never undo twice per keypress.
+(window as any).__pindouHostHandlesUndo = true;
+window.addEventListener("message", (event) => {
+  const msg = event.data;
+  if (!msg || (msg.type !== "undo" && msg.type !== "redo")) return;
+  // A focused text input owns Ctrl+Z for native text editing — don't hijack it.
+  const tag = (document.activeElement as HTMLElement | null)?.tagName;
+  if (tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT") return;
+  const store = useEditorStore.getState();
+  if (msg.type === "undo") store.undo();
+  else store.redo();
+});
+
 // Handle document load from extension host
-setDocumentLoadHandler((content: string, path: string, isUntitled: boolean) => {
+setDocumentLoadHandler((content: string, path: string, isUntitled: boolean, isBackup: boolean) => {
   try {
     const project = normalizeProjectFromDisk(content);
     if (project.canvasSize && project.canvasData) {
@@ -69,6 +89,12 @@ setDocumentLoadHandler((content: string, path: string, isUntitled: boolean) => {
       // For untitled "New Project" temp files, leave projectPath null so Save
       // prompts the user for a real destination instead of overwriting the temp.
       useEditorStore.setState({ projectPath: isUntitled ? null : path });
+      // A file opened from inside a .pindou_autosave folder is a backup the user
+      // is inspecting/recovering. Turn off autosave so the 60s timer doesn't
+      // overwrite the very backup they opened (and, pre-fix, nest more folders).
+      if (isBackup) {
+        useEditorStore.setState({ autoSaveEnabled: false });
+      }
     }
   } catch (e) {
     console.error("Failed to parse .pindou file:", e);

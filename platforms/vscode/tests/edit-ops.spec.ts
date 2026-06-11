@@ -70,7 +70,7 @@ test.describe("Undo / redo", () => {
     expect(after).toEqual(baseline);
   });
 
-  test("Ctrl+Z keyboard shortcut triggers undo", async ({ page }) => {
+  test("undo via the VS Code host command reverts the last edit", async ({ page }) => {
     await setupPage(page);
     await loadProject(page);
 
@@ -79,10 +79,12 @@ test.describe("Undo / redo", () => {
     );
     await callAction(page, "setCell", [3, 3, 50]);
 
+    // In VS Code the webview does NOT self-handle Ctrl+Z (that would double-undo
+    // against the host's keybinding). The extension's pindouverse.undo command
+    // forwards a {type:'undo'} message instead — that's the path under test here.
+    // See undo-host-driven.spec.ts for the full host-driven contract.
     await page.evaluate(() =>
-      window.dispatchEvent(
-        new KeyboardEvent("keydown", { key: "z", ctrlKey: true, bubbles: true })
-      )
+      window.dispatchEvent(new MessageEvent("message", { data: { type: "undo" } }))
     );
     await page.waitForTimeout(100);
 

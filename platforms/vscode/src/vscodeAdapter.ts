@@ -163,11 +163,11 @@ function extractPixels(
 
 // Current document state (set by extension on load)
 let currentDocPath = "";
-let onDocumentLoad: ((content: string, path: string) => void) | null = null;
+let onDocumentLoad: ((content: string, path: string, isUntitled: boolean, isBackup: boolean) => void) | null = null;
 // Track content we just saved, so we can ignore the echo from extension host
 let lastSavedContent: string | null = null;
 
-export function setDocumentLoadHandler(handler: (content: string, path: string, isUntitled: boolean) => void) {
+export function setDocumentLoadHandler(handler: (content: string, path: string, isUntitled: boolean, isBackup: boolean) => void) {
   onDocumentLoad = handler;
 }
 
@@ -183,7 +183,7 @@ window.addEventListener("message", (event) => {
     }
     lastSavedContent = null;
     if (onDocumentLoad) {
-      onDocumentLoad(msg.content, msg.path, !!msg.isUntitled);
+      onDocumentLoad(msg.content, msg.path, !!msg.isUntitled, !!msg.isBackup);
     }
   }
 });

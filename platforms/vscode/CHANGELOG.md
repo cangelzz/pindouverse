@@ -1,5 +1,14 @@
 # Changelog
 
+## 1.0.8
+
+- Fix(严重数据丢失): 在 VS Code 扩展里按 Ctrl+Z 会把「上次保存以来的所有改动」一次清空、且无法重做。根因:扩展用 `CustomTextEditorProvider`,底层 `.pindou` 文本文档只在保存时整篇替换一次,所以 VS Code 内置 `undo` 命令撤销的是「最近一次整篇保存」——把文件退回上次保存状态;随后 `onDidChangeTextDocument` 重载 webview,`loadCanvasData` 清空画布并清掉 `undoStack`/`redoStack`(故无法重做)。
+  - 修复:`package.json` 新增 `pindouverse.undo`/`pindouverse.redo` 命令,用 `when: activeCustomEditorId == 'pindouverse.editor'` 把 Ctrl+Z / Ctrl+Y / Ctrl+Shift+Z 绑过去;命令转发 `{type:'undo'|'redo'}` 消息给当前聚焦的 webview,由 webview 自己的单一撤销栈处理(一次只退一步)。VS Code 不再碰文本文档的撤销历史。
+  - webview 入口设 `window.__pindouHostHandlesUndo = true`,`PixelCanvas` 在 VS Code 下让出自身的 Ctrl+Z/Y 处理,避免一次按键双重撤销。聚焦输入框时忽略,保留输入框原生文本撤销。桌面端 (Tauri)/浏览器不受影响(那里没有宿主文本撤销,该标志为 falsy)。
+- Fix: 自动备份目录层层嵌套(`.pindou_autosave/.pindou_autosave/.pindou_autosave/...`)。根因:`getAutosaveDir` 总是用「当前文档目录 + .pindou_autosave」,当被打开的文档本身就在某个 `.pindou_autosave` 里(例如为找回数据而打开备份)就会再嵌一层。现在若文档已位于 `.pindou_autosave` 内则复用该目录,不再嵌套。
+- Fix: 打开 `.pindou_autosave` 内的备份文件时自动关闭自动备份,避免 60 秒定时器把你正在查看/找回的那份备份覆盖掉。host 在 `loadDocument` 带上 `isBackup` 标志,webview 据此置 `autoSaveEnabled=false`。
+- Test: 新增 `tests/undo-host-driven.spec.ts`(6 个用例:host 驱动 undo/redo 单步、输入框聚焦忽略、Ctrl+Z keydown 不再自撤销、备份文件禁用 autosave),并更新 `edit-ops.spec.ts` 的撤销用例走真实的 VS Code 宿主命令路径。webview 套件 101 全绿。
+
 ## 1.0.7
 
 - Change: `.pindou` 文件格式升级 v3 — cell 从 `{"colorIndex":null}` 改成裸 `null` 或数字,配合 `JSON.stringify` 无 indent,典型文件磁盘体积降 10–20×(实测 `shinzo_wo_sasageyo.pindou` 从 1.3 MB → 115 KB,11× 压缩)。
