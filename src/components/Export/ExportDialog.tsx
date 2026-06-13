@@ -7,6 +7,7 @@ import {
   loadWatermarkSettings,
   saveWatermarkSettings,
   computeWatermarkLines,
+  composeHeaderDescription,
   resolveWatermarkAuthor,
 } from "../../utils/blueprintDecorations";
 import type { WatermarkPayload } from "../../adapters";
@@ -23,11 +24,13 @@ export function ExportDialog({ onClose }: { onClose: () => void }) {
   const [watermark, setWatermark] = useState(() => loadWatermarkSettings());
 
   const projectAuthor = projectInfo?.author ?? "";
-  const resolvedAuthor = resolveWatermarkAuthor(watermark.authorOverride, projectAuthor);
   const watermarkPayload: WatermarkPayload = useMemo(
     () => ({
       show_header: watermark.showHeader,
-      app_description: watermark.appDescription.trim(),
+      app_description: composeHeaderDescription(
+        watermark.appDescription,
+        resolveWatermarkAuthor(watermark.authorOverride, projectAuthor)
+      ),
       watermark_lines: computeWatermarkLines(watermark, projectAuthor),
     }),
     [watermark, projectAuthor]
@@ -344,17 +347,33 @@ export function ExportDialog({ onClose }: { onClose: () => void }) {
               {watermark.authorWatermark && (
                 <div className="pl-6">
                   <label className="text-[11px] text-gray-500 block mb-0.5">作者</label>
-                  <input
-                    type="text"
-                    value={watermark.authorOverride}
-                    onChange={(e) => setWatermark({ ...watermark, authorOverride: e.target.value })}
-                    placeholder={projectAuthor || "(未设置)"}
-                    className="w-full px-2 py-1 text-xs border rounded"
-                  />
-                  {!resolvedAuthor && (
-                    <p className="text-[10px] text-gray-400 mt-0.5">
-                      未设置作者名，将不绘制作者水印
-                    </p>
+                  {projectAuthor ? (
+                    <>
+                      <input
+                        type="text"
+                        value={projectAuthor}
+                        disabled
+                        className="w-full px-2 py-1 text-xs border rounded bg-gray-50 text-gray-500"
+                      />
+                      <p className="text-[10px] text-gray-400 mt-0.5">
+                        作者来自当前项目设置，优先使用
+                      </p>
+                    </>
+                  ) : (
+                    <>
+                      <input
+                        type="text"
+                        value={watermark.authorOverride}
+                        onChange={(e) => setWatermark({ ...watermark, authorOverride: e.target.value })}
+                        placeholder="(未设置)"
+                        className="w-full px-2 py-1 text-xs border rounded"
+                      />
+                      <p className="text-[10px] text-gray-400 mt-0.5">
+                        {watermark.authorOverride.trim()
+                          ? "沿用上次填写的作者名，会被记住"
+                          : "未设置作者名，将不绘制作者水印"}
+                      </p>
+                    </>
                   )}
                 </div>
               )}

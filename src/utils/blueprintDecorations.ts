@@ -24,13 +24,27 @@ export function computeHeaderHeight(cellSize: number, showHeader: boolean): numb
   return showHeader ? 2 * cellSize : 0;
 }
 
+/**
+ * Resolves the author shown on export decorations. The project's own author
+ * (projectInfo.author) takes priority; the remembered last-used value is only
+ * a fallback for projects that have no author of their own.
+ */
 export function resolveWatermarkAuthor(
-  override: string | undefined,
+  lastUsed: string | undefined,
   projectAuthor: string | undefined
 ): string {
-  const o = (override ?? "").trim();
-  if (o) return o;
-  return (projectAuthor ?? "").trim();
+  const p = (projectAuthor ?? "").trim();
+  if (p) return p;
+  return (lastUsed ?? "").trim();
+}
+
+/**
+ * Builds the header-band description text. The header renders as
+ * `PindouVerse - <description>`, so when an author is present the result
+ * becomes `PindouVerse - <title> - <author>`. Either part may be empty.
+ */
+export function composeHeaderDescription(title: string, author: string): string {
+  return [(title ?? "").trim(), (author ?? "").trim()].filter(Boolean).join(" - ");
 }
 
 export function computeWatermarkLines(
@@ -52,7 +66,6 @@ export function loadWatermarkSettings(): ExportWatermarkSettings {
     return {
       ...DEFAULT_WATERMARK_SETTINGS,
       ...parsed,
-      authorOverride: DEFAULT_WATERMARK_SETTINGS.authorOverride,
     };
   } catch {
     return { ...DEFAULT_WATERMARK_SETTINGS };
@@ -60,9 +73,8 @@ export function loadWatermarkSettings(): ExportWatermarkSettings {
 }
 
 export function saveWatermarkSettings(settings: ExportWatermarkSettings): void {
-  const { authorOverride: _authorOverride, ...persistable } = settings;
   try {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(persistable));
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(settings));
   } catch {
     // localStorage unavailable / quota — silently ignore
   }

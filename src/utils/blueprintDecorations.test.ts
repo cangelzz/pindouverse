@@ -4,6 +4,7 @@ import {
   computeHeaderHeight,
   resolveWatermarkAuthor,
   computeWatermarkLines,
+  composeHeaderDescription,
   loadWatermarkSettings,
   saveWatermarkSettings,
   drawHeader,
@@ -23,15 +24,15 @@ describe("computeHeaderHeight", () => {
 });
 
 describe("resolveWatermarkAuthor", () => {
-  it("returns override when override non-empty", () => {
-    expect(resolveWatermarkAuthor("Alice", "Bob")).toBe("Alice");
+  it("returns project author when set (takes priority over last-used)", () => {
+    expect(resolveWatermarkAuthor("Alice", "Bob")).toBe("Bob");
   });
-  it("returns trimmed override when whitespace", () => {
-    expect(resolveWatermarkAuthor("  Alice  ", "Bob")).toBe("Alice");
+  it("trims the project author", () => {
+    expect(resolveWatermarkAuthor("Alice", "  Bob  ")).toBe("Bob");
   });
-  it("falls back to projectAuthor when override empty", () => {
-    expect(resolveWatermarkAuthor("", "Bob")).toBe("Bob");
-    expect(resolveWatermarkAuthor("   ", "Bob")).toBe("Bob");
+  it("falls back to last-used when project author empty", () => {
+    expect(resolveWatermarkAuthor("Alice", "")).toBe("Alice");
+    expect(resolveWatermarkAuthor("  Alice  ", "   ")).toBe("Alice");
   });
   it("returns empty string when both empty", () => {
     expect(resolveWatermarkAuthor("", "")).toBe("");
@@ -82,6 +83,26 @@ describe("computeWatermarkLines", () => {
   });
 });
 
+describe("composeHeaderDescription", () => {
+  it("joins title and author with ' - '", () => {
+    expect(composeHeaderDescription("Kikyou 64x72", "Alice")).toBe("Kikyou 64x72 - Alice");
+  });
+  it("returns only the title when author is empty", () => {
+    expect(composeHeaderDescription("Kikyou 64x72", "")).toBe("Kikyou 64x72");
+    expect(composeHeaderDescription("Kikyou 64x72", "   ")).toBe("Kikyou 64x72");
+  });
+  it("returns only the author when title is empty", () => {
+    expect(composeHeaderDescription("", "Alice")).toBe("Alice");
+  });
+  it("returns empty string when both are empty", () => {
+    expect(composeHeaderDescription("", "")).toBe("");
+    expect(composeHeaderDescription(undefined as any, undefined as any)).toBe("");
+  });
+  it("trims each part", () => {
+    expect(composeHeaderDescription("  title  ", "  Bob  ")).toBe("title - Bob");
+  });
+});
+
 describe("settings persistence", () => {
   const KEY = "pindouverse.exportWatermark";
 
@@ -110,7 +131,7 @@ describe("settings persistence", () => {
       appDescription: "hello",
       appWatermark: true,
       authorWatermark: false,
-      authorOverride: "should-not-persist",
+      authorOverride: "Alice",
     };
     saveWatermarkSettings(s);
     const loaded = loadWatermarkSettings();
@@ -118,7 +139,7 @@ describe("settings persistence", () => {
     expect(loaded.appDescription).toBe("hello");
     expect(loaded.appWatermark).toBe(true);
     expect(loaded.authorWatermark).toBe(false);
-    expect(loaded.authorOverride).toBe("");
+    expect(loaded.authorOverride).toBe("Alice");
   });
 
   it("ignores malformed JSON gracefully", () => {
