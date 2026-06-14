@@ -844,7 +844,16 @@ export function PixelCanvas() {
 
       if (e.button === 0) {
         const cell = screenToCell(e.clientX, e.clientY);
-        if (!cell) return;
+        if (!cell) {
+          // Click in the gray margin (outside the canvas grid). In the select
+          // tool, treat it as "click empty space" → deselect. This is the only
+          // way to clear a whole-canvas selection, which has no empty grid cell
+          // to click. Other tools and floating selections are untouched.
+          if (currentTool === "select" && selection && !floatingSelectionState) {
+            clearSelection();
+          }
+          return;
+        }
 
         // Selection tool: start rectangle drag
         if (currentTool === "select") {
@@ -1548,6 +1557,7 @@ export function PixelCanvas() {
           onCopy={() => copySelection()}
           onDuplicateDraggable={() => duplicateSelectionAsFloating()}
           onReplaceColor={() => setReplaceOpen(true)}
+          onDeselect={() => clearSelection()}
           onClose={() => setContextMenu(null)}
         />
       )}

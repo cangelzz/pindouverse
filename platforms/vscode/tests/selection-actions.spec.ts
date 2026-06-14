@@ -349,3 +349,80 @@ test.describe("Selection actions — UI", () => {
     expect(afterColor).not.toBe(beforeColor);
   });
 });
+
+test.describe("Deselect", () => {
+  test.afterAll(() => cleanupHarness());
+
+  test("context menu has 取消选区 item that clears the selection", async ({ page }) => {
+    await setupPage(page);
+    await loadProject(page);
+    await seedSelection(page);
+
+    const canvas = page.locator("canvas").first();
+    const box = await canvas.boundingBox();
+    if (!box) throw new Error("canvas not visible");
+
+    // Open the context menu over the canvas.
+    await page.mouse.click(box.x + 20, box.y + 20, { button: "right" });
+    const item = page.getByRole("menuitem", { name: /^取消选区$/ });
+    await expect(item).toBeVisible();
+
+    await item.click();
+
+    // Selection cleared and the menu closed.
+    expect(await getStoreState(page, "selection")).toBe(null);
+    await expect(page.getByRole("menuitem", { name: /^取消选区$/ })).toHaveCount(0);
+  });
+
+  test("toolbar 取消选区 button appears only with a selection and clears it", async ({ page }) => {
+    await setupPage(page);
+    await loadProject(page);
+
+    const btn = page.getByRole("button", { name: "取消选区" });
+    // No selection initially → no button.
+    await expect(btn).toHaveCount(0);
+
+    await seedSelection(page);
+    await expect(btn).toBeVisible();
+
+    await btn.click();
+    expect(await getStoreState(page, "selection")).toBe(null);
+    await expect(page.getByRole("button", { name: "取消选区" })).toHaveCount(0);
+  });
+
+  test("select tool: clicking the gray canvas margin clears a whole-canvas selection", async ({ page }) => {
+    await setupPage(page);
+    await loadProject(page);
+    await callAction(page, "newCanvas", [8, 8]);
+    await callAction(page, "setTool", ["select"]);
+    await callAction(page, "selectAll");
+    expect(await getStoreState(page, "selection")).not.toBe(null);
+
+    // Shrink the grid so there is a wide gray margin to the right of it.
+    await callAction(page, "setZoom", [0.2]);
+
+    const container = page.locator("[data-canvas-container]");
+    const box = await container.boundingBox();
+    if (!box) throw new Error("container not visible");
+
+    // Geometry from the store: the grid occupies container-local
+    // [offsetX, offsetX + width*cellSize] horizontally.
+    const geom = await page.evaluate(() => {
+      const s = (window as any).__pindouStore.getState();
+      return {
+        offsetX: s.offsetX,
+        cellSize: s.cellSize,
+        w: s.canvasSize.width,
+      };
+    });
+    const gridRight = geom.offsetX + geom.w * geom.cellSize;
+    const marginX = box.x + gridRight + 10; // 10px past the grid's right edge
+    const marginY = box.y + box.height / 2;
+    // Sanity: the margin point must still be inside the container.
+    expect(marginX).toBeLessThan(box.x + box.width - 1);
+
+    await page.mouse.click(marginX, marginY, { button: "left" });
+
+    expect(await getStoreState(page, "selection")).toBe(null);
+  });
+});

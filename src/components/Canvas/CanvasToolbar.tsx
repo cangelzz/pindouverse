@@ -27,6 +27,8 @@ export function CanvasToolbar() {
   const currentTool = useEditorStore((s) => s.currentTool);
   const setTool = useEditorStore((s) => s.setTool);
   const lastEraserSubmode = useEditorStore((s) => s.lastEraserSubmode);
+  const selection = useEditorStore((s) => s.selection);
+  const clearSelection = useEditorStore((s) => s.clearSelection);
 
   const [showShapeMenu, setShowShapeMenu] = useState(false);
   const [showEraserMenu, setShowEraserMenu] = useState(false);
@@ -138,6 +140,18 @@ export function CanvasToolbar() {
           {t.icon}
         </button>
       ))}
+
+      {/* Deselect — only while a marquee selection exists */}
+      {selection && (
+        <button
+          onClick={() => clearSelection()}
+          aria-label="取消选区"
+          className="w-9 h-9 rounded flex items-center justify-center text-lg hover:bg-gray-200"
+          title="取消选区"
+        >
+          ⊘
+        </button>
+      )}
 
       <div className="border-t my-1 w-full" />
 
