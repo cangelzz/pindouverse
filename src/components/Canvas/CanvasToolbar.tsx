@@ -84,17 +84,30 @@ export function CanvasToolbar() {
         )}
       </div>
 
-      {/* Basic tools (first slice: select, wand, pen, fill) */}
+      {/* Basic tools (first slice: select, wand, pen, fill). The select tool
+          anchors a floating "取消选区" button on its right while a selection
+          exists — see below. */}
       {tools.slice(0, 4).map((t) => (
-        <button
-          key={t.id}
-          onClick={() => setTool(t.id)}
-          className={`w-9 h-9 rounded flex items-center justify-center text-lg transition-colors
-            ${currentTool === t.id ? "bg-blue-500 text-white shadow" : "hover:bg-gray-200"}`}
-          title={`${t.label} (${t.shortcut})`}
-        >
-          {t.icon}
-        </button>
+        <div key={t.id} className="relative">
+          <button
+            onClick={() => setTool(t.id)}
+            className={`w-9 h-9 rounded flex items-center justify-center text-lg transition-colors
+              ${currentTool === t.id ? "bg-blue-500 text-white shadow" : "hover:bg-gray-200"}`}
+            title={`${t.label} (${t.shortcut})`}
+          >
+            {t.icon}
+          </button>
+          {t.id === "select" && selection && (
+            <button
+              onClick={() => clearSelection()}
+              aria-label="取消选区"
+              title="取消选区"
+              className="absolute left-full top-1/2 -translate-y-1/2 ml-1 z-50 w-7 h-7 rounded-full bg-white border border-gray-300 shadow-md flex items-center justify-center text-sm text-gray-600 hover:bg-gray-100 hover:text-gray-900"
+            >
+              ⊘
+            </button>
+          )}
+        </div>
       ))}
 
       {/* Eraser tools flyout */}
@@ -140,18 +153,6 @@ export function CanvasToolbar() {
           {t.icon}
         </button>
       ))}
-
-      {/* Deselect — only while a marquee selection exists */}
-      {selection && (
-        <button
-          onClick={() => clearSelection()}
-          aria-label="取消选区"
-          className="w-9 h-9 rounded flex items-center justify-center text-lg hover:bg-gray-200"
-          title="取消选区"
-        >
-          ⊘
-        </button>
-      )}
 
       <div className="border-t my-1 w-full" />
 
