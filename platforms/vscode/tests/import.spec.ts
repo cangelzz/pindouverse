@@ -140,4 +140,44 @@ test.describe("Image import (regression for 0.8.4)", () => {
     // "未选择" label still present
     await expect(page.getByText("未选择")).toBeVisible();
   });
+
+  test("预览缩放: 放大/缩小/重置改变 canvas 显示尺寸, 放大镜模式隐藏控件", async ({ page }) => {
+    await setupPage(page);
+    await loadProject(page);
+    await openImportDialog(page);
+
+    await stageReply(page, "showOpenDialog", "/img.png");
+    await stageReply(page, "readFile", { data: PNG_BASE64 });
+    await clickButton(page, "选择文件");
+    await expect(page.getByText(/原图:\s*32×32/)).toBeVisible({ timeout: 5_000 });
+
+    const cropCanvas = page.getByTestId("crop-canvas");
+
+    // 32×32 source → preview_width 32 → base display 32px at 1x
+    const widthAt = async () =>
+      cropCanvas.evaluate((el) => parseFloat((el as HTMLElement).style.width));
+
+    const base = await widthAt();
+    expect(base).toBe(32);
+
+    // Zoom in once → 2x
+    await page.getByTestId("preview-zoom-in").click();
+    expect(await widthAt()).toBe(64);
+
+    // Zoom in again → 3x
+    await page.getByTestId("preview-zoom-in").click();
+    expect(await widthAt()).toBe(96);
+
+    // Reset (click the label) → back to 1x
+    await page.getByTestId("preview-zoom-reset").click();
+    expect(await widthAt()).toBe(32);
+
+    // Zoom out at 1x stays clamped at 1x
+    await page.getByTestId("preview-zoom-out").click();
+    expect(await widthAt()).toBe(32);
+
+    // Switching to the loupe tool hides the zoom control
+    await clickButton(page, /放大镜/);
+    expect(await page.getByTestId("preview-zoom-in").count()).toBe(0);
+  });
 });

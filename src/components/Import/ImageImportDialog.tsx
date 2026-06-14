@@ -18,6 +18,9 @@ import {
   type CalibrationCoefficients,
 } from "../../utils/colorCalibration";
 
+// Discrete zoom levels for the import preview canvas (crop mode only)
+const ZOOM_LEVELS = [1, 2, 3, 4, 6];
+
 export function ImageImportDialog({ onClose }: { onClose: () => void }) {
   const loadCanvasData = useEditorStore((s) => s.loadCanvasData);
   const placeImageOnCanvas = useEditorStore((s) => s.placeImageOnCanvas);
@@ -91,6 +94,9 @@ export function ImageImportDialog({ onClose }: { onClose: () => void }) {
   const [selectedCompareIdx, setSelectedCompareIdx] = useState<number | null>(null);
   const [previewScale, setPreviewScale] = useState(4);
 
+  // Display zoom for the top preview canvas (crop mode only)
+  const [previewZoom, setPreviewZoom] = useState(1);
+
   // Grid overlay & magnifier
   const [showGrid, setShowGrid] = useState(true);
   const [loupePos, setLoupePos] = useState<{ x: number; y: number } | null>(null);
@@ -163,6 +169,7 @@ export function ImageImportDialog({ onClose }: { onClose: () => void }) {
       setCalibration(DEFAULT_CALIBRATION_SETTINGS);
       setPendingCalPoint(null);
       setPreviewMode("crop");
+      setPreviewZoom(1);
 
       try {
         const preview = await adapter.previewImage(selected as string);
@@ -846,6 +853,16 @@ export function ImageImportDialog({ onClose }: { onClose: () => void }) {
       ) / maxDimension
     : 0;
 
+  // Preview canvas display sizing. Base = current 1x size; zoom only applies in crop mode.
+  const loupeMode = interactionMode === "loupe";
+  const baseCanvasW = imagePreview
+    ? Math.min(loupeMode ? 340 : 520, imagePreview.preview_width)
+    : 0;
+  const baseCanvasH = imagePreview
+    ? Math.min(loupeMode ? 340 : 520, imagePreview.preview_height)
+    : 0;
+  const zoomFactor = loupeMode ? 1 : previewZoom;
+
   return (
     <>
     <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50">
@@ -917,6 +934,46 @@ export function ImageImportDialog({ onClose }: { onClose: () => void }) {
                   />
                   像素网格
                 </label>
+                {interactionMode === "crop" && (
+                  <>
+                    <div className="border-l mx-1 h-4" />
+                    <span className="text-[10px] text-gray-500">缩放:</span>
+                    <button
+                      data-testid="preview-zoom-out"
+                      onClick={() =>
+                        setPreviewZoom((z) =>
+                          ZOOM_LEVELS[Math.max(0, ZOOM_LEVELS.indexOf(z) - 1)]
+                        )
+                      }
+                      className="w-5 h-5 text-[10px] border rounded hover:bg-gray-200 flex items-center justify-center"
+                      title="缩小"
+                    >
+                      −
+                    </button>
+                    <button
+                      data-testid="preview-zoom-reset"
+                      onClick={() => setPreviewZoom(1)}
+                      className="text-[10px] text-gray-500 w-7 text-center hover:text-gray-700"
+                      title="重置缩放"
+                    >
+                      {previewZoom}x
+                    </button>
+                    <button
+                      data-testid="preview-zoom-in"
+                      onClick={() =>
+                        setPreviewZoom((z) =>
+                          ZOOM_LEVELS[
+                            Math.min(ZOOM_LEVELS.length - 1, ZOOM_LEVELS.indexOf(z) + 1)
+                          ]
+                        )
+                      }
+                      className="w-5 h-5 text-[10px] border rounded hover:bg-gray-200 flex items-center justify-center"
+                      title="放大"
+                    >
+                      +
+                    </button>
+                  </>
+                )}
               </div>
 
               {/* Grid width adjuster */}
@@ -999,31 +1056,34 @@ export function ImageImportDialog({ onClose }: { onClose: () => void }) {
 
               <div className="border rounded p-2 bg-gray-50">
                 <div className="flex gap-2">
-                  <canvas
-                    ref={cropCanvasRef}
-                    onMouseDown={handleCanvasMouseDown}
-                    onMouseMove={handleCanvasMouseMove}
-                    onMouseUp={handleCanvasMouseUp}
-                    onMouseLeave={handleCanvasMouseLeave}
-                    className={
-                      interactionMode === "loupe"
-                        ? "cursor-crosshair"
-                        : ""
-                    }
+                  <div
                     style={{
-                      cursor: previewMode === "sample"
-                        ? "crosshair"
-                        : interactionMode === "crop" ? cropCursor : undefined,
-                      width: Math.min(
-                        interactionMode === "loupe" ? 340 : 520,
-                        imagePreview.preview_width
-                      ),
-                      height: Math.min(
-                        interactionMode === "loupe" ? 340 : 520,
-                        imagePreview.preview_height
-                      ),
+                      maxWidth: baseCanvasW,
+                      maxHeight: baseCanvasH,
+                      overflow: loupeMode ? "visible" : "auto",
                     }}
-                  />
+                  >
+                    <canvas
+                      ref={cropCanvasRef}
+                      data-testid="crop-canvas"
+                      onMouseDown={handleCanvasMouseDown}
+                      onMouseMove={handleCanvasMouseMove}
+                      onMouseUp={handleCanvasMouseUp}
+                      onMouseLeave={handleCanvasMouseLeave}
+                      className={
+                        interactionMode === "loupe"
+                          ? "cursor-crosshair"
+                          : ""
+                      }
+                      style={{
+                        cursor: previewMode === "sample"
+                          ? "crosshair"
+                          : interactionMode === "crop" ? cropCursor : undefined,
+                        width: baseCanvasW * zoomFactor,
+                        height: baseCanvasH * zoomFactor,
+                      }}
+                    />
+                  </div>
                   {/* Zoomed loupe panel */}
                   {interactionMode === "loupe" && (
                     <div className="flex flex-col items-center gap-1 min-w-[210px]">
