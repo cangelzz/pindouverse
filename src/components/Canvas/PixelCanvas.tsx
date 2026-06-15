@@ -919,7 +919,7 @@ export function PixelCanvas() {
                   const ly = ev.clientY - rectNow.top;
                   let rawCol = Math.floor((lx - ox) / cs);
                   const rawRow = Math.floor((ly - oy) / cs);
-                  if (store.isMirror) rawCol = size.width - 1 - rawCol;
+                  if (isMirror) rawCol = size.width - 1 - rawCol;
                   const newBounds = computeResizedBounds(
                     resizingHandle.current.handle,
                     resizingHandle.current.anchor,
