@@ -77,6 +77,12 @@ export function ImageImportDialog({ onClose }: { onClose: () => void }) {
     return computeCoefficients(pairs);
   }, [calibration]);
 
+  const adjustedPreviewPixels = useMemo(() => {
+    if (!imagePreview) return null;
+    const calibrated = applyCalibration(imagePreview.pixels as number[], calibrationCoef);
+    return applyAdjustmentsToPixels(calibrated, adjustments);
+  }, [imagePreview, calibrationCoef, adjustments]);
+
   const [pendingCalPoint, setPendingCalPoint] = useState<{
     region: { x: number; y: number; w: number; h: number };
     sampledRgb: [number, number, number];
@@ -131,10 +137,73 @@ export function ImageImportDialog({ onClose }: { onClose: () => void }) {
   const cropEdge = useRef<"top" | "bottom" | "left" | "right" | "tl" | "tr" | "bl" | "br">("top");
   const cropOrigRect = useRef<CropRect | null>(null);
 
+  // Zoom-scroll container ref (for middle-drag pan + edge auto-scroll)
+  const zoomScrollRef = useRef<HTMLDivElement>(null);
+  const panning = useRef(false);
+  const panStart = useRef({ x: 0, y: 0, sl: 0, st: 0 });
+
+  // Auto-scroll state for crop drag near container edges
+  const autoScroll = useRef<{ dx: number; dy: number }>({ dx: 0, dy: 0 });
+  const autoScrollRAF = useRef<number | null>(null);
+
   // Sample drag state (calibration sample mode)
   const isDraggingSample = useRef(false);
   const sampleStart = useRef({ x: 0, y: 0 });
   const [sampleDragRect, setSampleDragRect] = useState<{ x: number; y: number; w: number; h: number } | null>(null);
+
+  // Middle-drag pan handler for the zoom-scroll container
+  const onPanDown = (e: React.MouseEvent) => {
+    if (e.button !== 1) return;
+    const el = zoomScrollRef.current;
+    if (!el) return;
+    e.preventDefault();
+    panning.current = true;
+    panStart.current = { x: e.clientX, y: e.clientY, sl: el.scrollLeft, st: el.scrollTop };
+  };
+
+  useEffect(() => {
+    const move = (e: MouseEvent) => {
+      if (!panning.current) return;
+      const el = zoomScrollRef.current;
+      if (!el) return;
+      el.scrollLeft = panStart.current.sl - (e.clientX - panStart.current.x);
+      el.scrollTop = panStart.current.st - (e.clientY - panStart.current.y);
+    };
+    const up = () => { panning.current = false; };
+    window.addEventListener("mousemove", move);
+    window.addEventListener("mouseup", up);
+    return () => {
+      window.removeEventListener("mousemove", move);
+      window.removeEventListener("mouseup", up);
+    };
+  }, []);
+
+  // Auto-scroll RAF loop for crop drag near container edges
+  useEffect(() => {
+    const tick = () => {
+      const el = zoomScrollRef.current;
+      if (el && (autoScroll.current.dx || autoScroll.current.dy)) {
+        el.scrollLeft += autoScroll.current.dx;
+        el.scrollTop += autoScroll.current.dy;
+      }
+      autoScrollRAF.current = requestAnimationFrame(tick);
+    };
+    autoScrollRAF.current = requestAnimationFrame(tick);
+    return () => { if (autoScrollRAF.current) cancelAnimationFrame(autoScrollRAF.current); };
+  }, []);
+
+  const updateAutoScrollFromEvent = (e: React.MouseEvent) => {
+    const el = zoomScrollRef.current;
+    if (!el || !isDraggingCrop.current) { autoScroll.current = { dx: 0, dy: 0 }; return; }
+    const r = el.getBoundingClientRect();
+    const EDGE = 24, SPEED = 14;
+    let dx = 0, dy = 0;
+    if (e.clientX < r.left + EDGE) dx = -SPEED;
+    else if (e.clientX > r.right - EDGE) dx = SPEED;
+    if (e.clientY < r.top + EDGE) dy = -SPEED;
+    else if (e.clientY > r.bottom - EDGE) dy = SPEED;
+    autoScroll.current = { dx, dy };
+  };
 
   // Synced scroll refs for comparison
   const compareScrollRefs = useRef<(HTMLDivElement | null)[]>([]);
@@ -206,7 +275,8 @@ export function ImageImportDialog({ onClose }: { onClose: () => void }) {
     const ctx = canvas.getContext("2d");
     if (!ctx) return;
 
-    const { preview_width: pw, preview_height: ph, pixels } = imagePreview;
+    const { preview_width: pw, preview_height: ph } = imagePreview;
+    const pixels = adjustedPreviewPixels ?? imagePreview.pixels;
     canvas.width = pw;
     canvas.height = ph;
 
@@ -389,7 +459,7 @@ export function ImageImportDialog({ onClose }: { onClose: () => void }) {
       ctx.strokeRect(sampleDragRect.x, sampleDragRect.y, sampleDragRect.w, sampleDragRect.h);
       ctx.restore();
     }
-  }, [imagePreview, cropRect, showGrid, getGridCellSize, loupePos, interactionMode, loupeZoom, gridOffsetX, gridOffsetY, calibration.points, sampleDragRect]);
+  }, [imagePreview, adjustedPreviewPixels, cropRect, showGrid, getGridCellSize, loupePos, interactionMode, loupeZoom, gridOffsetX, gridOffsetY, calibration.points, sampleDragRect]);
 
   useEffect(() => {
     drawCropCanvas();
@@ -466,6 +536,7 @@ export function ImageImportDialog({ onClose }: { onClose: () => void }) {
 
   const handleCanvasMouseDown = useCallback(
     (e: React.MouseEvent<HTMLCanvasElement>) => {
+      if (e.button !== 0) return; // left button only; middle button pans (handled by container)
       if (previewMode === "sample") {
         const pos = mouseToPreview(e);
         if (!pos) return;
@@ -547,6 +618,7 @@ export function ImageImportDialog({ onClose }: { onClose: () => void }) {
 
   const handleCanvasMouseMove = useCallback(
     (e: React.MouseEvent<HTMLCanvasElement>) => {
+      updateAutoScrollFromEvent(e);
       if (previewMode === "sample") {
         if (isDraggingSample.current) {
           const pos = mouseToPreview(e);
@@ -671,6 +743,7 @@ export function ImageImportDialog({ onClose }: { onClose: () => void }) {
       }
       isDraggingCrop.current = false;
       isDraggingLoupe.current = false;
+      autoScroll.current = { dx: 0, dy: 0 };
     },
     [imagePreview, mouseToPreview]
   );
@@ -679,6 +752,7 @@ export function ImageImportDialog({ onClose }: { onClose: () => void }) {
     isDraggingCrop.current = false;
     isDraggingLoupe.current = false;
     isDraggingSample.current = false;
+    autoScroll.current = { dx: 0, dy: 0 };
     setSampleDragRect(null);
     if (interactionMode === "loupe" && !loupePinned) setLoupePos(null);
   }, [interactionMode, loupePinned]);
@@ -1063,11 +1137,13 @@ export function ImageImportDialog({ onClose }: { onClose: () => void }) {
               <div className="border rounded p-2 bg-gray-50">
                 <div className="flex gap-2">
                   <div
+                    ref={zoomScrollRef}
                     style={{
                       maxWidth: baseCanvasW,
                       maxHeight: baseCanvasH,
                       overflow: loupeMode ? "visible" : "auto",
                     }}
+                    onMouseDown={onPanDown}
                   >
                     <canvas
                       ref={cropCanvasRef}

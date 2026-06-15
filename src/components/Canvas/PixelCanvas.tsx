@@ -92,6 +92,20 @@ export function PixelCanvas() {
   const dragStart = useRef({ x: 0, y: 0, ox: 0, oy: 0 });
   const isPanning = useRef(false);
   const eyedropWarnOpenRef = useRef(false);
+  const hiddenLayerWarnRef = useRef(false);
+  const warnIfActiveLayerHidden = useCallback((): boolean => {
+    const st = useEditorStore.getState();
+    const layer = st.layers.find((l) => l.id === st.activeLayerId);
+    if (layer && !layer.visible) {
+      if (!hiddenLayerWarnRef.current) {
+        hiddenLayerWarnRef.current = true;
+        appAlert("当前图层已隐藏，无法编辑，请先在图层面板显示该图层。", { title: "图层已隐藏" })
+          .finally(() => { hiddenLayerWarnRef.current = false; });
+      }
+      return true;
+    }
+    return false;
+  }, []);
 
   const selectionStart = useRef<{ row: number; col: number } | null>(null);
   const isDraggingSelection = useRef(false);
@@ -825,6 +839,13 @@ export function PixelCanvas() {
   // Handle tool action on a cell
   const applyTool = useCallback(
     (row: number, col: number) => {
+      if (
+        (currentTool === "pen" || currentTool === "eraser" ||
+         currentTool === "fill" || currentTool === "eraserFill") &&
+        warnIfActiveLayerHidden()
+      ) {
+        return;
+      }
       switch (currentTool) {
         case "pen":
           setCell(row, col, selectedColorIndex);
@@ -854,7 +875,7 @@ export function PixelCanvas() {
         }
       }
     },
-    [currentTool, selectedColorIndex, canvasData, setCell, setSelectedColor, setTool]
+    [currentTool, selectedColorIndex, canvasData, setCell, setSelectedColor, setTool, warnIfActiveLayerHidden]
   );
 
   const handleMouseDown = useCallback(
@@ -1173,7 +1194,7 @@ export function PixelCanvas() {
       }
 
       // Shape tool: commit the shape
-      if (shapeStart.current && isShapeTool && shapePreview && shapePreview.length > 0) {
+      if (shapeStart.current && isShapeTool && shapePreview && shapePreview.length > 0 && !warnIfActiveLayerHidden()) {
         const entries = shapePreview
           .filter(([r, c]) => r >= 0 && r < canvasSize.height && c >= 0 && c < canvasSize.width)
           .map(([r, c]) => ({ row: r, col: c, colorIndex: selectedColorIndex }));
@@ -1188,7 +1209,7 @@ export function PixelCanvas() {
       // End stroke batching for pen/eraser
       useEditorStore.getState().endStroke();
     },
-    [isShapeTool, shapePreview, canvasSize, selectedColorIndex, currentTool]
+    [isShapeTool, shapePreview, canvasSize, selectedColorIndex, currentTool, warnIfActiveLayerHidden]
   );
 
   // Double-click to set/toggle grid focus (works in any tool mode including pan)

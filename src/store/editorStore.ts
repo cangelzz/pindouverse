@@ -441,6 +441,7 @@ export const useEditorStore = create<EditorState>((set, get) => ({
     const layerIdx = state.layers.findIndex((l) => l.id === state.activeLayerId);
     if (layerIdx === -1) return;
     const layer = state.layers[layerIdx];
+    if (!layer.visible) return; // don't edit a hidden layer
     const prev = layer.data[row]?.[col]?.colorIndex ?? null;
     if (prev === colorIndex) return;
 
@@ -469,6 +470,7 @@ export const useEditorStore = create<EditorState>((set, get) => ({
     const layerIdx = state.layers.findIndex((l) => l.id === state.activeLayerId);
     if (layerIdx === -1) return;
     const layer = state.layers[layerIdx];
+    if (!layer.visible) return; // don't edit a hidden layer
     const newLayerData = layer.data.map((r) => r.map((c) => ({ ...c })));
     const action: HistoryAction = [];
 
