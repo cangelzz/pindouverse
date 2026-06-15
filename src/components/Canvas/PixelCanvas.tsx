@@ -20,6 +20,7 @@ import {
 import { layerAccentColor } from "../../utils/layerColors";
 import { SelectionContextMenu } from "./SelectionContextMenu";
 import { ReplaceColorInSelectionDialog } from "./ReplaceColorInSelectionDialog";
+import { SelectionColorAdjustDialog } from "./SelectionColorAdjustDialog";
 import { SelectionActionsChip } from "./SelectionActionsChip";
 
 export function PixelCanvas() {
@@ -61,6 +62,7 @@ export function PixelCanvas() {
   const blueprintMirror = useEditorStore((s) => s.blueprintMirror);
   const gridFocusMode = useEditorStore((s) => s.gridFocusMode);
   const colorOverrides = useEditorStore((s) => s.colorOverrides);
+  const previewOverlay = useEditorStore((s) => s.previewOverlay);
   const voiceControlEnabled = useEditorStore((s) => s.voiceControlEnabled);
   const setVoiceControlEnabled = useEditorStore((s) => s.setVoiceControlEnabled);
   const aiVoiceEnabled = useEditorStore((s) => s.aiVoiceEnabled);
@@ -82,6 +84,7 @@ export function PixelCanvas() {
 
   const [contextMenu, setContextMenu] = useState<{ x: number; y: number } | null>(null);
   const [replaceOpen, setReplaceOpen] = useState(false);
+  const [adjustOpen, setAdjustOpen] = useState(false);
 
   // Track dragging state
   const isDragging = useRef(false);
@@ -407,6 +410,22 @@ export function PixelCanvas() {
     }
     ctx.globalAlpha = 1;
 
+    // Render color-adjust preview overlay on top of all layers
+    if (previewOverlay && previewOverlay.size > 0) {
+      const cols = canvasSize.width;
+      for (const [key, colorIdx] of previewOverlay) {
+        const [r, c] = key.split(",").map(Number);
+        const drawCol = isMirror ? (cols - 1 - c) : c;
+        const x = drawCol * cellSize + offsetX;
+        const y = r * cellSize + offsetY;
+        // Cull off-screen
+        if (x + cellSize < 0 || x > w || y + cellSize < 0 || y > h) continue;
+        const hex = getEffectiveHex(colorIdx, colorOverrides);
+        ctx.fillStyle = hex;
+        ctx.fillRect(x, y, cellSize, cellSize);
+      }
+    }
+
     // Blueprint text uses merged canvasData so codes match the visible top-layer color
     if (blueprintMode) {
       renderPixels(ctx, {
@@ -423,7 +442,7 @@ export function PixelCanvas() {
         colorOverrides,
       });
     }
-  }, [layers, canvasData, cellSize, offsetX, offsetY, highlightColorIndex, blueprintMode, isMirror, resizeCount, colorOverrides]);
+  }, [layers, canvasData, cellSize, offsetX, offsetY, highlightColorIndex, blueprintMode, isMirror, resizeCount, colorOverrides, previewOverlay]);
 
   // Render reference image layer
   useEffect(() => {
@@ -1557,6 +1576,7 @@ export function PixelCanvas() {
           onCopy={() => copySelection()}
           onDuplicateDraggable={() => duplicateSelectionAsFloating()}
           onReplaceColor={() => setReplaceOpen(true)}
+          onColorAdjust={() => setAdjustOpen(true)}
           onDeselect={() => clearSelection()}
           onClose={() => setContextMenu(null)}
         />
@@ -1573,6 +1593,7 @@ export function PixelCanvas() {
           onClose={() => setReplaceOpen(false)}
         />
       )}
+      {adjustOpen && <SelectionColorAdjustDialog onClose={() => setAdjustOpen(false)} />}
     </div>
   );
 }

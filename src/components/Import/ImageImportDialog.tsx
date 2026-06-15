@@ -17,6 +17,8 @@ import {
   type CalibrationSettings,
   type CalibrationCoefficients,
 } from "../../utils/colorCalibration";
+import { applyAdjustmentsToPixels, IDENTITY_ADJUSTMENTS, type ColorAdjustments } from "../../utils/colorAdjust";
+import { ColorAdjustPanel } from "../ColorAdjust/ColorAdjustPanel";
 
 // Discrete zoom levels for the import preview canvas (crop mode only)
 const ZOOM_LEVELS = [1, 2, 3, 4, 6];
@@ -33,6 +35,7 @@ export function ImageImportDialog({ onClose }: { onClose: () => void }) {
   const [maxDimension, setMaxDimension] = useState(52);
   const [algorithm, setAlgorithm] = useState<ColorMatchAlgorithm>("euclidean");
   const [colorGroupId, setColorGroupId] = useState("mard221");
+  const [adjustments, setAdjustments] = useState<ColorAdjustments>({ ...IDENTITY_ADJUSTMENTS });
   const [isProcessing, setIsProcessing] = useState(false);
 
   // Resize filter: sharp (nearest) vs smooth (lanczos)
@@ -395,9 +398,10 @@ export function ImageImportDialog({ onClose }: { onClose: () => void }) {
   useEffect(() => {
     if (!rawPixels) return;
     const calibrated = applyCalibration(rawPixels, calibrationCoef);
-    const matched = matchImageToMard(calibrated, algorithm, colorGroupId, colorOverrides);
+    const adjusted = applyAdjustmentsToPixels(calibrated, adjustments);
+    const matched = matchImageToMard(adjusted, algorithm, colorGroupId, colorOverrides);
     setMatchedPreview(matched);
-  }, [rawPixels, algorithm, colorGroupId, colorOverrides, calibrationCoef]);
+  }, [rawPixels, algorithm, colorGroupId, colorOverrides, calibrationCoef, adjustments]);
 
   useEffect(() => {
     if (previewMode !== "sample") return;
@@ -741,7 +745,8 @@ export function ImageImportDialog({ onClose }: { onClose: () => void }) {
       const data = await adapter.importImage(filePath, maxDimension, crop, sharpEdge, widthRatio !== 1.0 ? widthRatio : undefined);
 
       const calibratedPixels = applyCalibration(data.pixels as number[], calibrationCoef);
-      let matched = matchImageToMard(calibratedPixels, algorithm, colorGroupId, colorOverrides);
+      const adjustedPixels = applyAdjustmentsToPixels(calibratedPixels, adjustments);
+      let matched = matchImageToMard(adjustedPixels, algorithm, colorGroupId, colorOverrides);
       setMatchedPreview(matched);
       setRawPixels(data.pixels as number[]);
       setActualSize({ width: data.width, height: data.height });
@@ -771,8 +776,9 @@ export function ImageImportDialog({ onClose }: { onClose: () => void }) {
       const results: CompareItem[] = [];
 
       const calibratedPixels = applyCalibration(data.pixels as number[], calibrationCoef);
+      const adjustedPixels = applyAdjustmentsToPixels(calibratedPixels, adjustments);
       for (const { algo, label } of algos) {
-        const matched = matchImageToMard(calibratedPixels, algo, colorGroupId, colorOverrides);
+        const matched = matchImageToMard(adjustedPixels, algo, colorGroupId, colorOverrides);
         results.push({ label, algo, indices: matched });
       }
 
@@ -1414,6 +1420,10 @@ export function ImageImportDialog({ onClose }: { onClose: () => void }) {
                 </div>
               </div>
             )}
+            <div className="px-3 pb-3 pt-3 border-t">
+              <div className="text-xs font-medium text-gray-600 mb-2">图像调整</div>
+              <ColorAdjustPanel value={adjustments} onChange={setAdjustments} />
+            </div>
           </div>
 
           {/* Algorithm & resize mode */}

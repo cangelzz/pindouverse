@@ -12,6 +12,7 @@ interface Props {
   onCopy: () => void;
   onDuplicateDraggable: () => void;
   onReplaceColor: () => void;
+  onColorAdjust: () => void;
   onDeselect: () => void;
   onClose: () => void;
 }
@@ -71,6 +72,7 @@ export function SelectionContextMenu({
   onCopy,
   onDuplicateDraggable,
   onReplaceColor,
+  onColorAdjust,
   onDeselect,
   onClose,
 }: Props) {
@@ -162,6 +164,7 @@ export function SelectionContextMenu({
       <Divider />
 
       <Item label="替换颜色..." onClick={onReplaceColor} onCloseMenu={onClose} />
+      <Item label="颜色调整..." onClick={onColorAdjust} onCloseMenu={onClose} />
 
       <Divider />
 

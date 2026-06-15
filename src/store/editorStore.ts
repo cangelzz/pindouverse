@@ -3,6 +3,8 @@ import { getAdapter } from "../adapters";
 import type { SnapshotInfo } from "../adapters";
 import { loadOverrides, saveOverrides, hexToRgb, type ColorOverrideMap } from "../utils/colorHelper";
 import { computeFloodReplaceEntries } from "../utils/floodFill";
+import { buildSelectionRemap, type ColorAdjustments } from "../utils/colorAdjust";
+import { getGroupIndices } from "../data/mard221";
 import type {
   BeadLayer,
   CanvasCell,
@@ -94,6 +96,10 @@ interface EditorState {
   clipboard: { cells: Map<string, CanvasCell>; width: number; height: number } | null;
   floatingSelection: { cells: Map<string, CanvasCell>; offsetRow: number; offsetCol: number } | null;
 
+  // Transient color-adjust preview. Rendered on top of cells, never in history.
+  previewOverlay: Map<string, number> | null;
+  adjustSession: { layerId: string; cells: Map<string, number>; srcIndices: number[]; used: number[] } | null;
+
   // Actions
   newCanvas: (width: number, height: number) => void;
   setCell: (row: number, col: number, colorIndex: number | null) => void;
@@ -154,6 +160,14 @@ interface EditorState {
   duplicateSelectionAsFloating: () => void;
   /** Within selection, swap every cell of `fromIndex` to `toIndex`. */
   replaceColorInSelection: (fromIndex: number, toIndex: number) => void;
+  /** Begin a color-adjust session on the current selection. */
+  beginSelectionAdjust: () => void;
+  /** Recompute the preview overlay for the current adjustment. */
+  updateSelectionAdjustPreview: (adj: ColorAdjustments, snapRange: "all" | "used") => void;
+  /** Commit the preview overlay as a real batchSetCells action. */
+  commitSelectionAdjust: () => void;
+  /** Discard the preview overlay without writing any cells. */
+  cancelSelectionAdjust: () => void;
   /** Cut selected cells from active layer onto a NEW layer at the same positions. */
   moveSelectionToNewLayer: () => void;
   /** Cut selected cells from active layer onto an existing layer at the same positions. */
@@ -387,6 +401,8 @@ export const useEditorStore = create<EditorState>((set, get) => ({
   selectionBounds: null,
   clipboard: null,
   floatingSelection: null,
+  previewOverlay: null,
+  adjustSession: null,
 
   newCanvas: (width, height) => {
     const layer = createDefaultLayer(width, height);
@@ -1070,6 +1086,75 @@ export const useEditorStore = create<EditorState>((set, get) => ({
       }
     }
     if (entries.length > 0) get().batchSetCells(entries);
+  },
+
+  beginSelectionAdjust: () => {
+    const state = get();
+    if (!state.selection) return;
+    const layer = state.layers.find((l) => l.id === state.activeLayerId);
+    if (!layer) return;
+
+    const cells = new Map<string, number>();
+    const srcSet = new Set<number>();
+    for (const key of state.selection) {
+      const [r, c] = key.split(",").map(Number);
+      const ci = layer.data[r]?.[c]?.colorIndex;
+      if (ci !== null && ci !== undefined) {
+        cells.set(key, ci);
+        srcSet.add(ci);
+      }
+    }
+
+    const used = new Set<number>();
+    for (const l of state.layers) {
+      for (const row of l.data) {
+        for (const cell of row) {
+          if (cell.colorIndex !== null && cell.colorIndex !== undefined) used.add(cell.colorIndex);
+        }
+      }
+    }
+
+    set({
+      adjustSession: { layerId: state.activeLayerId, cells, srcIndices: [...srcSet], used: [...used] },
+      previewOverlay: new Map(),
+    });
+  },
+
+  updateSelectionAdjustPreview: (adj, snapRange) => {
+    const state = get();
+    const session = state.adjustSession;
+    if (!session) return;
+    const pool = snapRange === "used" ? session.used : getGroupIndices("mard221");
+    const remap = buildSelectionRemap(session.srcIndices, adj, pool, "ciede2000", state.colorOverrides);
+    const overlay = new Map<string, number>();
+    for (const [key, src] of session.cells) {
+      const dst = remap.get(src);
+      if (dst !== undefined && dst !== src) overlay.set(key, dst);
+    }
+    set({ previewOverlay: overlay });
+  },
+
+  commitSelectionAdjust: () => {
+    const state = get();
+    if (!state.previewOverlay) return;
+    // Guard against the active layer changing while the dialog was open: the
+    // overlay was computed from the original layer, so committing it to a
+    // different layer would write wrong colors. Abort instead.
+    if (state.adjustSession && state.adjustSession.layerId !== state.activeLayerId) {
+      set({ previewOverlay: null, adjustSession: null });
+      return;
+    }
+    const entries: { row: number; col: number; colorIndex: number | null }[] = [];
+    for (const [key, dst] of state.previewOverlay) {
+      const [r, c] = key.split(",").map(Number);
+      entries.push({ row: r, col: c, colorIndex: dst });
+    }
+    if (entries.length > 0) get().batchSetCells(entries);
+    set({ previewOverlay: null, adjustSession: null });
+  },
+
+  cancelSelectionAdjust: () => {
+    set({ previewOverlay: null, adjustSession: null });
   },
 
   moveSelectionToNewLayer: () => {
