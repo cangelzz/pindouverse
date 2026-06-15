@@ -6,7 +6,7 @@ import type { BeadCount } from "../../types";
 
 type SortMode = "count" | "code";
 
-export function BeadCounter() {
+export function BeadCounter({ onColorActivate }: { onColorActivate?: (colorIndex: number) => void }) {
   const canvasData = useEditorStore((s) => s.canvasData);
   const colorOverrides = useEditorStore((s) => s.colorOverrides);
   const [sortMode, setSortMode] = useState<SortMode>("count");
@@ -113,7 +113,13 @@ export function BeadCounter() {
             </thead>
             <tbody>
               {counts.map((c) => (
-                <tr key={c.code} className="border-b border-gray-100 hover:bg-gray-50">
+                <tr
+                  key={c.code}
+                  data-bead-row={c.colorIndex}
+                  onDoubleClick={() => onColorActivate?.(c.colorIndex)}
+                  className="border-b border-gray-100 hover:bg-gray-50 cursor-pointer"
+                  title="双击：在色板中选中并高亮分布"
+                >
                   <td className="px-2 py-0.5">
                     <div className="flex items-center gap-1">
                       <span

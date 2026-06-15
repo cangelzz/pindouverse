@@ -209,6 +209,8 @@ function App() {
   const undo = useEditorStore((s) => s.undo);
   const redo = useEditorStore((s) => s.redo);
   const colorOverrides = useEditorStore((s) => s.colorOverrides);
+  const setSelectedColor = useEditorStore((s) => s.setSelectedColor);
+  const setHighlightColor = useEditorStore((s) => s.setHighlightColor);
 
   const [newW, setNewW] = useState(52);
   const [newH, setNewH] = useState(52);
@@ -386,6 +388,12 @@ function App() {
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
   }, [saveProject, saveProjectAs, openProject]);
+
+  const handleStatColorActivate = (colorIndex: number) => {
+    setSelectedColor(colorIndex);
+    setHighlightColor(colorIndex);
+    setRightTab("palette");
+  };
 
   return (
     <div className="flex flex-col h-screen bg-white text-gray-800">
@@ -670,7 +678,7 @@ function App() {
           {/* Panel content */}
           <div className="flex-1 min-h-0 overflow-hidden">
             {rightTab === "palette" && <ColorPalette />}
-            {rightTab === "stats" && <BeadCounter />}
+            {rightTab === "stats" && <BeadCounter onColorActivate={handleStatColorActivate} />}
             {rightTab === "layers" && (
               <div className="p-2 flex flex-col gap-2 text-xs overflow-y-auto">
                 {/* Bead layers (top = rendered last = highest) */}
