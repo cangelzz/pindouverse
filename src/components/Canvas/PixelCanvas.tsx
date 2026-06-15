@@ -21,6 +21,7 @@ import { layerAccentColor } from "../../utils/layerColors";
 import { SelectionContextMenu } from "./SelectionContextMenu";
 import { ReplaceColorInSelectionDialog } from "./ReplaceColorInSelectionDialog";
 import { SelectionColorAdjustDialog } from "./SelectionColorAdjustDialog";
+import { appAlert } from "../Dialog/AppDialog";
 import { SelectionActionsChip } from "./SelectionActionsChip";
 
 export function PixelCanvas() {
@@ -90,6 +91,7 @@ export function PixelCanvas() {
   const isDragging = useRef(false);
   const dragStart = useRef({ x: 0, y: 0, ox: 0, oy: 0 });
   const isPanning = useRef(false);
+  const eyedropWarnOpenRef = useRef(false);
 
   const selectionStart = useRef<{ row: number; col: number } | null>(null);
   const isDraggingSelection = useRef(false);
@@ -839,10 +841,14 @@ export function PixelCanvas() {
           break;
         }
         case "eyedropper": {
-          const cell = canvasData[row]?.[col];
-          if (cell?.colorIndex !== null && cell?.colorIndex !== undefined) {
-            setSelectedColor(cell.colorIndex);
+          if (useEditorStore.getState().pickActiveLayerColor(row, col)) {
             setTool("pen");
+          } else if (!eyedropWarnOpenRef.current) {
+            eyedropWarnOpenRef.current = true;
+            appAlert("当前图层的这个位置没有颜色。", { title: "无法取色" })
+              .finally(() => {
+                eyedropWarnOpenRef.current = false;
+              });
           }
           break;
         }

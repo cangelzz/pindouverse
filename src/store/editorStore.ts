@@ -106,6 +106,7 @@ interface EditorState {
   batchSetCells: (entries: { row: number; col: number; colorIndex: number | null }[]) => void;
   floodFill: (row: number, col: number, colorIndex: number | null) => void;
   floodErase: (row: number, col: number) => void;
+  pickActiveLayerColor: (row: number, col: number) => boolean;
   setTool: (tool: EditorTool) => void;
   setSelectedColor: (index: number | null) => void;
   setZoom: (zoom: number) => void;
@@ -522,6 +523,15 @@ export const useEditorStore = create<EditorState>((set, get) => ({
         : state.lastEraserSubmode,
   })),
   setSelectedColor: (index) => set({ selectedColorIndex: index }),
+
+  pickActiveLayerColor: (row, col) => {
+    const state = get();
+    const layer = state.layers.find((l) => l.id === state.activeLayerId);
+    const idx = layer?.data[row]?.[col]?.colorIndex;
+    if (idx === null || idx === undefined) return false;
+    set({ selectedColorIndex: idx });
+    return true;
+  },
 
   setZoom: (zoom) => {
     const clamped = Math.max(0.5, Math.min(40, zoom));
