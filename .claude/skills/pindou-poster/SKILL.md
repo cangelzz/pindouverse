@@ -42,16 +42,44 @@ python scripts/make_poster.py \
 fit the ratio (near-square arts leave side margins — the textured bg fills them).
 Fonts default to Windows MS YaHei; override with `--font` / `--font-bold`.
 
+**Logo title:** `--title-image logo.png` puts a wordmark/logo in the title slot
+instead of `--title` text; a white background is auto-keyed to transparent (use
+`--title-keep-bg` to disable). Prefer this when the franchise name is a **sensitive
+word** (e.g. region-blocked titles) — show the stylised logo art, never type the
+banned string. Logos are copyrighted: personal / non-commercial use only.
+
 ## Themes
 | theme | background | frame | vibe |
 |-------|-----------|-------|------|
 | `pink-hearts` | pale pink + heart polka tiles | white card + washi-tape corners | kawaii |
 | `sci-fantasy` | navy gradient + nebula + starfield | dark card, neon-cyan border + glow | sci-fi |
 | `art-gallery` | cream paper speckle | white mat + inner line + thin frame | museum |
+| `deathnote` | parchment + red ruled lines + apples | white card, crimson border + inner line | Death Note page |
+| `deathnote-noir` | near-black + crimson glow + vignette | dark card, crimson border + glow | gothic |
+| `village` | warm sky→meadow, sun, hills, terracotta cottages, grass foreground | cream card, wood-brown border + inner line | countryside |
+| `beach` | aqua→sand gradient washed with light blooms, wavy ripple strokes, foam flecks | light card, teal border + inner line | seaside |
+
+**Photo background:** `--bg-image photo.jpg` replaces the theme's painted background
+with a cover-fit (scale-to-fill, center-crop) photo, darkened by a wash + vignette so
+the card/logo/credit stay legible. `--bg-dim 0..1` controls that darkening (lower =
+brighter; default 0.5 — use ~0.35 for bright photos, ~0.6 for dark/moody ones). The
+theme still supplies the card, frame and title styling. Photos are copyrighted: prefer
+freely-licensed sources (e.g. Wikimedia Commons), personal / non-commercial use only.
+For a textured-but-not-literal look that reads well where only edges show, an organic
+painted theme (see `beach`/`village`: soft gradient + blurred blooms + wavy strokes,
+never hard rectangular bands) usually beats a literal drawn scene.
 
 **Add a theme:** write a `bg_<name>(W,H,rng)` painter and add one entry to the
 `THEMES` dict (card color, radius_f, shadow, optional `border`/`glow`/`tape`/
-`inner_line`, title color/halo, pad_f). `frame_card` is generic and reads those keys.
+`inner_line`/`apple_accents`, title color/halo, pad_f). `frame_card` is generic
+and reads those keys. Tip: when a theme reads "too dark", a lighter base + colored
+ruling beats a heavy vignette — see `deathnote` (light) vs `deathnote-noir` (dark).
+
+## Layout
+`--layout vstack` (default) stacks arts top-to-bottom; `--layout hstack` places
+them side by side. **Pick hstack for tall, narrow arts** (aspect < ~0.7, e.g. a
+standing character) — vstack would shrink them to thin centered columns with huge
+side margins. Side-by-side near-square pairs suit a `4:5` or `1:1` ratio.
 
 ## How the auto-crop works (the non-obvious bit)
 A "content" mask = saturated OR dark pixels (beads + grid lines, not near-white bg
