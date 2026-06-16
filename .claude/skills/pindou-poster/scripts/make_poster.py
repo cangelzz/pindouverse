@@ -90,6 +90,15 @@ def draw_apple(d, cx, cy, s, fill, stem=None):
     if stem:
         d.line([(cx, cy-r*0.9), (cx+s*0.06, cy-r-s*0.22)], fill=stem, width=max(2, int(s*0.05)))
 
+def sparkle_poly(cx, cy, R, r):
+    """A 4-point twinkle/sparkle star (alternating long/short radii)."""
+    pts = []
+    for k in range(8):
+        ang = math.radians(k*45)
+        rad = R if k % 2 == 0 else r
+        pts.append((cx + rad*math.sin(ang), cy - rad*math.cos(ang)))
+    return pts
+
 def soft_shadow(poster, x, y, w, h, rad, blur, off, col):
     W, H = poster.size
     sh = Image.new("RGBA", (W, H), (0, 0, 0, 0))
@@ -258,6 +267,38 @@ def bg_beach(W, H, rng):
         fd.ellipse([x-r, y-r, x+r, y+r], fill=(255, 255, 255, rng.randint(60, 150)))
     return Image.alpha_composite(p, fk)
 
+def bg_genshin(W, H, rng):
+    """Lovely light-blue sky: pale blue gradient, soft white blooms, and a cute
+    offset pattern of translucent bubbles + twinkle sparkles, with scattered dots."""
+    p = vgrad(W, H, (226, 241, 252), (188, 220, 247)).convert("RGBA")
+    bl = Image.new("RGBA", (W, H), (0, 0, 0, 0)); bd = ImageDraw.Draw(bl)
+    for _ in range(8):                                   # soft light blooms
+        cx, cy = rng.randint(0, W), rng.randint(0, H); r = rng.randint(W//7, W//3)
+        col = rng.choice([(255, 255, 255), (206, 232, 250), (224, 244, 252)])
+        bd.ellipse([cx-r, cy-r, cx+r, cy+r], fill=col+(40,))
+    p = Image.alpha_composite(p, bl.filter(ImageFilter.GaussianBlur(W//9)))
+    pat = Image.new("RGBA", (W, H), (0, 0, 0, 0)); pd = ImageDraw.Draw(pat)
+    step = max(120, W // 11)
+    for j, yy in enumerate(range(-40, H+120, step)):
+        for i, xx in enumerate(range(-40, W+120, step)):
+            ox = step//2 if j % 2 else 0
+            cx, cy = xx+ox+rng.randint(-10, 10), yy+rng.randint(-10, 10)
+            if (i+j) % 2 == 0:                           # bubble + highlight
+                r = rng.randint(int(step*0.16), int(step*0.24))
+                pd.ellipse([cx-r, cy-r, cx+r, cy+r], fill=(255, 255, 255, 60))
+                pd.ellipse([cx-r, cy-r, cx+r, cy+r], outline=(255, 255, 255, 120), width=3)
+                hr = max(2, r//4)
+                pd.ellipse([cx-r//2-hr, cy-r//2-hr, cx-r//2+hr, cy-r//2+hr], fill=(255, 255, 255, 170))
+            else:                                        # twinkle sparkle
+                R = rng.randint(int(step*0.16), int(step*0.26))
+                pd.polygon(sparkle_poly(cx, cy, R, R*0.32), fill=(255, 255, 255, 150))
+    p = Image.alpha_composite(p, pat)
+    dot = Image.new("RGBA", (W, H), (0, 0, 0, 0)); dd = ImageDraw.Draw(dot)
+    for _ in range(W*H // 2600):                          # scattered tiny dots
+        x, y = rng.randint(0, W), rng.randint(0, H); r = rng.choice([2, 3])
+        dd.ellipse([x-r, y-r, x+r, y+r], fill=(255, 255, 255, rng.randint(70, 140)))
+    return Image.alpha_composite(p, dot)
+
 def frame_card(poster, art, x, y, cw, ch, pad, rad, th, rng):
     """Generic rounded-card frame, customised by the theme dict `th`."""
     W, H = poster.size
@@ -317,6 +358,10 @@ THEMES = {
         shadow_col=(40, 70, 80, 90), shadow_blur=22, shadow_off=16,
         border=(86, 140, 150), border_w=4, inner_line=(150, 178, 180),
         title_col=(34, 92, 104), title_halo=(250, 247, 238), pad_f=0.02),
+    "genshin": dict(bg=bg_genshin, card_bg=(255, 255, 255), radius_f=0.012,
+        shadow_col=(70, 110, 160, 95), shadow_blur=24, shadow_off=18,
+        border=(118, 178, 230), border_w=5, inner_line=(190, 214, 240),
+        title_col=(44, 74, 128), title_halo=(255, 255, 255), pad_f=0.02),
 }
 
 # --------------------------------------------------------------------------

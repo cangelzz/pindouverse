@@ -58,6 +58,7 @@ banned string. Logos are copyrighted: personal / non-commercial use only.
 | `deathnote-noir` | near-black + crimson glow + vignette | dark card, crimson border + glow | gothic |
 | `village` | warm sky→meadow, sun, hills, terracotta cottages, grass foreground | cream card, wood-brown border + inner line | countryside |
 | `beach` | aqua→sand gradient washed with light blooms, wavy ripple strokes, foam flecks | light card, teal border + inner line | seaside |
+| `genshin` | pale light-blue gradient + bubble & twinkle-sparkle pattern + dots | white card, light-blue border + inner line | lovely sky |
 
 **Photo background:** `--bg-image photo.jpg` replaces the theme's painted background
 with a cover-fit (scale-to-fill, center-crop) photo, darkened by a wash + vignette so
