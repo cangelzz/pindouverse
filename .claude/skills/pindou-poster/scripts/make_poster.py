@@ -20,7 +20,7 @@ Run with --list-themes to see available styles.
 Requires: Pillow.  Fonts: tries Windows MS YaHei; override with --font / --font-bold.
 """
 import argparse, math, random, sys
-from PIL import Image, ImageDraw, ImageFilter, ImageFont, ImageOps
+from PIL import Image, ImageDraw, ImageFilter, ImageFont, ImageOps, ImageEnhance
 
 # --------------------------------------------------------------------------
 # 1. AUTO-CROP: isolate the bead grid from a PindouVerse export
@@ -98,6 +98,16 @@ def sparkle_poly(cx, cy, R, r):
         rad = R if k % 2 == 0 else r
         pts.append((cx + rad*math.sin(ang), cy - rad*math.cos(ang)))
     return pts
+
+_PETAL = [(0.0, -0.50), (0.14, -0.34), (0.24, -0.05), (0.20, 0.30), (0.10, 0.46),
+          (0.0, 0.36), (-0.10, 0.46), (-0.20, 0.30), (-0.24, -0.05), (-0.14, -0.34)]
+def petal_poly(cx, cy, s, rot):
+    """A cherry-blossom petal (notch at the wide end), scaled by `s`, rotated."""
+    r = math.radians(rot); out = []
+    for x, y in _PETAL:
+        out.append((cx + (x*math.cos(r) - y*math.sin(r))*s,
+                    cy + (x*math.sin(r) + y*math.cos(r))*s))
+    return out
 
 def soft_shadow(poster, x, y, w, h, rad, blur, off, col):
     W, H = poster.size
@@ -238,6 +248,48 @@ def bg_village(W, H, rng):
         sd.point((rng.randint(0, W), rng.randint(0, H)), fill=(110, 96, 70, rng.randint(0, 26)))
     return Image.alpha_composite(p, spec)
 
+def _flower(d, cx, cy, s, petal, center, petals=6, rot=0.0):
+    """A simple round-petal flower: `petals` round petals around a center disc."""
+    pr = s * 0.42
+    for k in range(petals):
+        a = rot + k * (6.28318 / petals)
+        px = cx + math.cos(a) * s * 0.6
+        py = cy + math.sin(a) * s * 0.6
+        d.ellipse([px-pr, py-pr, px+pr, py+pr], fill=petal)
+    cr = s * 0.34
+    d.ellipse([cx-cr, cy-cr, cx+cr, cy+cr], fill=center)
+
+def bg_warm_flowers(W, H, rng):
+    """Warm peach→rose gradient strewn with soft flowers: a blurred far layer for
+    depth, sharper near flowers + a few leaves, and a faint warm speckle."""
+    p = vgrad(W, H, (252, 233, 212), (240, 198, 180)).convert("RGBA")
+    gl = Image.new("RGBA", (W, H), (0, 0, 0, 0))             # warm bloom upper-right
+    r = int(W*0.40); cx, cy = int(W*0.62), int(H*0.13)
+    ImageDraw.Draw(gl).ellipse([cx-r, cy-r, cx+r, cy+r], fill=(255, 236, 200, 70))
+    p = Image.alpha_composite(p, gl.filter(ImageFilter.GaussianBlur(W//8)))
+    PETALS = [(236, 150, 156), (245, 172, 120), (250, 214, 150), (252, 240, 226), (232, 168, 182), (238, 128, 120)]
+    CENTERS = [(250, 224, 150), (248, 200, 120), (245, 180, 110)]
+    far = Image.new("RGBA", (W, H), (0, 0, 0, 0)); fard = ImageDraw.Draw(far)
+    for _ in range(max(10, W*H // 60000)):                   # blurred far flowers
+        fx, fy = rng.randint(0, W), rng.randint(0, H); s = rng.randint(int(W*0.04), int(W*0.085))
+        _flower(fard, fx, fy, s, rng.choice(PETALS)+(120,), rng.choice(CENTERS)+(140,),
+                petals=rng.choice([5, 6]), rot=rng.uniform(0, 6.28))
+    p = Image.alpha_composite(p, far.filter(ImageFilter.GaussianBlur(max(2, W//200))))
+    near = Image.new("RGBA", (W, H), (0, 0, 0, 0)); neard = ImageDraw.Draw(near)
+    for _ in range(max(8, W*H // 110000)):                   # sharper near flowers + leaves
+        nx, ny = rng.randint(0, W), rng.randint(0, H); s = rng.randint(int(W*0.025), int(W*0.05))
+        if rng.random() < 0.22:
+            lc = rng.choice([(150, 170, 110), (168, 182, 120)])
+            neard.ellipse([nx-s*0.75, ny-s*0.32, nx+s*0.75, ny+s*0.32], fill=lc+(150,))
+        else:
+            _flower(neard, nx, ny, s, rng.choice(PETALS)+(205,), rng.choice(CENTERS)+(225,),
+                    petals=rng.choice([5, 6]), rot=rng.uniform(0, 6.28))
+    p = Image.alpha_composite(p, near)
+    spec = Image.new("RGBA", (W, H), (0, 0, 0, 0)); sd = ImageDraw.Draw(spec)
+    for _ in range(W*H // 900):                              # faint warm speckle
+        sd.point((rng.randint(0, W), rng.randint(0, H)), fill=(180, 120, 90, rng.randint(0, 22)))
+    return Image.alpha_composite(p, spec)
+
 def bg_beach(W, H, rng):
     """Stylised seaside *texture* (not a literal scene): a soft aqua→sand gradient
     washed with blurred light blooms, layered wavy ripple strokes (water caustics up
@@ -299,6 +351,329 @@ def bg_genshin(W, H, rng):
         dd.ellipse([x-r, y-r, x+r, y+r], fill=(255, 255, 255, rng.randint(70, 140)))
     return Image.alpha_composite(p, dot)
 
+def bg_aot(W, H, rng):
+    """Attack on Titan / Survey Corps: dusty sepia sky, a weathered stone wall along
+    the lower horizon (mortared blocks + grime), grunge speckle, and a soft vignette."""
+    p = vgrad(W, H, (200, 186, 158), (132, 110, 84)).convert("RGBA")
+    glow = Image.new("RGBA", (W, H), (0, 0, 0, 0))           # hazy low sun
+    r = int(W*0.5); cx, cy = int(W*0.5), int(H*0.30)
+    ImageDraw.Draw(glow).ellipse([cx-r, cy-r, cx+r, cy+r], fill=(255, 240, 205, 60))
+    p = Image.alpha_composite(p, glow.filter(ImageFilter.GaussianBlur(W//6)))
+    wall = Image.new("RGBA", (W, H), (0, 0, 0, 0)); wd = ImageDraw.Draw(wall)
+    wy0 = int(H*0.64)
+    wd.rectangle([0, wy0, W, H], fill=(150, 138, 116, 240))
+    bh = max(20, int(H*0.062)); bw = max(40, int(W*0.155))
+    for ri, yy in enumerate(range(wy0, H, bh)):              # mortared stone blocks
+        ox = bw//2 if ri % 2 else 0
+        for xx in range(-bw, W+bw, bw):
+            x0 = xx + ox; sh = rng.randint(-15, 15)
+            wd.rectangle([x0, yy, x0+bw-1, yy+bh-1],
+                         fill=(150+sh, 136+sh, 114+sh, 255), outline=(104, 92, 74, 255), width=3)
+    for _ in range(50):                                      # grime blotches on wall
+        bx, by = rng.randint(0, W), rng.randint(wy0, H)
+        br = rng.randint(int(W*0.02), int(W*0.07))
+        wd.ellipse([bx-br, by-br, bx+br, by+br], fill=(96, 82, 64, rng.randint(14, 40)))
+    p = Image.alpha_composite(p, wall.filter(ImageFilter.GaussianBlur(1)))
+    gr = Image.new("RGBA", (W, H), (0, 0, 0, 0)); gd = ImageDraw.Draw(gr)
+    for _ in range(W*H // 900):                              # grunge speckle
+        x, y = rng.randint(0, W), rng.randint(0, H)
+        if rng.random() < 0.5:
+            gd.point((x, y), fill=(60, 46, 32, rng.randint(0, 34)))
+        else:
+            gd.point((x, y), fill=(240, 230, 205, rng.randint(0, 30)))
+    p = Image.alpha_composite(p, gr)
+    vig = Image.new("L", (W, H), 0)                          # soft vignette
+    ImageDraw.Draw(vig).ellipse([int(W*0.04), int(H*0.03), int(W*0.96), int(H*0.97)], fill=255)
+    vig = vig.filter(ImageFilter.GaussianBlur(W//6))
+    dark = Image.new("RGBA", (W, H), (0, 0, 0, 120)); dark.putalpha(ImageOps.invert(vig))
+    return Image.alpha_composite(p, dark)
+
+def bg_sakura(W, H, rng):
+    """Lovely sakura sky: a soft pink gradient, gentle light blooms, and drifting
+    cherry-blossom petals — a far blurred layer for depth and a crisper near layer."""
+    p = vgrad(W, H, (253, 241, 246), (245, 222, 231)).convert("RGBA")
+    bl = Image.new("RGBA", (W, H), (0, 0, 0, 0)); bd = ImageDraw.Draw(bl)
+    for _ in range(8):                                   # soft light blooms
+        cx, cy = rng.randint(0, W), rng.randint(0, H); r = rng.randint(W//7, W//3)
+        col = rng.choice([(255, 255, 255), (255, 222, 234), (255, 236, 242)])
+        bd.ellipse([cx-r, cy-r, cx+r, cy+r], fill=col+(42,))
+    p = Image.alpha_composite(p, bl.filter(ImageFilter.GaussianBlur(W//9)))
+    tints = [(255, 206, 220), (252, 190, 208), (255, 224, 234), (248, 178, 200)]
+    far = Image.new("RGBA", (W, H), (0, 0, 0, 0)); fd = ImageDraw.Draw(far)
+    for _ in range(W*H // 13000):                        # far petals (blurred)
+        s = rng.randint(int(W*0.012), int(W*0.022))
+        fd.polygon(petal_poly(rng.randint(0, W), rng.randint(0, H), s, rng.uniform(0, 360)),
+                   fill=rng.choice(tints)+(150,))
+    p = Image.alpha_composite(p, far.filter(ImageFilter.GaussianBlur(3)))
+    near = Image.new("RGBA", (W, H), (0, 0, 0, 0)); nd = ImageDraw.Draw(near)
+    for _ in range(W*H // 24000):                        # near petals (crisp)
+        s = rng.randint(int(W*0.018), int(W*0.032))
+        poly = petal_poly(rng.randint(0, W), rng.randint(0, H), s, rng.uniform(0, 360))
+        nd.polygon(poly, fill=rng.choice(tints)+(225,), outline=(236, 150, 178, 200))
+    return Image.alpha_composite(p, near)
+
+def _crescent(W, H, rng, fill, mx_f=0.76, my_f=0.18, R_f=0.11):
+    """A faint carved crescent moon layer (Sesshoumaru's mark)."""
+    cr = Image.new("RGBA", (W, H), (0, 0, 0, 0)); cd = ImageDraw.Draw(cr)
+    mx, my, R = int(W*mx_f), int(H*my_f), int(W*R_f)
+    cd.ellipse([mx-R, my-R, mx+R, my+R], fill=fill)
+    off = int(R*0.55)
+    cd.ellipse([mx-R+off, my-R-int(R*0.12), mx+R+off, my+R-int(R*0.12)], fill=(0, 0, 0, 0))
+    return cr.filter(ImageFilter.GaussianBlur(2))
+
+def _blooms(W, H, rng, cols, n=8, a=42):
+    bl = Image.new("RGBA", (W, H), (0, 0, 0, 0)); bd = ImageDraw.Draw(bl)
+    for _ in range(n):
+        cx, cy = rng.randint(0, W), rng.randint(0, H); r = rng.randint(W//7, W//3)
+        bd.ellipse([cx-r, cy-r, cx+r, cy+r], fill=rng.choice(cols)+(a,))
+    return bl.filter(ImageFilter.GaussianBlur(W//9))
+
+def _drift(W, H, rng, tints, dens_far=13000, dens_near=24000, outline=None):
+    """Two layers of drifting petal/leaf shapes (far blurred + near crisp)."""
+    far = Image.new("RGBA", (W, H), (0, 0, 0, 0)); fd = ImageDraw.Draw(far)
+    for _ in range(W*H // dens_far):
+        s = rng.randint(int(W*0.012), int(W*0.022))
+        fd.polygon(petal_poly(rng.randint(0, W), rng.randint(0, H), s, rng.uniform(0, 360)),
+                   fill=rng.choice(tints)+(150,))
+    near = Image.new("RGBA", (W, H), (0, 0, 0, 0)); nd = ImageDraw.Draw(near)
+    for _ in range(W*H // dens_near):
+        s = rng.randint(int(W*0.018), int(W*0.032))
+        nd.polygon(petal_poly(rng.randint(0, W), rng.randint(0, H), s, rng.uniform(0, 360)),
+                   fill=rng.choice(tints)+(225,), outline=outline)
+    return far.filter(ImageFilter.GaussianBlur(3)), near
+
+def bg_forest(W, H, rng):
+    """Sunlit woodland: green-gold gradient, soft god rays, golden blooms, green leaves."""
+    p = vgrad(W, H, (214, 226, 180), (150, 180, 122)).convert("RGBA")
+    ray = Image.new("RGBA", (W, H), (0, 0, 0, 0)); rd = ImageDraw.Draw(ray)
+    sx = int(W*0.34)
+    for _ in range(8):
+        x = rng.randint(0, W); w = rng.randint(W//28, W//11)
+        rd.polygon([(sx, -60), (x-w, H), (x+w, H)], fill=(255, 250, 214, 16))
+    p = Image.alpha_composite(p, ray.filter(ImageFilter.GaussianBlur(W//36)))
+    p = Image.alpha_composite(p, _blooms(W, H, rng, [(255, 244, 196), (255, 250, 220)], a=40))
+    far, near = _drift(W, H, rng, [(120, 170, 90), (150, 190, 110), (96, 150, 78), (174, 200, 120)],
+                       16000, 30000, outline=(80, 120, 64, 160))
+    return Image.alpha_composite(Image.alpha_composite(p, far), near)
+
+def bg_sunset(W, H, rng):
+    """Warm dusk: peach→rose gradient, a low sun with radial rays, soft cloud bands."""
+    p = vgrad(W, H, (255, 222, 178), (246, 150, 138)).convert("RGBA")
+    sun = Image.new("RGBA", (W, H), (0, 0, 0, 0)); sd = ImageDraw.Draw(sun)
+    cx, cy = int(W*0.5), int(H*0.40)
+    for _ in range(16):
+        ang = rng.uniform(0, math.pi*2); ln = W
+        x2, y2 = cx+math.cos(ang)*ln, cy+math.sin(ang)*ln; w = rng.randint(W//40, W//16)
+        sd.polygon([(cx, cy), (x2-w, y2), (x2+w, y2)], fill=(255, 240, 200, 12))
+    r = int(W*0.16); sd.ellipse([cx-r, cy-r, cx+r, cy+r], fill=(255, 244, 214, 150))
+    p = Image.alpha_composite(p, sun.filter(ImageFilter.GaussianBlur(W//40)))
+    cl = Image.new("RGBA", (W, H), (0, 0, 0, 0)); cd = ImageDraw.Draw(cl)
+    for _ in range(10):
+        ccx, ccy = rng.randint(0, W), rng.randint(int(H*0.08), int(H*0.7))
+        cw, ch = rng.randint(W//4, W//2), rng.randint(H//30, H//16)
+        col = rng.choice([(255, 225, 210), (255, 240, 232), (252, 200, 196)])
+        cd.ellipse([ccx-cw, ccy-ch, ccx+cw, ccy+ch], fill=col+(70,))
+    return Image.alpha_composite(p, cl.filter(ImageFilter.GaussianBlur(W//30)))
+
+def bg_autumn(W, H, rng):
+    """Autumn: warm cream→amber gradient, golden blooms, drifting maple-tone leaves."""
+    p = vgrad(W, H, (251, 236, 206), (235, 196, 150)).convert("RGBA")
+    p = Image.alpha_composite(p, _blooms(W, H, rng, [(255, 230, 180), (255, 242, 210)], a=40))
+    far, near = _drift(W, H, rng, [(228, 120, 60), (240, 170, 70), (214, 80, 52), (236, 150, 72)],
+                       13000, 24000, outline=(170, 86, 44, 170))
+    return Image.alpha_composite(Image.alpha_composite(p, far), near)
+
+def bg_moonlit(W, H, rng, moon=True):
+    """Moonlit twilight: indigo→lavender gradient, a glowing moon, stars, twinkles, wisps."""
+    p = vgrad(W, H, (44, 48, 92), (104, 96, 140)).convert("RGBA")
+    if moon:
+        mx, my, R = int(W*0.74), int(H*0.19), int(W*0.10)
+        gl = Image.new("RGBA", (W, H), (0, 0, 0, 0))
+        ImageDraw.Draw(gl).ellipse([mx-R*2, my-R*2, mx+R*2, my+R*2], fill=(220, 226, 255, 60))
+        p = Image.alpha_composite(p, gl.filter(ImageFilter.GaussianBlur(W//26)))
+        mn = Image.new("RGBA", (W, H), (0, 0, 0, 0))
+        ImageDraw.Draw(mn).ellipse([mx-R, my-R, mx+R, my+R], fill=(244, 246, 255, 240))
+        p = Image.alpha_composite(p, mn)
+    st = Image.new("RGBA", (W, H), (0, 0, 0, 0)); sd = ImageDraw.Draw(st)
+    for _ in range(W*H // 4200):
+        x, y = rng.randint(0, W), rng.randint(0, H); r = rng.choice([1, 1, 2])
+        sd.ellipse([x-r, y-r, x+r, y+r], fill=(245, 247, 255, rng.randint(70, 180)))
+    for _ in range(W*H // 60000):
+        R2 = rng.randint(int(W*0.012), int(W*0.022))
+        sd.polygon(sparkle_poly(rng.randint(0, W), rng.randint(0, H), R2, R2*0.34), fill=(255, 255, 255, 170))
+    ws = Image.new("RGBA", (W, H), (0, 0, 0, 0)); wd = ImageDraw.Draw(ws)
+    for _ in range(6):
+        y0 = rng.randint(int(H*0.2), H); x0 = rng.randint(-100, W); ln = rng.randint(W//3, W)
+        amp = rng.randint(20, 60); ph = rng.uniform(0, 6.28)
+        pts = [(x0+i, y0+int(amp*math.sin(i/120.0+ph))) for i in range(0, ln, 8)]
+        if len(pts) > 1:
+            wd.line(pts, fill=(210, 220, 255, 60), width=3)
+    return Image.alpha_composite(p, ws.filter(ImageFilter.GaussianBlur(2)))
+
+def bg_lavender(W, H, rng):
+    """Elegant lilac: soft lavender gradient, a faint crescent moon, sparkles, lilac petals."""
+    p = vgrad(W, H, (240, 232, 250), (214, 202, 236)).convert("RGBA")
+    p = Image.alpha_composite(p, _blooms(W, H, rng, [(255, 255, 255), (236, 226, 250)], a=40))
+    p = Image.alpha_composite(p, _crescent(W, H, rng, (255, 255, 255, 80)))
+    far, near = _drift(W, H, rng, [(226, 210, 244), (236, 224, 250), (214, 196, 236)],
+                       16000, 30000, outline=(196, 176, 224, 150))
+    p = Image.alpha_composite(Image.alpha_composite(p, far), near)
+    sp = Image.new("RGBA", (W, H), (0, 0, 0, 0)); sd = ImageDraw.Draw(sp)
+    for _ in range(W*H // 40000):
+        R = rng.randint(int(W*0.012), int(W*0.024))
+        sd.polygon(sparkle_poly(rng.randint(0, W), rng.randint(0, H), R, R*0.34), fill=(255, 255, 255, 150))
+    return Image.alpha_composite(p, sp)
+
+def bg_frost(W, H, rng):
+    """Icy elegance: pale silver-blue gradient, a faint crescent, twinkles and snow dots."""
+    p = vgrad(W, H, (232, 240, 250), (198, 214, 236)).convert("RGBA")
+    p = Image.alpha_composite(p, _blooms(W, H, rng, [(255, 255, 255), (218, 232, 248)], a=44))
+    p = Image.alpha_composite(p, _crescent(W, H, rng, (255, 255, 255, 70)))
+    sp = Image.new("RGBA", (W, H), (0, 0, 0, 0)); sd = ImageDraw.Draw(sp)
+    for _ in range(W*H // 18000):                        # twinkle snow
+        R = rng.randint(int(W*0.010), int(W*0.024))
+        sd.polygon(sparkle_poly(rng.randint(0, W), rng.randint(0, H), R, R*0.30), fill=(255, 255, 255, 150))
+    for _ in range(W*H // 2600):                         # snow dots
+        x, y = rng.randint(0, W), rng.randint(0, H); r = rng.choice([2, 3])
+        sd.ellipse([x-r, y-r, x+r, y+r], fill=(255, 255, 255, rng.randint(70, 150)))
+    return Image.alpha_composite(p, sp)
+
+def bg_twilight(W, H, rng):
+    """Moonlit theme without the moon — twilight gradient + stars, twinkles, wisps."""
+    return bg_moonlit(W, H, rng, moon=False)
+
+def bg_ember(W, H, rng):
+    """Warm fiery sky: orange→red gradient, a golden low glow, soft warm clouds, and
+    rising ember motes (a far blurred layer + a crisper near layer)."""
+    p = vgrad(W, H, (255, 196, 128), (226, 104, 84)).convert("RGBA")
+    glow = Image.new("RGBA", (W, H), (0, 0, 0, 0))
+    r = int(W*0.55); cx, cy = int(W*0.5), int(H*0.46)
+    ImageDraw.Draw(glow).ellipse([cx-r, cy-r, cx+r, cy+r], fill=(255, 228, 168, 70))
+    p = Image.alpha_composite(p, glow.filter(ImageFilter.GaussianBlur(W//6)))
+    cl = Image.new("RGBA", (W, H), (0, 0, 0, 0)); cd = ImageDraw.Draw(cl)
+    for _ in range(8):                                   # soft warm clouds
+        ccx, ccy = rng.randint(0, W), rng.randint(int(H*0.08), int(H*0.72))
+        cw, ch = rng.randint(W//4, W//2), rng.randint(H//30, H//16)
+        col = rng.choice([(255, 214, 170), (255, 192, 150), (250, 168, 132)])
+        cd.ellipse([ccx-cw, ccy-ch, ccx+cw, ccy+ch], fill=col+(60,))
+    p = Image.alpha_composite(p, cl.filter(ImageFilter.GaussianBlur(W//28)))
+    emb = [(255, 226, 150), (255, 196, 110), (255, 158, 96), (255, 230, 190)]
+    far = Image.new("RGBA", (W, H), (0, 0, 0, 0)); fd = ImageDraw.Draw(far)
+    for _ in range(W*H // 6000):                         # far ember motes
+        x, y = rng.randint(0, W), rng.randint(0, H); r2 = rng.choice([2, 3, 4])
+        fd.ellipse([x-r2, y-r2, x+r2, y+r2], fill=rng.choice(emb)+(120,))
+    p = Image.alpha_composite(p, far.filter(ImageFilter.GaussianBlur(4)))
+    near = Image.new("RGBA", (W, H), (0, 0, 0, 0)); nd = ImageDraw.Draw(near)
+    for _ in range(W*H // 22000):                        # near glowing sparks
+        R = rng.randint(int(W*0.010), int(W*0.020))
+        nd.polygon(sparkle_poly(rng.randint(0, W), rng.randint(0, H), R, R*0.34),
+                   fill=(255, 240, 200, 180))
+    return Image.alpha_composite(p, near)
+
+def bg_meadow(W, H, rng):
+    """Green grass meadow: sky-blue→grass-green gradient, soft clouds + sun, a grassy
+    foreground of blades, scattered little flowers, and drifting pollen/seed motes."""
+    p = vgrad(W, H, (190, 219, 238), (120, 176, 92)).convert("RGBA")
+    glow = Image.new("RGBA", (W, H), (0, 0, 0, 0))
+    r = int(W*0.4); cx, cy = int(W*0.7), int(H*0.16)
+    ImageDraw.Draw(glow).ellipse([cx-r, cy-r, cx+r, cy+r], fill=(255, 248, 210, 70))
+    p = Image.alpha_composite(p, glow.filter(ImageFilter.GaussianBlur(W//7)))
+    cl = Image.new("RGBA", (W, H), (0, 0, 0, 0)); cd = ImageDraw.Draw(cl)
+    for _ in range(7):
+        ccx, ccy = rng.randint(0, W), rng.randint(int(H*0.04), int(H*0.5))
+        cw, ch = rng.randint(W//5, W//2), rng.randint(H//26, H//14)
+        cd.ellipse([ccx-cw, ccy-ch, ccx+cw, ccy+ch], fill=(255, 255, 255, 64))
+    p = Image.alpha_composite(p, cl.filter(ImageFilter.GaussianBlur(W//26)))
+    gr = Image.new("RGBA", (W, H), (0, 0, 0, 0)); gd = ImageDraw.Draw(gr)
+    gtop = int(H*0.74)
+    for _ in range(int(W*1.2)):                          # grass blades, fade up
+        frac = rng.random()**0.5
+        gy = gtop + int((H-gtop)*(0.10+0.90*frac)); gx = rng.randint(0, W)
+        bl = rng.randint(int(H*0.02), int(H*0.06)); sway = rng.randint(-bl//3, bl//3)
+        sh = rng.randint(-18, 18); col = (72+sh, 140+sh, 66+sh)
+        gd.line([(gx, gy), (gx+sway, gy-bl)], fill=col+(int(110+120*frac),), width=rng.choice([2, 2, 3]))
+    for _ in range(int(W/9)):                            # little flowers in the grass
+        fx, fy = rng.randint(0, W), rng.randint(gtop, H)
+        col = rng.choice([(255, 255, 255), (255, 236, 150), (255, 196, 214), (220, 200, 255)])
+        pr = rng.randint(3, 6)
+        for k in range(5):
+            ang = math.radians(k*72)
+            gd.ellipse([fx+math.cos(ang)*pr-pr, fy+math.sin(ang)*pr-pr,
+                        fx+math.cos(ang)*pr+pr, fy+math.sin(ang)*pr+pr], fill=col+(220,))
+        gd.ellipse([fx-pr//2, fy-pr//2, fx+pr//2, fy+pr//2], fill=(255, 224, 120, 240))
+    p = Image.alpha_composite(p, gr)
+    po = Image.new("RGBA", (W, H), (0, 0, 0, 0)); pod = ImageDraw.Draw(po)
+    for _ in range(W*H // 9000):                          # drifting pollen / seed motes
+        x, y = rng.randint(0, W), rng.randint(0, H); pr = rng.choice([2, 3])
+        pod.ellipse([x-pr, y-pr, x+pr, y+pr], fill=(255, 255, 240, rng.randint(60, 130)))
+    return Image.alpha_composite(p, po.filter(ImageFilter.GaussianBlur(1)))
+
+def bg_amethyst(W, H, rng):
+    """Dreamy purple: soft lilac→violet gradient, blurred bokeh orbs, drifting
+    purple petals, and white twinkle sparkles. Lovely and magical."""
+    p = vgrad(W, H, (238, 226, 248), (184, 152, 216)).convert("RGBA")
+    bo = Image.new("RGBA", (W, H), (0, 0, 0, 0)); bd = ImageDraw.Draw(bo)
+    for _ in range(16):                                  # soft bokeh orbs
+        cx, cy = rng.randint(0, W), rng.randint(0, H); r = rng.randint(W//16, W//6)
+        col = rng.choice([(255, 255, 255), (232, 204, 250), (214, 176, 240), (248, 220, 250)])
+        bd.ellipse([cx-r, cy-r, cx+r, cy+r], fill=col+(rng.randint(26, 54),))
+    p = Image.alpha_composite(p, bo.filter(ImageFilter.GaussianBlur(W//40)))
+    dot = Image.new("RGBA", (W, H), (0, 0, 0, 0)); dd = ImageDraw.Draw(dot)
+    for _ in range(W*H // 26000):                        # crisp little bokeh dots
+        x, y = rng.randint(0, W), rng.randint(0, H); r = rng.choice([3, 4, 6])
+        dd.ellipse([x-r, y-r, x+r, y+r], fill=rng.choice([(255, 255, 255), (236, 212, 250)])+(120,))
+    p = Image.alpha_composite(p, dot)
+    far, near = _drift(W, H, rng, [(230, 200, 248), (216, 180, 240), (244, 214, 250)],
+                       16000, 30000, outline=(190, 150, 220, 150))
+    p = Image.alpha_composite(Image.alpha_composite(p, far), near)
+    sp = Image.new("RGBA", (W, H), (0, 0, 0, 0)); sd = ImageDraw.Draw(sp)
+    for _ in range(W*H // 40000):
+        R = rng.randint(int(W*0.012), int(W*0.024))
+        sd.polygon(sparkle_poly(rng.randint(0, W), rng.randint(0, H), R, R*0.34), fill=(255, 255, 255, 160))
+    return Image.alpha_composite(p, sp)
+
+def bg_wizard(W, H, rng):
+    """Magical night: deep indigo gradient, a soft moon, golden stars and floating-
+    candle bokeh, twinkles, and a faint castle skyline with lit windows along the base."""
+    p = vgrad(W, H, (18, 20, 48), (44, 38, 78)).convert("RGBA")
+    lt = Image.new("RGBA", (W, H), (0, 0, 0, 0))         # lighter top band (logo legibility)
+    ImageDraw.Draw(lt).ellipse([-W//3, -int(H*0.55), W+W//3, int(H*0.30)], fill=(120, 132, 200, 90))
+    p = Image.alpha_composite(p, lt.filter(ImageFilter.GaussianBlur(W//7)))
+    gl = Image.new("RGBA", (W, H), (0, 0, 0, 0))
+    r = int(W*0.18); mx, my = int(W*0.76), int(H*0.16)
+    ImageDraw.Draw(gl).ellipse([mx-r, my-r, mx+r, my+r], fill=(220, 220, 255, 55))
+    p = Image.alpha_composite(p, gl.filter(ImageFilter.GaussianBlur(W//18)))
+    bo = Image.new("RGBA", (W, H), (0, 0, 0, 0)); bd = ImageDraw.Draw(bo)
+    for _ in range(14):                                  # floating-candle bokeh
+        cx, cy = rng.randint(0, W), rng.randint(0, int(H*0.85)); rr = rng.randint(W//18, W//7)
+        col = rng.choice([(255, 226, 150), (255, 240, 200), (250, 210, 130)])
+        bd.ellipse([cx-rr, cy-rr, cx+rr, cy+rr], fill=col+(rng.randint(20, 44),))
+    p = Image.alpha_composite(p, bo.filter(ImageFilter.GaussianBlur(W//34)))
+    st = Image.new("RGBA", (W, H), (0, 0, 0, 0)); sd = ImageDraw.Draw(st)
+    for _ in range(W*H // 2400):                          # golden / white stars
+        x, y = rng.randint(0, W), rng.randint(0, H); rr = rng.choice([1, 1, 2])
+        col = rng.choice([(255, 240, 200), (255, 255, 255), (255, 220, 150)])
+        sd.ellipse([x-rr, y-rr, x+rr, y+rr], fill=col+(rng.randint(80, 200),))
+    for _ in range(W*H // 52000):                         # twinkles
+        R = rng.randint(int(W*0.012), int(W*0.022))
+        sd.polygon(sparkle_poly(rng.randint(0, W), rng.randint(0, int(H*0.8)), R, R*0.32),
+                   fill=(255, 244, 210, 180))
+    p = Image.alpha_composite(p, st)
+    cas = Image.new("RGBA", (W, H), (0, 0, 0, 0)); cd = ImageDraw.Draw(cas)
+    ground = int(H*0.92)
+    cd.rectangle([0, ground, W, H], fill=(8, 9, 22, 255))
+    x = -int(W*0.03)
+    while x < W:                                          # castle skyline + lit windows
+        tw = rng.randint(W//16, W//9); th = rng.randint(int(H*0.04), int(H*0.12))
+        ty = ground - th
+        cd.rectangle([x, ty, x+tw, ground], fill=(10, 11, 26, 255))
+        cd.polygon([(x-5, ty), (x+tw+5, ty), (x+tw//2, ty-int(th*0.6))], fill=(10, 11, 26, 255))
+        for _ in range(rng.randint(1, 3)):
+            wx, wy = rng.randint(x+6, x+tw-6), rng.randint(ty+10, ground-10)
+            cd.ellipse([wx-3, wy-3, wx+3, wy+3], fill=(255, 208, 120, 230))
+        x += tw + rng.randint(W//70, W//26)
+    return Image.alpha_composite(p, cas)
+
 def frame_card(poster, art, x, y, cw, ch, pad, rad, th, rng):
     """Generic rounded-card frame, customised by the theme dict `th`."""
     W, H = poster.size
@@ -358,10 +733,66 @@ THEMES = {
         shadow_col=(40, 70, 80, 90), shadow_blur=22, shadow_off=16,
         border=(86, 140, 150), border_w=4, inner_line=(150, 178, 180),
         title_col=(34, 92, 104), title_halo=(250, 247, 238), pad_f=0.02),
+    "warm-flowers": dict(bg=bg_warm_flowers, card_bg=(252, 246, 238), radius_f=0.006,
+        shadow_col=(120, 70, 50, 90), shadow_blur=22, shadow_off=16,
+        border=(210, 150, 120), border_w=4, inner_line=(228, 180, 150),
+        title_col=(170, 80, 60), title_halo=(255, 250, 244), pad_f=0.02),
     "genshin": dict(bg=bg_genshin, card_bg=(255, 255, 255), radius_f=0.012,
         shadow_col=(70, 110, 160, 95), shadow_blur=24, shadow_off=18,
         border=(118, 178, 230), border_w=5, inner_line=(190, 214, 240),
         title_col=(44, 74, 128), title_halo=(255, 255, 255), pad_f=0.02),
+    "aot": dict(bg=bg_aot, card_bg=(244, 236, 220), radius_f=0.004,
+        shadow_col=(40, 28, 18, 120), shadow_blur=24, shadow_off=18,
+        border=(96, 68, 44), border_w=5, inner_line=(150, 120, 84),
+        title_col=(74, 52, 34), title_halo=(244, 236, 220), pad_f=0.018),
+    "sakura": dict(bg=bg_sakura, card_bg=(255, 255, 255), radius_f=0.012,
+        shadow_col=(150, 90, 120, 90), shadow_blur=24, shadow_off=18,
+        border=(240, 158, 190), border_w=5, inner_line=(250, 210, 224),
+        title_col=(200, 80, 120), title_halo=(255, 255, 255), pad_f=0.018),
+    "forest": dict(bg=bg_forest, card_bg=(250, 250, 242), radius_f=0.010,
+        shadow_col=(40, 70, 36, 95), shadow_blur=24, shadow_off=18,
+        border=(96, 150, 78), border_w=5, inner_line=(184, 208, 152),
+        title_col=(58, 100, 56), title_halo=(250, 250, 242), pad_f=0.018),
+    "sunset": dict(bg=bg_sunset, card_bg=(255, 250, 244), radius_f=0.012,
+        shadow_col=(150, 70, 50, 95), shadow_blur=24, shadow_off=18,
+        border=(228, 122, 92), border_w=5, inner_line=(250, 202, 182),
+        title_col=(186, 84, 60), title_halo=(255, 250, 244), pad_f=0.018),
+    "autumn": dict(bg=bg_autumn, card_bg=(252, 246, 234), radius_f=0.010,
+        shadow_col=(120, 70, 30, 95), shadow_blur=24, shadow_off=18,
+        border=(192, 112, 58), border_w=5, inner_line=(226, 182, 130),
+        title_col=(154, 84, 40), title_halo=(252, 246, 234), pad_f=0.018),
+    "moonlit": dict(bg=bg_moonlit, card_bg=(248, 249, 255), radius_f=0.012,
+        shadow_col=(10, 14, 40, 140), shadow_blur=26, shadow_off=20,
+        border=(150, 160, 214), border_w=5, inner_line=(206, 212, 240),
+        title_col=(78, 88, 142), title_halo=(248, 249, 255), pad_f=0.018),
+    "lavender": dict(bg=bg_lavender, card_bg=(255, 255, 255), radius_f=0.012,
+        shadow_col=(130, 110, 160, 90), shadow_blur=24, shadow_off=18,
+        border=(190, 168, 224), border_w=5, inner_line=(226, 214, 242),
+        title_col=(122, 92, 162), title_halo=(255, 255, 255), pad_f=0.018),
+    "frost": dict(bg=bg_frost, card_bg=(255, 255, 255), radius_f=0.012,
+        shadow_col=(70, 110, 150, 90), shadow_blur=24, shadow_off=18,
+        border=(140, 176, 214), border_w=5, inner_line=(206, 224, 242),
+        title_col=(64, 108, 150), title_halo=(255, 255, 255), pad_f=0.018),
+    "twilight": dict(bg=bg_twilight, card_bg=(248, 249, 255), radius_f=0.012,
+        shadow_col=(10, 14, 40, 140), shadow_blur=26, shadow_off=20,
+        border=(150, 160, 214), border_w=5, inner_line=(206, 212, 240),
+        title_col=(78, 88, 142), title_halo=(248, 249, 255), pad_f=0.018),
+    "ember": dict(bg=bg_ember, card_bg=(255, 248, 238), radius_f=0.010,
+        shadow_col=(150, 56, 30, 100), shadow_blur=24, shadow_off=18,
+        border=(214, 92, 60), border_w=5, inner_line=(250, 196, 168),
+        title_col=(190, 70, 44), title_halo=(255, 248, 238), pad_f=0.018),
+    "meadow": dict(bg=bg_meadow, card_bg=(250, 250, 244), radius_f=0.010,
+        shadow_col=(40, 80, 40, 95), shadow_blur=24, shadow_off=18,
+        border=(104, 162, 82), border_w=5, inner_line=(184, 210, 152),
+        title_col=(60, 104, 56), title_halo=(250, 250, 244), pad_f=0.018),
+    "amethyst": dict(bg=bg_amethyst, card_bg=(255, 255, 255), radius_f=0.012,
+        shadow_col=(110, 70, 150, 95), shadow_blur=24, shadow_off=18,
+        border=(170, 120, 200), border_w=5, inner_line=(222, 200, 238),
+        title_col=(120, 70, 162), title_halo=(255, 255, 255), pad_f=0.018),
+    "wizard": dict(bg=bg_wizard, card_bg=(22, 26, 54), radius_f=0.006,
+        shadow_col=(0, 0, 0, 150), shadow_blur=26, shadow_off=20,
+        border=(196, 164, 92), border_w=5, inner_line=(150, 126, 70),
+        title_col=(214, 184, 116), title_halo=(8, 10, 28), pad_f=0.016),
 }
 
 # --------------------------------------------------------------------------
@@ -405,7 +836,8 @@ def bg_photo(path, W, H, dim=0.5):
     return Image.alpha_composite(im, dark)
 
 def compose(images, theme, ratio, title, credit, out, base_w, font_path, font_bold, seed,
-            layout="vstack", title_image=None, title_keep_bg=False, bg_image=None, bg_dim=0.5):
+            layout="vstack", title_image=None, title_keep_bg=False, bg_image=None, bg_dim=0.5,
+            title_scale=1.0, title_contrast=1.0):
     th = THEMES[theme]
     rw, rh = (int(x) for x in ratio.split(":"))
     W = base_w; H = int(round(W * rh / rw))
@@ -417,7 +849,7 @@ def compose(images, theme, ratio, title, credit, out, base_w, font_path, font_bo
     pad = int(W * th["pad_f"])
     rad = max(6, int(W * th["radius_f"]))
     gap = int(W * 0.05)
-    title_band = int(H * 0.15) if title_image else (int(H * 0.075) if title else int(H * 0.02))
+    title_band = int(H * 0.15 * title_scale) if title_image else (int(H * 0.075) if title else int(H * 0.02))
     bottom = int(H * 0.04) if credit else int(H * 0.02)
     side_min = int(W * 0.07)
     aspects = [im.width/im.height for im in arts]
@@ -453,6 +885,10 @@ def compose(images, theme, ratio, title, credit, out, base_w, font_path, font_bo
     poster = poster.convert("RGB"); d = ImageDraw.Draw(poster)
     if title_image:
         logo = load_title_image(title_image, title_keep_bg)
+        if title_contrast != 1.0:                         # boost wordmark contrast (alpha kept)
+            r, g, b, a = logo.split()
+            rgb = ImageEnhance.Contrast(Image.merge("RGB", (r, g, b))).enhance(title_contrast)
+            logo = Image.merge("RGBA", (*rgb.split(), a))
         scale = min(W*0.66/logo.width, title_band*0.86/logo.height)
         logo = logo.resize((max(1, int(logo.width*scale)), max(1, int(logo.height*scale))),
                            Image.LANCZOS)
@@ -494,6 +930,10 @@ def main():
                     help="logo/wordmark PNG for the title slot (overrides --title); white bg auto-keyed")
     ap.add_argument("--title-keep-bg", action="store_true",
                     help="don't key out the title image's background")
+    ap.add_argument("--title-scale", type=float, default=1.0,
+                    help="enlarge/shrink the title logo (grows the title band; padding kept). Default 1.0")
+    ap.add_argument("--title-contrast", type=float, default=1.0,
+                    help="contrast boost for the title logo (e.g. 1.5 to make a silver wordmark pop). Default 1.0")
     ap.add_argument("--bg-image", default=None,
                     help="photo to use as the background (cover-fit + darkened); overrides the theme background")
     ap.add_argument("--bg-dim", type=float, default=0.5,
@@ -514,7 +954,8 @@ def main():
         ap.error(f"unknown theme '{a.theme}'. choices: {', '.join(THEMES)}")
     sz = compose(a.images, a.theme, a.ratio, a.title, a.credit, a.out,
                  a.width, a.font, a.font_bold, a.seed, a.layout,
-                 a.title_image, a.title_keep_bg, a.bg_image, a.bg_dim)
+                 a.title_image, a.title_keep_bg, a.bg_image, a.bg_dim,
+                 a.title_scale, a.title_contrast)
     print(f"saved {a.out} {sz} theme={a.theme} layout={a.layout}")
 
 if __name__ == "__main__":

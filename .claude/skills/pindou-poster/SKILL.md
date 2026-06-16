@@ -59,6 +59,19 @@ banned string. Logos are copyrighted: personal / non-commercial use only.
 | `village` | warm sky→meadow, sun, hills, terracotta cottages, grass foreground | cream card, wood-brown border + inner line | countryside |
 | `beach` | aqua→sand gradient washed with light blooms, wavy ripple strokes, foam flecks | light card, teal border + inner line | seaside |
 | `genshin` | pale light-blue gradient + bubble & twinkle-sparkle pattern + dots | white card, light-blue border + inner line | lovely sky |
+| `aot` | dusty sepia sky + weathered stone wall + grunge + vignette | aged-cream card, leather-brown border + inner line | Survey Corps |
+| `sakura` | soft pink gradient + light blooms + drifting cherry-blossom petals | white card, soft-pink border + inner line | lovely sakura |
+| `ember` | orange→red gradient + golden glow + warm clouds + ember sparks | cream card, red-orange border | warm / fiery |
+| `meadow` | sky-blue→grass-green gradient + clouds + grass blades + flowers + pollen | cream card, grass-green border | green meadow |
+| `amethyst` | soft lilac→violet gradient + bokeh orbs + sparkles + purple petals | white card, purple border | dreamy purple |
+| `wizard` | deep indigo night + moon + golden stars + candle bokeh + castle skyline | dark card, gold border | magical night |
+| `sunset` | peach→rose gradient + low sun + radial rays + cloud bands | cream card, warm border | warm dusk |
+| `forest` | green-gold gradient + god rays + golden blooms + green leaves | cream card, leaf-green border | sunlit woods |
+| `autumn` | cream→amber gradient + golden blooms + drifting maple-tone leaves | cream card, amber border | autumn |
+| `moonlit` | indigo→lavender night + glowing moon + stars + wisps | pale card, periwinkle border | moonlit night |
+| `twilight` | `moonlit` without the moon (twilight + stars + wisps) | pale card, periwinkle border | starry twilight |
+| `lavender` | soft lilac gradient + faint crescent + sparkles + lilac petals | white card, lilac border | elegant lilac |
+| `frost` | pale silver-blue gradient + faint crescent + twinkles + snow dots | white card, ice-blue border | icy elegance |
 
 **Photo background:** `--bg-image photo.jpg` replaces the theme's painted background
 with a cover-fit (scale-to-fill, center-crop) photo, darkened by a wash + vignette so
