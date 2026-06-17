@@ -17,7 +17,7 @@ import {
   type CalibrationSettings,
   type CalibrationCoefficients,
 } from "../../utils/colorCalibration";
-import { applyAdjustmentsToPixels, IDENTITY_ADJUSTMENTS, type ColorAdjustments } from "../../utils/colorAdjust";
+import { applyAdjustmentsToPixels, IDENTITY_ADJUSTMENTS, isIdentity, type ColorAdjustments } from "../../utils/colorAdjust";
 import { ColorAdjustPanel } from "../ColorAdjust/ColorAdjustPanel";
 
 // Discrete zoom levels for the import preview canvas (crop mode only)
@@ -90,6 +90,7 @@ export function ImageImportDialog({ onClose }: { onClose: () => void }) {
   } | null>(null);
 
   const [calibrationPanelOpen, setCalibrationPanelOpen] = useState(false);
+  const [adjustPanelOpen, setAdjustPanelOpen] = useState(false);
   const [previewMode, setPreviewMode] = useState<"crop" | "sample">("crop");
 
   // Denoise & comparison
@@ -832,7 +833,7 @@ export function ImageImportDialog({ onClose }: { onClose: () => void }) {
     }
   };
 
-  const handleCompare = async () => {
+  const runCompare = useCallback(async (preserveSelection: boolean) => {
     if (!filePath) return;
     setIsProcessing(true);
     try {
@@ -847,24 +848,37 @@ export function ImageImportDialog({ onClose }: { onClose: () => void }) {
         { algo: "euclidean", label: "RGB" },
         { algo: "ciede2000", label: "CIELAB" },
       ];
-      const results: CompareItem[] = [];
 
       const calibratedPixels = applyCalibration(data.pixels as number[], calibrationCoef);
       const adjustedPixels = applyAdjustmentsToPixels(calibratedPixels, adjustments);
-      for (const { algo, label } of algos) {
-        const matched = matchImageToMard(adjustedPixels, algo, colorGroupId, colorOverrides);
-        results.push({ label, algo, indices: matched });
-      }
+      const results: CompareItem[] = algos.map(({ algo, label }) => ({
+        label,
+        algo,
+        indices: matchImageToMard(adjustedPixels, algo, colorGroupId, colorOverrides),
+      }));
 
       setCompareResults(results);
       setShowComparison(true);
-      setSelectedCompareIdx(null);
+      if (!preserveSelection) setSelectedCompareIdx(null);
     } catch (e) {
       await appAlert(`对比生成失败: ${e}`);
     } finally {
       setIsProcessing(false);
     }
-  };
+  }, [filePath, getCompensatedCrop, maxDimension, sharpEdge, widthRatio, calibrationCoef, adjustments, colorGroupId, colorOverrides]);
+
+  const handleCompare = () => runCompare(false);
+
+  // Live re-compare when the max-dimension slider changes while comparison is open,
+  // so the side-by-side preview updates without re-clicking 对比. Debounced because
+  // each run re-rasterizes the source image at the new resolution.
+  useEffect(() => {
+    if (!showComparison || !filePath) return;
+    const t = setTimeout(() => { void runCompare(true); }, 250);
+    return () => clearTimeout(t);
+    // Intentionally only react to maxDimension changes here.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [maxDimension]);
 
   const handleConfirm = () => {
     if (!matchedPreview || !actualSize) return;
@@ -1496,9 +1510,22 @@ export function ImageImportDialog({ onClose }: { onClose: () => void }) {
                 </div>
               </div>
             )}
-            <div className="px-3 pb-3 pt-3 border-t">
-              <div className="text-xs font-medium text-gray-600 mb-2">图像调整</div>
-              <ColorAdjustPanel value={adjustments} onChange={setAdjustments} />
+            <div className="border-t">
+              <button
+                type="button"
+                onClick={() => setAdjustPanelOpen((v) => !v)}
+                className="w-full px-3 py-2 flex justify-between items-center text-xs hover:bg-gray-50"
+              >
+                <span>{adjustPanelOpen ? "▼" : "▶"} 图像调整</span>
+                <span className={isIdentity(adjustments) ? "text-gray-400" : "text-blue-600"}>
+                  {isIdentity(adjustments) ? "无调整" : "已调整"}
+                </span>
+              </button>
+              {adjustPanelOpen && (
+                <div className="px-3 pb-3">
+                  <ColorAdjustPanel value={adjustments} onChange={setAdjustments} />
+                </div>
+              )}
             </div>
           </div>
 
@@ -1621,6 +1648,33 @@ export function ImageImportDialog({ onClose }: { onClose: () => void }) {
           {/* Comparison side-by-side */}
           {showComparison && actualSize && compareResults.length > 0 && (
             <div className="border rounded p-2 bg-gray-50">
+              {/* Live max-dimension slider — shares maxDimension with the controls above,
+                  re-runs the compare automatically (see debounced effect). Does NOT clear
+                  actualSize, otherwise this whole block would unmount mid-adjust. */}
+              <div className="flex items-center gap-2 mb-2">
+                <label className="text-[10px] text-gray-500 whitespace-nowrap">最长尺寸:</label>
+                <input
+                  type="range"
+                  min={8}
+                  max={200}
+                  value={maxDimension}
+                  onChange={(e) => setMaxDimension(Number(e.target.value))}
+                  className="flex-1 h-3"
+                  data-testid="compare-maxdim-range"
+                />
+                <input
+                  type="number"
+                  min={4}
+                  max={200}
+                  value={maxDimension}
+                  onChange={(e) => setMaxDimension(Math.min(200, Math.max(4, Number(e.target.value))))}
+                  className="w-14 px-1 py-0.5 text-[10px] border rounded text-center"
+                  data-testid="compare-maxdim-number"
+                />
+                {isProcessing && (
+                  <span className="text-[10px] text-gray-400 whitespace-nowrap">更新中…</span>
+                )}
+              </div>
               <div className="flex items-center gap-2 mb-2">
                 <p className="text-[10px] text-gray-500">
                   点击选择 ({actualSize.width}×{actualSize.height}):

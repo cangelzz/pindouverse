@@ -96,6 +96,33 @@ test.describe("Image import (regression for 0.8.4)", () => {
     await expect(page.getByRole("button", { name: /^CIELAB/ })).toBeVisible();
   });
 
+  test("对比模式: 拖动最长尺寸滑块自动重算 (无需再点对比)", async ({ page }) => {
+    await setupPage(page);
+    await loadProject(page);
+    await openImportDialog(page);
+
+    await stageReply(page, "showOpenDialog", "/img.png");
+    await stageReply(page, "readFile", { data: PNG_BASE64 });
+    await clickButton(page, "选择文件");
+    await expect(page.getByText(/原图:\s*32×32/)).toBeVisible({ timeout: 5_000 });
+
+    await clickButton(page, "对比多种组合");
+    await expect(page.getByRole("button", { name: /^RGB/ })).toBeVisible({ timeout: 10_000 });
+
+    // Source is 32×32; default max dim 52 leaves it at 32×32 (no upscale).
+    await expect(page.getByText(/点击选择 \(32×32\)/)).toBeVisible({ timeout: 8_000 });
+
+    // The compare-area max-dimension slider shares state with the controls above.
+    // Dropping it below 32 must shrink the output and re-run the compare on its
+    // own — without clicking 对比 again.
+    await page.getByTestId("compare-maxdim-number").fill("16");
+
+    await expect(page.getByText(/点击选择 \(16×16\)/)).toBeVisible({ timeout: 8_000 });
+    // Both algorithm panels are still present after the auto re-compare.
+    await expect(page.getByRole("button", { name: /^RGB/ })).toBeVisible();
+    await expect(page.getByRole("button", { name: /^CIELAB/ })).toBeVisible();
+  });
+
   test("确认导入 → loads matched data into editor", async ({ page }) => {
     await setupPage(page);
     await loadProject(page);
