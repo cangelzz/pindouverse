@@ -168,6 +168,97 @@ test.describe("Selection actions — store", () => {
     expect(await getStoreState<any[]>(page, "undoStack")).toEqual([]);
   });
 
+  test("mirrorFloatingSelection flips floating cells in place, stays floating", async ({ page }) => {
+    await setupPage(page);
+    await loadProject(page);
+    await callAction(page, "newCanvas", [4, 4]);
+    await page.evaluate(() => {
+      (window as any).__pindouStore.setState({
+        floatingSelection: { cells: new Map([["0,0", { colorIndex: 1 }], ["0,1", { colorIndex: 2 }]]), offsetRow: 0, offsetCol: 0 },
+      });
+    });
+    await callAction(page, "mirrorFloatingSelection", ["horizontal"]);
+    const fs = await page.evaluate(() => {
+      const f = (window as any).__pindouStore.getState().floatingSelection;
+      return f ? Object.fromEntries([...f.cells.entries()].map(([k, v]: any) => [k, v.colorIndex])) : null;
+    });
+    expect(fs).toEqual({ "0,0": 2, "0,1": 1 }); // horizontal flip within cols [0..1]
+  });
+
+  test("mirrorFloatingSelection vertical flips rows within bbox", async ({ page }) => {
+    await setupPage(page);
+    await loadProject(page);
+    await callAction(page, "newCanvas", [4, 4]);
+    await page.evaluate(() => {
+      (window as any).__pindouStore.setState({
+        floatingSelection: { cells: new Map([["0,0", { colorIndex: 1 }], ["1,0", { colorIndex: 2 }]]), offsetRow: 0, offsetCol: 0 },
+      });
+    });
+    await callAction(page, "mirrorFloatingSelection", ["vertical"]);
+    const fs = await page.evaluate(() => {
+      const f = (window as any).__pindouStore.getState().floatingSelection;
+      return f ? Object.fromEntries([...f.cells.entries()].map(([k, v]: any) => [k, v.colorIndex])) : null;
+    });
+    expect(fs).toEqual({ "0,0": 2, "1,0": 1 }); // vertical flip within rows [0..1]
+  });
+
+  test("discardFloatingSelection drops the float without writing the layer", async ({ page }) => {
+    await setupPage(page);
+    await loadProject(page);
+    await callAction(page, "newCanvas", [4, 4]);
+    await page.evaluate(() => {
+      (window as any).__pindouStore.setState({
+        floatingSelection: { cells: new Map([["0,0", { colorIndex: 7 }]]), offsetRow: 0, offsetCol: 0 },
+      });
+    });
+    await callAction(page, "discardFloatingSelection", []);
+    const fs = await getStoreState(page, "floatingSelection");
+    expect(fs).toBe(null);
+    const v = await page.evaluate(() => (window as any).__pindouStore.getState().layers[0].data[0][0].colorIndex);
+    expect(v).toBe(null); // nothing committed
+  });
+
+  test("commitFloatingSelection re-selects the dropped footprint", async ({ page }) => {
+    await setupPage(page);
+    await loadProject(page);
+    await callAction(page, "newCanvas", [4, 4]);
+    await page.evaluate(() => {
+      (window as any).__pindouStore.setState({
+        floatingSelection: { cells: new Map([["0,0", { colorIndex: 3 }], ["0,1", { colorIndex: 3 }]]), offsetRow: 1, offsetCol: 1 },
+      });
+    });
+    await callAction(page, "commitFloatingSelection", []);
+    expect(await getStoreState(page, "floatingSelection")).toBe(null);
+    const v = await page.evaluate(() => (window as any).__pindouStore.getState().layers[0].data[1][1].colorIndex);
+    expect(v).toBe(3);
+    const sel = await page.evaluate(() => {
+      const s = (window as any).__pindouStore.getState().selection;
+      return s ? [...s].sort() : null;
+    });
+    expect(sel).toEqual(["1,1", "1,2"]); // footprint at offset (1,1): local (0,0)->(1,1), (0,1)->(1,2)
+  });
+
+  test("pasteClipboard over an existing float clears the stale footprint selection", async ({ page }) => {
+    await setupPage(page);
+    await loadProject(page);
+    await callAction(page, "newCanvas", [4, 4]);
+    // Force the internal-clipboard fallback (avoid real navigator.clipboard in headless),
+    // seed a clipboard payload, an existing float, and a stale selection.
+    await page.evaluate(() => {
+      (navigator as any).clipboard = { readText: () => Promise.reject(new Error("no system clipboard")) };
+      (window as any).__pindouStore.setState({
+        clipboard: { cells: new Map([["0,0", { colorIndex: 5 }]]), width: 1, height: 1 },
+        floatingSelection: { cells: new Map([["0,0", { colorIndex: 9 }]]), offsetRow: 0, offsetCol: 0 },
+        selection: new Set(["3,3"]),
+        selectionBounds: { r1: 3, c1: 3, r2: 3, c2: 3 },
+      });
+    });
+    await callAction(page, "pasteClipboard", []);
+    // a new float is installed, and no stale selection remains
+    expect(await getStoreState(page, "floatingSelection")).not.toBe(null);
+    expect(await getStoreState(page, "selection")).toBe(null);
+  });
+
   test("moveSelectionToLayer transfers cells to existing target layer", async ({ page }) => {
     await setupPage(page);
     await loadProject(page);
@@ -198,6 +289,112 @@ test.describe("Selection actions — store", () => {
     expect(await cellColor(page, 0, 3, 3)).toBe(null);
     // Source outside selection intact
     expect(await cellColor(page, 0, 0, 0)).toBe(1);
+  });
+
+  test("copySelectionAllVisibleLayers flattens visible layers into clipboard", async ({ page }) => {
+    await setupPage(page);
+    await loadProject(page);
+    await callAction(page, "newCanvas", [4, 4]);
+    await callAction(page, "batchSetCells", [[{ row: 0, col: 0, colorIndex: 8 }]]); // bottom layer has color 8
+    await callAction(page, "addLayer", ["上层"]); // active(upper) layer is empty at (0,0)
+    await setStoreState(page, { selection: new Set(["0,0"]), selectionBounds: { r1: 0, c1: 0, r2: 0, c2: 0 } });
+
+    await callAction(page, "copySelectionAllVisibleLayers", []);
+    const clip = await page.evaluate(() => {
+      const cb = (window as any).__pindouStore.getState().clipboard;
+      return cb ? Object.fromEntries([...cb.cells.entries()].map(([k, v]: any) => [k, v.colorIndex])) : null;
+    });
+    expect(clip).toEqual({ "0,0": 8 }); // grabbed from the lower visible layer
+  });
+
+  test("copySelectionAllVisibleLayers: top-most visible layer wins", async ({ page }) => {
+    await setupPage(page);
+    await loadProject(page);
+    await callAction(page, "newCanvas", [4, 4]);
+    await callAction(page, "batchSetCells", [[{ row: 0, col: 0, colorIndex: 8 }]]); // bottom
+    await callAction(page, "addLayer", ["上层"]);
+    await callAction(page, "batchSetCells", [[{ row: 0, col: 0, colorIndex: 3 }]]); // upper active, same cell
+    await setStoreState(page, { selection: new Set(["0,0"]), selectionBounds: { r1: 0, c1: 0, r2: 0, c2: 0 } });
+
+    await callAction(page, "copySelectionAllVisibleLayers", []);
+    const clip = await page.evaluate(() => {
+      const cb = (window as any).__pindouStore.getState().clipboard;
+      return cb ? Object.fromEntries([...cb.cells.entries()].map(([k, v]: any) => [k, v.colorIndex])) : null;
+    });
+    expect(clip).toEqual({ "0,0": 3 }); // top-most visible wins
+  });
+
+  test("copySelectionAllVisibleLayers: hidden layer ignored; all-empty keeps clipboard", async ({ page }) => {
+    await setupPage(page);
+    await loadProject(page);
+    await callAction(page, "newCanvas", [4, 4]);
+    // middle layer has content but will be hidden; bottom + active upper are empty at (0,0)
+    await callAction(page, "addLayer", ["中"]); // layer[1], active
+    await callAction(page, "batchSetCells", [[{ row: 0, col: 0, colorIndex: 8 }]]);
+    const midId = await page.evaluate(() => (window as any).__pindouStore.getState().layers[1].id);
+    await callAction(page, "setLayerVisible", [midId, false]); // hide it
+    await callAction(page, "addLayer", ["上"]); // layer[2], active, empty at (0,0)
+    await setStoreState(page, {
+      selection: new Set(["0,0"]),
+      selectionBounds: { r1: 0, c1: 0, r2: 0, c2: 0 },
+    });
+    // Set sentinel clipboard via page.evaluate to avoid nested-Map serialization issues.
+    await page.evaluate(() => {
+      (window as any).__pindouStore.setState({
+        clipboard: { cells: new Map([["9,9", { colorIndex: 99 }]]), width: 1, height: 1 },
+      });
+    });
+
+    await callAction(page, "copySelectionAllVisibleLayers", []);
+    // only the hidden layer had content → nothing copied → sentinel clipboard preserved
+    const clip = await page.evaluate(() => {
+      const cb = (window as any).__pindouStore.getState().clipboard;
+      return cb ? Object.fromEntries([...cb.cells.entries()].map(([k, v]: any) => [k, v.colorIndex])) : null;
+    });
+    expect(clip).toEqual({ "9,9": 99 });
+  });
+
+  test("floating loop: duplicate → commit re-selects footprint → duplicate again keeps cycling", async ({ page }) => {
+    await setupPage(page);
+    await loadProject(page);
+    await callAction(page, "newCanvas", [4, 4]);
+    await callAction(page, "batchSetCells", [[{ row: 0, col: 0, colorIndex: 6 }]]);
+    await setStoreState(page, { selection: new Set(["0,0"]), selectionBounds: { r1: 0, c1: 0, r2: 0, c2: 0 } });
+
+    // duplicate → floating, selection cleared
+    await callAction(page, "duplicateSelectionAsFloating", []);
+    expect(await getStoreState(page, "floatingSelection")).not.toBe(null);
+    expect(await getStoreState(page, "selection")).toBe(null);
+
+    // commit → float lands, footprint re-selected
+    await callAction(page, "commitFloatingSelection", []);
+    expect(await getStoreState(page, "floatingSelection")).toBe(null);
+    const sel = await page.evaluate(() => {
+      const s = (window as any).__pindouStore.getState().selection;
+      return s ? [...s].sort() : null;
+    });
+    expect(sel).toEqual(["0,0"]);
+
+    // duplicate again works because we have a selection again
+    await callAction(page, "duplicateSelectionAsFloating", []);
+    expect(await getStoreState(page, "floatingSelection")).not.toBe(null);
+    // original content remains on the layer
+    const v = await page.evaluate(() => (window as any).__pindouStore.getState().layers[0].data[0][0].colorIndex);
+    expect(v).toBe(6);
+  });
+
+  test("selectionOnlyOnOtherLayers: true when active empty but a visible layer has content", async ({ page }) => {
+    await setupPage(page);
+    await loadProject(page);
+    await callAction(page, "newCanvas", [4, 4]);
+    await callAction(page, "batchSetCells", [[{ row: 0, col: 0, colorIndex: 9 }]]); // bottom has content
+    await callAction(page, "addLayer", ["上层"]); // active = empty upper
+    await setStoreState(page, { selection: new Set(["0,0"]), selectionBounds: { r1: 0, c1: 0, r2: 0, c2: 0 } });
+    expect(await callAction(page, "selectionOnlyOnOtherLayers", [])).toBe(true);
+
+    // when the active layer itself has the content → false
+    await callAction(page, "batchSetCells", [[{ row: 0, col: 0, colorIndex: 3 }]]);
+    expect(await callAction(page, "selectionOnlyOnOtherLayers", [])).toBe(false);
   });
 });
 
@@ -295,6 +492,29 @@ test.describe("Selection actions — UI", () => {
     await expect(page.getByRole("menuitem", { name: /^移到新图层$/ })).toBeVisible();
   });
 
+  test("floating region: right-click menu mirrors in place and stays floating", async ({ page }) => {
+    await setupPage(page);
+    await loadProject(page);
+    await callAction(page, "newCanvas", [6, 6]);
+    await callAction(page, "batchSetCells", [[{ row: 0, col: 0, colorIndex: 4 }, { row: 0, col: 1, colorIndex: 5 }]]);
+    await setStoreState(page, { selection: new Set(["0,0", "0,1"]), selectionBounds: { r1: 0, c1: 0, r2: 0, c2: 1 } });
+    await callAction(page, "duplicateSelectionAsFloating", []);
+    expect(await getStoreState(page, "floatingSelection")).not.toBe(null);
+
+    const canvas = page.locator("canvas").first();
+    const box = await canvas.boundingBox();
+    if (!box) throw new Error("canvas not visible");
+    await page.mouse.click(box.x + 12, box.y + 12, { button: "right" });
+    await page.getByRole("menuitem", { name: /^镜像$/ }).hover();
+    await page.getByRole("menuitem", { name: "水平翻转" }).click();
+
+    const fs = await page.evaluate(() => {
+      const f = (window as any).__pindouStore.getState().floatingSelection;
+      return f ? Object.fromEntries([...f.cells.entries()].map(([k, v]: any) => [k, v.colorIndex])) : null;
+    });
+    expect(fs).toEqual({ "0,0": 5, "0,1": 4 }); // flipped, still floating
+  });
+
   test("SelectionActionsChip disappears when selection is cleared", async ({ page }) => {
     await setupPage(page);
     await loadProject(page);
@@ -347,6 +567,26 @@ test.describe("Selection actions — UI", () => {
     // (the seed has multiple cells of color 2). After replace, that color
     // in the selection should be gone, so cell (1,1) must change.
     expect(afterColor).not.toBe(beforeColor);
+  });
+
+  test("on-action guard: mirror on other-layer-only selection asks to confirm", async ({ page }) => {
+    await setupPage(page);
+    await loadProject(page);
+    await callAction(page, "newCanvas", [6, 6]);
+    await callAction(page, "batchSetCells", [[{ row: 0, col: 0, colorIndex: 9 }]]);
+    await callAction(page, "addLayer", ["上层"]);
+    await setStoreState(page, { selection: new Set(["0,0"]), selectionBounds: { r1: 0, c1: 0, r2: 0, c2: 0 } });
+
+    const canvas = page.locator("canvas").first();
+    const box = await canvas.boundingBox();
+    if (!box) throw new Error("canvas not visible");
+    await page.mouse.click(box.x + 8, box.y + 8, { button: "right" });
+    await page.getByRole("menuitem", { name: /^镜像$/ }).hover();
+    await page.getByRole("menuitem", { name: "水平翻转" }).click();
+
+    const modal = page.locator("div.fixed.inset-0").filter({ hasText: "选区不在当前图层" }).last();
+    await expect(modal).toBeVisible({ timeout: 3000 });
+    await modal.getByRole("button", { name: /^取消$/ }).click();
   });
 });
 

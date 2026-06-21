@@ -49,8 +49,10 @@ function ColorSwatch({ colorIndex, overrides }: { colorIndex: number | null; ove
 
 /** Render the inline summary of a history action (1-pixel: from→to + pos; many: count) */
 function renderActionSummary(action: HistoryAction, overrides: ColorOverrideMap) {
-  if (action.length === 1) {
-    const e = action[0];
+  if (action.kind === "layers") return <span>图层快照</span>;
+  const { entries } = action;
+  if (entries.length === 1) {
+    const e = entries[0];
     return (
       <span className="flex items-center gap-1 min-w-0">
         <ColorSwatch colorIndex={e.prevColorIndex} overrides={overrides} />
@@ -60,11 +62,12 @@ function renderActionSummary(action: HistoryAction, overrides: ColorOverrideMap)
       </span>
     );
   }
-  return <span>{action.length} 个像素变更</span>;
+  return <span>{entries.length} 个像素变更</span>;
 }
 
 /** Verbose tooltip text describing an action */
 function describeAction(action: HistoryAction, overrides: ColorOverrideMap): string {
+  if (action.kind === "layers") return "图层快照（结构性操作）";
   const label = (idx: number | null) => {
     if (idx === null) return "空";
     const c = MARD_COLORS[idx];
@@ -73,9 +76,10 @@ function describeAction(action: HistoryAction, overrides: ColorOverrideMap): str
     return ov ? `${c.code}(${ov.hex})` : `${c.code} ${c.name}`;
   };
   const fmt = (e: HistoryEntry) => `(${e.col + 1},${e.row + 1}) ${label(e.prevColorIndex)} → ${label(e.newColorIndex)}`;
-  if (action.length <= 5) return action.map(fmt).join("\n");
-  const head = action.slice(0, 5).map(fmt).join("\n");
-  return `${head}\n... 共 ${action.length} 个像素变更`;
+  const { entries } = action;
+  if (entries.length <= 5) return entries.map(fmt).join("\n");
+  const head = entries.slice(0, 5).map(fmt).join("\n");
+  return `${head}\n... 共 ${entries.length} 个像素变更`;
 }
 
 /** Extract hex color (#RRGGBB) from an rgba() string */
@@ -188,6 +192,7 @@ function App() {
   const setLayerOpacity = useEditorStore((s) => s.setLayerOpacity);
   const duplicateLayer = useEditorStore((s) => s.duplicateLayer);
   const moveLayer = useEditorStore((s) => s.moveLayer);
+  const mergeLayerDown = useEditorStore((s) => s.mergeLayerDown);
   const renameLayer = useEditorStore((s) => s.renameLayer);
   const showActiveLayerTag = useEditorStore((s) => s.showActiveLayerTag);
   const setShowActiveLayerTag = useEditorStore((s) => s.setShowActiveLayerTag);
@@ -781,6 +786,20 @@ function App() {
                           className="px-1 py-0 border rounded text-[9px] hover:bg-gray-100"
                           title="复制"
                         >复制</button>
+                        {layerIdx > 0 && (
+                          <button
+                            onClick={async () => {
+                              const lower = layers[layerIdx - 1];
+                              const ok = await appConfirm(
+                                `向下合并？「${layer.name}」将并入「${lower.name}」，合并为一层。\n切换图层前可用 Ctrl+Z 撤销。`,
+                                { title: "合并图层" },
+                              );
+                              if (ok) mergeLayerDown(layer.id);
+                            }}
+                            className="px-1 py-0 border rounded text-[9px] hover:bg-gray-100"
+                            title="合并到下层（与下方图层合为一层）"
+                          >合并到下层</button>
+                        )}
                         {layers.length > 1 && (
                           <button
                             onClick={() => removeLayer(layer.id)}

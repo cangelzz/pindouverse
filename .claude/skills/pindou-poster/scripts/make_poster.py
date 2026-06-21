@@ -20,7 +20,7 @@ Run with --list-themes to see available styles.
 Requires: Pillow.  Fonts: tries Windows MS YaHei; override with --font / --font-bold.
 """
 import argparse, math, random, sys
-from PIL import Image, ImageDraw, ImageFilter, ImageFont, ImageOps, ImageEnhance
+from PIL import Image, ImageDraw, ImageFilter, ImageFont, ImageOps, ImageEnhance, ImageChops
 
 # --------------------------------------------------------------------------
 # 1. AUTO-CROP: isolate the bead grid from a PindouVerse export
@@ -388,6 +388,32 @@ def bg_aot(W, H, rng):
     dark = Image.new("RGBA", (W, H), (0, 0, 0, 120)); dark.putalpha(ImageOps.invert(vig))
     return Image.alpha_composite(p, dark)
 
+def bg_aot_brick(W, H, rng):
+    """Attack on Titan alt: a RED BRICK wall filling the whole frame, in a lighter dusty-red
+    tone so the title logo and bead art stand out. A faint vertical gradient adds depth.
+    Background only — the bead-art card is pasted on top afterwards, so the bead colors stay
+    exactly as exported. A brighter, cleaner companion to the sepia-walled `aot` theme."""
+    p = vgrad(W, H, (208, 152, 140), (184, 122, 110)).convert("RGBA")  # light dusty-red, soft
+    wall = Image.new("RGBA", (W, H), (0, 0, 0, 0)); wd = ImageDraw.Draw(wall)
+    bh = max(18, int(H*0.045)); bw = max(40, int(W*0.130))
+    for ri, yy in enumerate(range(0, H, bh)):               # mortared brick courses, full height
+        ox = bw//2 if ri % 2 else 0
+        for xx in range(-bw, W+bw, bw):
+            x0 = xx + ox; sh = rng.randint(-14, 14); hv = rng.randint(-6, 6)
+            wd.rectangle([x0, yy, x0+bw-1, yy+bh-1],
+                         fill=(200+sh, 130+sh+hv, 118+sh, 255),
+                         outline=(152, 94, 84, 255), width=3)
+    p = Image.alpha_composite(p, wall.filter(ImageFilter.GaussianBlur(0.6)))
+    gr = Image.new("RGBA", (W, H), (0, 0, 0, 0)); gd = ImageDraw.Draw(gr)
+    for _ in range(W*H // 1400):                             # faint grain (tiny, not dots)
+        x, y = rng.randint(0, W), rng.randint(0, H)
+        if rng.random() < 0.5:
+            gd.point((x, y), fill=(150, 92, 82, rng.randint(0, 26)))
+        else:
+            gd.point((x, y), fill=(236, 212, 202, rng.randint(0, 22)))
+    p = Image.alpha_composite(p, gr)
+    return p
+
 def bg_sakura(W, H, rng):
     """Lovely sakura sky: a soft pink gradient, gentle light blooms, and drifting
     cherry-blossom petals — a far blurred layer for depth and a crisper near layer."""
@@ -674,6 +700,191 @@ def bg_wizard(W, H, rng):
         x += tw + rng.randint(W//70, W//26)
     return Image.alpha_composite(p, cas)
 
+def _edge_pos(W, H, rng, mx=0.30, top=0.16, bot=0.97, ymin=0.0):
+    """Sample a point biased to the page margins, avoiding the central card box
+    (|x-mid| < mx*W and top*H < y < bot*H) and never above ymin*H (keeps the top
+    logo band clear). Decorations land in the side strips, lower band and corners."""
+    x = y = 0
+    for _ in range(12):
+        x, y = rng.randint(0, W), rng.randint(int(H*ymin), H)
+        if not (abs(x - W*0.5) < W*mx and H*top < y < H*bot):
+            return x, y
+    return x, y
+
+def bg_alchemy(W, H, rng):
+    """Alchemist's field notes (Edward): aged-parchment gradient with a warm glow,
+    faint sepia transmutation circles (ring + inscribed pentagram + tick marks),
+    benzene-ring molecule hexagons, and scattered periodic-table element cells.
+    Decorations hug the page margins so the centered card doesn't bury them."""
+    p = vgrad(W, H, (238, 226, 200), (212, 190, 152)).convert("RGBA")
+    glow = Image.new("RGBA", (W, H), (0, 0, 0, 0))               # warm lamp glow
+    r = int(W*0.52); cx, cy = int(W*0.5), int(H*0.42)
+    ImageDraw.Draw(glow).ellipse([cx-r, cy-r, cx+r, cy+r], fill=(212, 150, 70, 30))
+    p = Image.alpha_composite(p, glow.filter(ImageFilter.GaussianBlur(W//6)))
+    lay = Image.new("RGBA", (W, H), (0, 0, 0, 0)); d = ImageDraw.Draw(lay)
+    ink = (96, 48, 30)                                          # deep sepia ink
+    corners = [(int(W*0.08), int(H*0.12)), (int(W*0.92), int(H*0.12)),
+               (int(W*0.08), int(H*0.88)), (int(W*0.92), int(H*0.88))]
+    for ccx, ccy in corners:                                     # transmutation circles in corners
+        R = rng.randint(int(W*0.13), int(W*0.20)); a = rng.randint(46, 66); col = ink + (a,)
+        d.ellipse([ccx-R, ccy-R, ccx+R, ccy+R], outline=col, width=3)
+        ri = int(R*0.80); d.ellipse([ccx-ri, ccy-ri, ccx+ri, ccy+ri], outline=col, width=2)
+        ph = rng.uniform(0, 72)
+        pts = [(ccx+ri*math.sin(math.radians(k*72+ph)), ccy-ri*math.cos(math.radians(k*72+ph)))
+               for k in range(5)]
+        d.line([pts[i] for i in (0, 2, 4, 1, 3, 0)], fill=col, width=2)   # pentagram
+        for k in range(0, 360, 15):                             # outer ticks
+            a1 = math.radians(k)
+            d.line([(ccx+R*math.sin(a1), ccy-R*math.cos(a1)),
+                    (ccx+R*1.05*math.sin(a1), ccy-R*1.05*math.cos(a1))], fill=col, width=1)
+    for _ in range(rng.randint(14, 18)):                        # benzene-ring hexagons (margins)
+        hx, hy = _edge_pos(W, H, rng); s = rng.randint(int(W*0.03), int(W*0.06))
+        a = rng.randint(40, 58); col = ink + (a,)
+        hp = [(hx+s*math.sin(math.radians(k*60)), hy-s*math.cos(math.radians(k*60))) for k in range(6)]
+        d.polygon(hp, outline=col)
+        hi = [(hx+s*0.66*math.sin(math.radians(k*60)), hy-s*0.66*math.cos(math.radians(k*60))) for k in range(6)]
+        d.polygon(hi, outline=col)                              # inner ring (aromatic)
+    try:
+        fsym = ImageFont.truetype("C:/Windows/Fonts/arialbd.ttf", max(15, W//34))
+        fnum = ImageFont.truetype("C:/Windows/Fonts/arial.ttf", max(9, W//72))
+    except Exception:
+        fsym = fnum = ImageFont.load_default()
+    ELE = [("H", 1), ("C", 6), ("N", 7), ("O", 8), ("Na", 11), ("P", 15), ("S", 16), ("Cl", 17),
+           ("K", 19), ("Ca", 20), ("Fe", 26), ("Cu", 29), ("Ag", 47), ("Au", 79), ("Hg", 80), ("Pb", 82)]
+    cell = max(64, W//15)
+    for _ in range(rng.randint(18, 22)):                        # periodic-table cells (margins)
+        px, py = _edge_pos(W, H, rng)
+        ex = min(max(0, px-cell//2), W-cell); ey = min(max(0, py-cell//2), H-cell)
+        sym, num = rng.choice(ELE); a = rng.randint(46, 66); col = ink + (a,)
+        d.rectangle([ex, ey, ex+cell, ey+cell], outline=col, width=2)
+        d.text((ex+cell*0.12, ey+cell*0.05), str(num), font=fnum, fill=col)
+        d.text((ex+cell*0.16, ey+cell*0.30), sym, font=fsym, fill=col)
+    p = Image.alpha_composite(p, lay)
+    spec = Image.new("RGBA", (W, H), (0, 0, 0, 0)); sd = ImageDraw.Draw(spec)
+    for _ in range(W*H // 800):                                 # faint ink speckle
+        sd.point((rng.randint(0, W), rng.randint(0, H)), fill=(110, 70, 50, rng.randint(0, 26)))
+    return Image.alpha_composite(p, spec)
+
+def _sword_tile(L, col, edge):
+    """A small upward-pointing sword silhouette on a transparent LxL tile."""
+    t = Image.new("RGBA", (L, L), (0, 0, 0, 0)); d = ImageDraw.Draw(t)
+    cx = L//2; w = max(6, L//16)
+    bt, bb = int(L*0.05), int(L*0.60)                            # blade top/bottom
+    d.polygon([(cx, bt), (cx+w, bb), (cx-w, bb)], fill=col, outline=edge)
+    d.line([(cx, bt+w), (cx, bb-w)], fill=edge, width=1)         # fuller
+    gw = int(L*0.20)                                             # crossguard
+    d.rectangle([cx-gw, bb-w//2, cx+gw, bb+w//2], fill=col, outline=edge)
+    d.rectangle([cx-w//2, bb, cx+w//2, int(L*0.82)], fill=col, outline=edge)   # grip
+    pr = int(w*0.9); py = int(L*0.82)                            # pommel
+    d.ellipse([cx-pr, py-pr, cx+pr, py+pr], fill=col, outline=edge)
+    return t
+
+def _shield_tile(L, col, edge):
+    """A heater shield that clearly reads as one: filled body with a thick rim,
+    an inner rim line, a heraldic cross dividing it into quarters, rivets around
+    the border and a raised center boss."""
+    t = Image.new("RGBA", (L, L), (0, 0, 0, 0)); d = ImageDraw.Draw(t)
+    pts = [(0.14, 0.12), (0.50, 0.07), (0.86, 0.12), (0.86, 0.44),
+           (0.74, 0.68), (0.50, 0.93), (0.26, 0.68), (0.14, 0.44)]
+    P = [(x*L, y*L) for x, y in pts]
+    d.polygon(P, fill=col)
+    d.line(P + [P[0]], fill=edge, width=max(2, L//22))          # thick outer rim
+    cx, cy = 0.5*L, 0.46*L
+    Pin = [(cx+(px-cx)*0.82, cy+(py-cy)*0.82) for px, py in P]   # inner rim
+    d.line(Pin + [Pin[0]], fill=edge, width=max(1, L//44))
+    d.line([(cx, 0.11*L), (cx, 0.88*L)], fill=edge, width=max(1, L//34))      # cross: vertical
+    d.line([(0.16*L, 0.40*L), (0.84*L, 0.40*L)], fill=edge, width=max(1, L//34))  # cross: horizontal
+    for fx, fy in [(0.20, 0.16), (0.50, 0.10), (0.80, 0.16), (0.83, 0.40),
+                   (0.68, 0.66), (0.32, 0.66), (0.17, 0.40)]:    # border rivets
+        rr = max(2, L//34)
+        d.ellipse([fx*L-rr, fy*L-rr, fx*L+rr, fy*L+rr], fill=edge)
+    br = L*0.085                                                 # raised center boss
+    d.ellipse([cx-br, cy-br, cx+br, cy+br], outline=edge, width=max(2, L//40))
+    d.ellipse([cx-br*0.42, cy-br*0.42, cx+br*0.42, cy+br*0.42], fill=edge)
+    return t
+
+def bg_blades(W, H, rng):
+    """Steel armoury (Alphonse): cool steel-blue→dark gradient, brushed-metal sheen
+    blooms, a lighter top band for logo legibility, and scattered single swords and
+    heater shields with a faint metallic glint."""
+    p = vgrad(W, H, (78, 92, 112), (34, 42, 56)).convert("RGBA")
+    sh = Image.new("RGBA", (W, H), (0, 0, 0, 0)); shd = ImageDraw.Draw(sh)
+    for _ in range(7):                                           # brushed-metal sheen blooms
+        bx, by = rng.randint(0, W), rng.randint(0, H); r = rng.randint(W//6, W//3)
+        col = rng.choice([(150, 168, 192), (110, 130, 156), (180, 196, 214)])
+        shd.ellipse([bx-r, by-r, bx+r, by+r], fill=col+(34,))
+    p = Image.alpha_composite(p, sh.filter(ImageFilter.GaussianBlur(W//9)))
+    top = Image.new("RGBA", (W, H), (0, 0, 0, 0))               # lighter top band (logo)
+    ImageDraw.Draw(top).ellipse([-W//3, -int(H*0.52), W+W//3, int(H*0.26)], fill=(176, 192, 214, 80))
+    p = Image.alpha_composite(p, top.filter(ImageFilter.GaussianBlur(W//7)))
+    sl = Image.new("RGBA", (W, H), (0, 0, 0, 0))                # single swords + shields (margins)
+    blade = (172, 186, 208); edge = (60, 70, 90); placed = []
+    for i in range(rng.randint(6, 8)):
+        if i % 2 == 0:                                          # shield (upright-ish, below logo)
+            L = rng.randint(int(W*0.12), int(W*0.18))
+            tile = _shield_tile(L, (150, 164, 188, 115), edge+(150,))
+            tile = tile.rotate(rng.uniform(-14, 14), expand=True, resample=Image.BICUBIC)
+            ymin = 0.26
+        else:                                                  # single sword (any angle)
+            L = rng.randint(int(W*0.16), int(W*0.26))
+            tile = _sword_tile(L, blade+(120,), edge+(150,))
+            tile = tile.rotate(rng.uniform(-150, 150), expand=True, resample=Image.BICUBIC)
+            ymin = 0.17
+        ex, ey = _edge_pos(W, H, rng, ymin=ymin)               # disperse: keep them apart
+        for _try in range(20):
+            cx2, cy2 = _edge_pos(W, H, rng, ymin=ymin)
+            if all((cx2-px)**2 + (cy2-py)**2 > (W*0.21)**2 for px, py in placed):
+                ex, ey = cx2, cy2; break
+        placed.append((ex, ey))
+        sl.alpha_composite(tile, (ex-tile.width//2, ey-tile.height//2))
+    p = Image.alpha_composite(p, sl)
+    gl = Image.new("RGBA", (W, H), (0, 0, 0, 0)); gd = ImageDraw.Draw(gl)
+    for _ in range(W*H // 42000):                               # metallic glints (sparse)
+        R = rng.randint(int(W*0.008), int(W*0.016))
+        gd.polygon(sparkle_poly(rng.randint(0, W), rng.randint(0, H), R, R*0.30), fill=(220, 232, 248, 130))
+    return Image.alpha_composite(p, gl)
+
+def bg_breakfast(W, H, rng):
+    """Warm morning meal (city street breakfast): cream→amber gradient, a soft golden
+    sun glow, rising steam wisps from hot food, warm bokeh motes, and faint bowl +
+    chopsticks + steam icons tucked into the margins — cozy and appetising."""
+    p = vgrad(W, H, (255, 238, 206), (242, 198, 150)).convert("RGBA")
+    glow = Image.new("RGBA", (W, H), (0, 0, 0, 0))              # golden morning glow
+    r = int(W*0.5); cx, cy = int(W*0.5), int(H*0.30)
+    ImageDraw.Draw(glow).ellipse([cx-r, cy-r, cx+r, cy+r], fill=(255, 226, 158, 72))
+    p = Image.alpha_composite(p, glow.filter(ImageFilter.GaussianBlur(W//6)))
+    bo = Image.new("RGBA", (W, H), (0, 0, 0, 0)); bd = ImageDraw.Draw(bo)
+    for _ in range(14):                                         # warm bokeh motes
+        bx, by = rng.randint(0, W), rng.randint(0, H); rr = rng.randint(W//16, W//7)
+        col = rng.choice([(255, 236, 180), (255, 214, 150), (255, 246, 214)])
+        bd.ellipse([bx-rr, by-rr, bx+rr, by+rr], fill=col+(rng.randint(26, 50),))
+    p = Image.alpha_composite(p, bo.filter(ImageFilter.GaussianBlur(W//34)))
+    st = Image.new("RGBA", (W, H), (0, 0, 0, 0)); sd = ImageDraw.Draw(st)
+    for _ in range(10):                                         # rising steam wisps
+        x0 = rng.randint(0, W); y1 = rng.randint(int(H*0.35), H); ln = rng.randint(int(H*0.18), int(H*0.40))
+        ph = rng.uniform(0, 6.28); amp = rng.randint(int(W*0.01), int(W*0.03))
+        pts = [(x0+int(amp*math.sin(t/26.0+ph)), y1-t) for t in range(0, ln, 6)]
+        if len(pts) > 1:
+            sd.line(pts, fill=(255, 250, 240, rng.randint(26, 54)), width=rng.choice([3, 4, 5]))
+    p = Image.alpha_composite(p, st.filter(ImageFilter.GaussianBlur(3)))
+    ic = Image.new("RGBA", (W, H), (0, 0, 0, 0)); icd = ImageDraw.Draw(ic)
+    brown = (148, 92, 50)
+    for _ in range(rng.randint(6, 8)):                          # bowl + chopsticks + steam icons
+        bx, by = _edge_pos(W, H, rng, ymin=0.18); s = rng.randint(int(W*0.035), int(W*0.06))
+        a = rng.randint(36, 58); col = brown + (a,); w = max(2, int(s*0.10))
+        icd.arc([bx-s, int(by-s*0.55), bx+s, int(by+s*1.1)], start=18, end=162, fill=col, width=w)  # bowl U
+        icd.line([(bx-s*0.95, by), (bx+s*0.95, by)], fill=col, width=w)                              # rim
+        for sx in (bx-s*0.32, bx+s*0.30):                       # two steam curls above the bowl
+            cp = [(sx+s*0.16*math.sin(k/2.0), by-s*0.25-k*s*0.12) for k in range(5)]
+            icd.line(cp, fill=col, width=max(1, w-1))
+        icd.line([(bx+s*0.2, by-s*0.1), (bx+s*1.12, by-s*0.92)], fill=col, width=max(1, w-1))   # chopsticks
+        icd.line([(bx+s*0.38, by-s*0.04), (bx+s*1.26, by-s*0.78)], fill=col, width=max(1, w-1))
+    p = Image.alpha_composite(p, ic)
+    spec = Image.new("RGBA", (W, H), (0, 0, 0, 0)); spd = ImageDraw.Draw(spec)
+    for _ in range(W*H // 900):                                 # faint warm speckle
+        spd.point((rng.randint(0, W), rng.randint(0, H)), fill=(180, 120, 70, rng.randint(0, 22)))
+    return Image.alpha_composite(p, spec)
+
 def frame_card(poster, art, x, y, cw, ch, pad, rad, th, rng):
     """Generic rounded-card frame, customised by the theme dict `th`."""
     W, H = poster.size
@@ -745,6 +956,10 @@ THEMES = {
         shadow_col=(40, 28, 18, 120), shadow_blur=24, shadow_off=18,
         border=(96, 68, 44), border_w=5, inner_line=(150, 120, 84),
         title_col=(74, 52, 34), title_halo=(244, 236, 220), pad_f=0.018),
+    "aot-brick": dict(bg=bg_aot_brick, card_bg=(248, 242, 232), radius_f=0.004,
+        shadow_col=(60, 28, 24, 120), shadow_blur=24, shadow_off=18,
+        border=(150, 94, 84), border_w=5, inner_line=(206, 150, 140),
+        title_col=(120, 60, 52), title_halo=(248, 242, 232), pad_f=0.018),
     "sakura": dict(bg=bg_sakura, card_bg=(255, 255, 255), radius_f=0.012,
         shadow_col=(150, 90, 120, 90), shadow_blur=24, shadow_off=18,
         border=(240, 158, 190), border_w=5, inner_line=(250, 210, 224),
@@ -793,6 +1008,18 @@ THEMES = {
         shadow_col=(0, 0, 0, 150), shadow_blur=26, shadow_off=20,
         border=(196, 164, 92), border_w=5, inner_line=(150, 126, 70),
         title_col=(214, 184, 116), title_halo=(8, 10, 28), pad_f=0.016),
+    "alchemy": dict(bg=bg_alchemy, card_bg=(252, 248, 236), radius_f=0.006,
+        shadow_col=(80, 44, 24, 100), shadow_blur=24, shadow_off=18,
+        border=(160, 44, 40), border_w=5, inner_line=(190, 150, 92),
+        title_col=(150, 32, 30), title_halo=(252, 248, 236), pad_f=0.018),
+    "blades": dict(bg=bg_blades, card_bg=(238, 242, 248), radius_f=0.006,
+        shadow_col=(0, 0, 0, 150), shadow_blur=26, shadow_off=20,
+        border=(150, 166, 188), border_w=5, inner_line=(112, 130, 154),
+        title_col=(206, 220, 238), title_halo=(30, 38, 52), pad_f=0.018),
+    "breakfast": dict(bg=bg_breakfast, card_bg=(255, 250, 242), radius_f=0.010,
+        shadow_col=(120, 70, 30, 95), shadow_blur=24, shadow_off=18,
+        border=(196, 132, 72), border_w=5, inner_line=(232, 192, 150),
+        title_col=(150, 92, 48), title_halo=(255, 250, 242), pad_f=0.018),
 }
 
 # --------------------------------------------------------------------------
@@ -816,6 +1043,35 @@ def load_title_image(path, keep_bg=False):
         im = Image.fromarray(np.dstack([arr.astype("uint8"), alpha]), "RGBA")
     return im
 
+def add_logo_effects(logo, stroke=0, stroke_fill=(24, 18, 14), shadow_blur=0,
+                     shadow_off=(0, 0), shadow_alpha=150):
+    """Return the logo RGBA with an outline stroke and/or soft drop shadow
+    composited behind it, so a wordmark pops off a textured background. The
+    canvas grows by a transparent margin to hold the stroke/shadow spread."""
+    pad = stroke*4 + shadow_blur + max(abs(shadow_off[0]), abs(shadow_off[1])) + 6
+    W, H = logo.width + 2*pad, logo.height + 2*pad
+    lx, ly = pad, pad
+    alpha = logo.split()[3]
+    out = Image.new("RGBA", (W, H), (0, 0, 0, 0))
+    if shadow_blur > 0:                                   # soft drop shadow
+        sa = Image.new("L", (W, H), 0)
+        sa.paste(alpha, (lx + shadow_off[0], ly + shadow_off[1]))
+        sa = sa.filter(ImageFilter.MaxFilter(3)).filter(             # densify, then soften
+            ImageFilter.GaussianBlur(shadow_blur)).point(lambda v: int(v * shadow_alpha / 255))
+        sh = Image.new("RGBA", (W, H), (0, 0, 0, 255)); sh.putalpha(sa)
+        out = Image.alpha_composite(out, sh)
+    if stroke > 0:                                        # soft shadow-style outline (even halo)
+        da = Image.new("L", (W, H), 0); da.paste(alpha, (lx, ly))
+        r = stroke
+        while r > 0:                                      # grow the halo out from the edge
+            step = min(2, r)
+            da = da.filter(ImageFilter.MaxFilter(2*step + 1)); r -= step
+        da = da.filter(ImageFilter.GaussianBlur(max(1.5, stroke*1.4)))  # soft, not a hard line
+        st = Image.new("RGBA", (W, H), tuple(stroke_fill) + (255,)); st.putalpha(da)
+        out = Image.alpha_composite(out, st)
+    top = Image.new("RGBA", (W, H), (0, 0, 0, 0)); top.paste(logo, (lx, ly), logo)
+    return Image.alpha_composite(out, top)
+
 def bg_photo(path, W, H, dim=0.5):
     """Use a photo as the background: cover-fit (scale to fill, center-crop) then
     darken (scaled by `dim`, 0..1) with a uniform wash + edge vignette so the card,
@@ -837,7 +1093,8 @@ def bg_photo(path, W, H, dim=0.5):
 
 def compose(images, theme, ratio, title, credit, out, base_w, font_path, font_bold, seed,
             layout="vstack", title_image=None, title_keep_bg=False, bg_image=None, bg_dim=0.5,
-            title_scale=1.0, title_contrast=1.0):
+            title_scale=1.0, title_contrast=1.0, art_scale=1.0, title_shadow=False, title_stroke=False,
+            title_stroke_color=None):
     th = THEMES[theme]
     rw, rh = (int(x) for x in ratio.split(":"))
     W = base_w; H = int(round(W * rh / rw))
@@ -849,7 +1106,7 @@ def compose(images, theme, ratio, title, credit, out, base_w, font_path, font_bo
     pad = int(W * th["pad_f"])
     rad = max(6, int(W * th["radius_f"]))
     gap = int(W * 0.05)
-    title_band = int(H * 0.15 * title_scale) if title_image else (int(H * 0.075) if title else int(H * 0.02))
+    title_band = int(H * 0.135 * title_scale) if title_image else (int(H * 0.075) if title else int(H * 0.02))
     bottom = int(H * 0.04) if credit else int(H * 0.02)
     side_min = int(W * 0.07)
     aspects = [im.width/im.height for im in arts]
@@ -859,6 +1116,7 @@ def compose(images, theme, ratio, title, credit, out, base_w, font_path, font_bo
         avail_w = W - 2*side_min - (n-1)*gap - n*2*pad
         art_h = int(avail_w / sum(aspects))
         art_h = min(art_h, H - title_band - bottom - 2*int(H*0.03))
+        art_h = int(art_h * art_scale)
         sized = [im.resize((max(1, int(art_h*asp)), art_h), Image.LANCZOS)
                  for im, asp in zip(arts, aspects)]
         total_w = sum(im.width + 2*pad for im in sized) + (n-1)*gap
@@ -871,11 +1129,11 @@ def compose(images, theme, ratio, title, credit, out, base_w, font_path, font_bo
     else:  # vstack
         avail = H - title_band - bottom - (n-1)*gap - n*2*pad
         art_w = min(avail / sum(1.0/a for a in aspects), W - 2*side_min)
-        art_w = int(art_w)
+        art_w = int(art_w * art_scale)
         sized = [im.resize((art_w, int(art_w/asp)), Image.LANCZOS)
                  for im, asp in zip(arts, aspects)]
         total = sum(im.height + 2*pad for im in sized) + (n-1)*gap
-        y = title_band + max(0, H - title_band - bottom - total)//2
+        y = title_band + max(0, H - title_band - bottom - total)//4   # bias card up toward title
         cw = art_w + 2*pad; x = (W - cw)//2
         for im in sized:
             ch = im.height + 2*pad
@@ -889,9 +1147,18 @@ def compose(images, theme, ratio, title, credit, out, base_w, font_path, font_bo
             r, g, b, a = logo.split()
             rgb = ImageEnhance.Contrast(Image.merge("RGB", (r, g, b))).enhance(title_contrast)
             logo = Image.merge("RGBA", (*rgb.split(), a))
-        scale = min(W*0.66/logo.width, title_band*0.86/logo.height)
+        scale = min(W*0.66/logo.width, title_band*0.96/logo.height)
         logo = logo.resize((max(1, int(logo.width*scale)), max(1, int(logo.height*scale))),
                            Image.LANCZOS)
+        if title_shadow:                                  # heavy soft drop shadow (+opt stroke)
+            blur = max(5, int(W*0.016)); off = (int(W*0.011), int(W*0.015))
+            stroke = max(2, int(W*0.0032)) if title_stroke else 0
+            stroke_fill = title_stroke_color or th.get("logo_stroke", (24, 18, 14))
+            logo = add_logo_effects(logo, stroke, stroke_fill, blur, off, 235)
+            if logo.height > title_band*1.10:             # re-clamp after the margin grew
+                s2 = title_band*1.10/logo.height
+                logo = logo.resize((max(1, int(logo.width*s2)), max(1, int(logo.height*s2))),
+                                   Image.LANCZOS)
         poster.paste(logo, ((W-logo.width)//2, title_band//2 - logo.height//2), logo)
     elif title:
         fb = load_font(font_bold, int(W*0.051)) or ImageFont.load_default()
@@ -934,6 +1201,14 @@ def main():
                     help="enlarge/shrink the title logo (grows the title band; padding kept). Default 1.0")
     ap.add_argument("--title-contrast", type=float, default=1.0,
                     help="contrast boost for the title logo (e.g. 1.5 to make a silver wordmark pop). Default 1.0")
+    ap.add_argument("--title-shadow", action="store_true",
+                    help="add a soft drop shadow behind the title logo so it pops off the background")
+    ap.add_argument("--title-stroke", action="store_true",
+                    help="also add an outline stroke around the title logo (use with --title-shadow)")
+    ap.add_argument("--title-stroke-color", default=None,
+                    help="stroke color as 'r,g,b' (e.g. '96,82,76' for a lighter, softer outline). Default dark.")
+    ap.add_argument("--art-scale", type=float, default=1.0,
+                    help="scale the bead-art card relative to its fitted size (e.g. 0.9 shrinks it, exposing more background). Default 1.0")
     ap.add_argument("--bg-image", default=None,
                     help="photo to use as the background (cover-fit + darkened); overrides the theme background")
     ap.add_argument("--bg-dim", type=float, default=0.5,
@@ -952,10 +1227,12 @@ def main():
         ap.error("--images required")
     if a.theme not in THEMES:
         ap.error(f"unknown theme '{a.theme}'. choices: {', '.join(THEMES)}")
+    stroke_col = tuple(int(c) for c in a.title_stroke_color.split(",")) if a.title_stroke_color else None
     sz = compose(a.images, a.theme, a.ratio, a.title, a.credit, a.out,
                  a.width, a.font, a.font_bold, a.seed, a.layout,
                  a.title_image, a.title_keep_bg, a.bg_image, a.bg_dim,
-                 a.title_scale, a.title_contrast)
+                 a.title_scale, a.title_contrast, a.art_scale, a.title_shadow, a.title_stroke,
+                 stroke_col)
     print(f"saved {a.out} {sz} theme={a.theme} layout={a.layout}")
 
 if __name__ == "__main__":

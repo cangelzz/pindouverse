@@ -4,17 +4,20 @@ import type { BeadLayer } from "../../types";
 interface Props {
   x: number;
   y: number;
+  mode?: "selection" | "floating";
   layers: BeadLayer[];
   activeLayerId: string;
-  onMirror: (direction: "horizontal" | "vertical") => void;
-  onMoveToNewLayer: () => void;
+  onMirror: (direction: "horizontal" | "vertical") => void | Promise<void>;
+  onMoveToNewLayer: () => void | Promise<void>;
   onMoveToLayer: (targetLayerId: string) => void;
-  onCopy: () => void;
+  onCopy: () => void | Promise<void>;
+  onCopyAllVisible: () => void;
   onDuplicateDraggable: () => void;
-  onReplaceColor: () => void;
-  onColorAdjust: () => void;
+  onReplaceColor: () => void | Promise<void>;
+  onColorAdjust: () => void | Promise<void>;
   onDeselect: () => void;
   onClose: () => void;
+  onCommitFloating?: () => void;
 }
 
 const MENU_WIDTH = 180;
@@ -64,17 +67,20 @@ function Divider() {
 export function SelectionContextMenu({
   x,
   y,
+  mode = "selection",
   layers,
   activeLayerId,
   onMirror,
   onMoveToNewLayer,
   onMoveToLayer,
   onCopy,
+  onCopyAllVisible,
   onDuplicateDraggable,
   onReplaceColor,
   onColorAdjust,
   onDeselect,
   onClose,
+  onCommitFloating,
 }: Props) {
   const ref = useRef<HTMLDivElement>(null);
   const [openSubmenu, setOpenSubmenu] = useState<"mirror" | "moveToLayer" | null>(null);
@@ -135,6 +141,13 @@ export function SelectionContextMenu({
 
       <Divider />
 
+      {mode === "floating" && (
+        <>
+          <Item label="提交到图层" onClick={onCommitFloating} onCloseMenu={onClose} />
+          <Divider />
+        </>
+      )}
+
       <Item label="移到新图层" onClick={onMoveToNewLayer} onCloseMenu={onClose} />
 
       <div
@@ -159,6 +172,7 @@ export function SelectionContextMenu({
       <Divider />
 
       <Item label="复制" onClick={onCopy} onCloseMenu={onClose} />
+      <Item label="复制（所有可见图层）" onClick={onCopyAllVisible} onCloseMenu={onClose} />
       <Item label="原地复制并拖动" onClick={onDuplicateDraggable} onCloseMenu={onClose} />
 
       <Divider />
@@ -168,7 +182,7 @@ export function SelectionContextMenu({
 
       <Divider />
 
-      <Item label="取消选区" onClick={onDeselect} onCloseMenu={onClose} />
+      <Item label={mode === "floating" ? "取消（丢弃浮动）" : "取消选区"} onClick={onDeselect} onCloseMenu={onClose} />
     </div>
   );
 }

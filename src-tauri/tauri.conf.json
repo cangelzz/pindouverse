@@ -1,6 +1,6 @@
 {
   "productName": "PindouVerse",
-  "version": "1.2.0",
+  "version": "1.2.101",
   "identifier": "com.pindouverse.editor",
   "build": {
     "beforeDevCommand": "npm run dev",

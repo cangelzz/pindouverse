@@ -59,7 +59,20 @@ export interface HistoryEntry {
   newColorIndex: number | null;
 }
 
-export type HistoryAction = HistoryEntry[];
+/** A cell-delta action (drawing/selection edits on the active layer). */
+export interface CellsHistoryAction {
+  kind: "cells";
+  entries: HistoryEntry[];
+}
+
+/** A whole-layers snapshot taken before a structural op (e.g. merge). */
+export interface LayersHistoryAction {
+  kind: "layers";
+  layers: BeadLayer[];
+  activeLayerId: string;
+}
+
+export type HistoryAction = CellsHistoryAction | LayersHistoryAction;
 
 export type ColorMatchAlgorithm = "euclidean" | "ciede2000";
 

@@ -21,7 +21,7 @@ import { layerAccentColor } from "../../utils/layerColors";
 import { SelectionContextMenu } from "./SelectionContextMenu";
 import { ReplaceColorInSelectionDialog } from "./ReplaceColorInSelectionDialog";
 import { SelectionColorAdjustDialog } from "./SelectionColorAdjustDialog";
-import { appAlert } from "../Dialog/AppDialog";
+import { appAlert, appConfirm } from "../Dialog/AppDialog";
 import { SelectionActionsChip } from "./SelectionActionsChip";
 
 export function PixelCanvas() {
@@ -77,15 +77,23 @@ export function PixelCanvas() {
 
   // Selection context-menu actions
   const mirrorSelection = useEditorStore((s) => s.mirrorSelection);
+  const mirrorFloatingSelection = useEditorStore((s) => s.mirrorFloatingSelection);
+  const discardFloatingSelection = useEditorStore((s) => s.discardFloatingSelection);
   const moveSelectionToNewLayer = useEditorStore((s) => s.moveSelectionToNewLayer);
   const moveSelectionToLayer = useEditorStore((s) => s.moveSelectionToLayer);
   const copySelection = useEditorStore((s) => s.copySelection);
+  const copySelectionAllVisibleLayers = useEditorStore((s) => s.copySelectionAllVisibleLayers);
   const duplicateSelectionAsFloating = useEditorStore((s) => s.duplicateSelectionAsFloating);
   const replaceColorInSelection = useEditorStore((s) => s.replaceColorInSelection);
 
   const [contextMenu, setContextMenu] = useState<{ x: number; y: number } | null>(null);
   const [replaceOpen, setReplaceOpen] = useState(false);
   const [adjustOpen, setAdjustOpen] = useState(false);
+
+  const guardActiveLayer = async (): Promise<boolean> => {
+    if (!useEditorStore.getState().selectionOnlyOnOtherLayers()) return true;
+    return await appConfirm("当前图层在选区内没有内容，操作不会有效果。是否继续？", { title: "选区不在当前图层" });
+  };
 
   // Track dragging state
   const isDragging = useRef(false);
@@ -1515,7 +1523,7 @@ export function PixelCanvas() {
         onDoubleClick={handleDoubleClick}
         onContextMenu={(e) => {
           e.preventDefault();
-          if (selection && selection.size > 0 && !floatingSelectionState) {
+          if ((selection && selection.size > 0 && !floatingSelectionState) || floatingSelectionState) {
             setContextMenu({ x: e.clientX, y: e.clientY });
           }
         }}
@@ -1588,6 +1596,32 @@ export function PixelCanvas() {
             selectionRight={selectionRight}
             containerTop={rect.top}
             onClick={(x, y) => setContextMenu({ x, y })}
+            // Read at render time; this block already re-renders on selection/selectionBounds/layers/activeLayerId changes.
+            warnOtherLayer={useEditorStore.getState().selectionOnlyOnOtherLayers()}
+          />
+        );
+      })()}
+      {floatingSelectionState && (() => {
+        const rect = containerRef.current?.getBoundingClientRect();
+        if (!rect) return null;
+        let minR = Infinity, maxC = -Infinity;
+        // Chip anchors to the top-right of the floating bbox: need minR (top), maxC (right edge).
+        for (const key of floatingSelectionState.cells.keys()) {
+          const [lr, lc] = key.split(",").map(Number);
+          const r = lr + floatingSelectionState.offsetRow;
+          const c = lc + floatingSelectionState.offsetCol;
+          if (r < minR) minR = r;
+          if (c > maxC) maxC = c;
+        }
+        if (minR === Infinity) return null;
+        const selectionTop = rect.top + minR * cellSize + offsetY;
+        const selectionRight = rect.left + (maxC + 1) * cellSize + offsetX;
+        return (
+          <SelectionActionsChip
+            selectionTop={selectionTop}
+            selectionRight={selectionRight}
+            containerTop={rect.top}
+            onClick={(x, y) => setContextMenu({ x, y })}
           />
         );
       })()}
@@ -1595,16 +1629,23 @@ export function PixelCanvas() {
         <SelectionContextMenu
           x={contextMenu.x}
           y={contextMenu.y}
+          mode={floatingSelectionState ? "floating" : "selection"}
           layers={layers}
           activeLayerId={activeLayerId}
-          onMirror={(dir) => mirrorSelection(dir)}
-          onMoveToNewLayer={() => moveSelectionToNewLayer()}
-          onMoveToLayer={(id) => moveSelectionToLayer(id)}
-          onCopy={() => copySelection()}
-          onDuplicateDraggable={() => duplicateSelectionAsFloating()}
-          onReplaceColor={() => setReplaceOpen(true)}
-          onColorAdjust={() => setAdjustOpen(true)}
-          onDeselect={() => clearSelection()}
+          onMirror={async (dir) => {
+            if (useEditorStore.getState().floatingSelection) { mirrorFloatingSelection(dir); return; }
+            if (await guardActiveLayer()) mirrorSelection(dir);
+          }}
+          onCommitFloating={() => commitFloatingSelection()}
+          onMoveToNewLayer={async () => { if (useEditorStore.getState().floatingSelection) { commitFloatingSelection(); moveSelectionToNewLayer(); return; } if (await guardActiveLayer()) moveSelectionToNewLayer(); }}
+          onMoveToLayer={(id) => { if (useEditorStore.getState().floatingSelection) commitFloatingSelection(); moveSelectionToLayer(id); }}
+          onCopy={async () => { if (useEditorStore.getState().floatingSelection) { commitFloatingSelection(); copySelection(); return; } if (await guardActiveLayer()) copySelection(); }}
+          // No active-layer guard here (unlike the other copy handlers): this action exists precisely for the "content is on other layers" case.
+          onCopyAllVisible={() => { if (useEditorStore.getState().floatingSelection) commitFloatingSelection(); copySelectionAllVisibleLayers(); }}
+          onDuplicateDraggable={() => { if (useEditorStore.getState().floatingSelection) commitFloatingSelection(); duplicateSelectionAsFloating(); }}
+          onReplaceColor={async () => { if (useEditorStore.getState().floatingSelection) { commitFloatingSelection(); setReplaceOpen(true); return; } if (await guardActiveLayer()) setReplaceOpen(true); }}
+          onColorAdjust={async () => { if (useEditorStore.getState().floatingSelection) { commitFloatingSelection(); setAdjustOpen(true); return; } if (await guardActiveLayer()) setAdjustOpen(true); }}
+          onDeselect={() => { if (useEditorStore.getState().floatingSelection) discardFloatingSelection(); else clearSelection(); }}
           onClose={() => setContextMenu(null)}
         />
       )}

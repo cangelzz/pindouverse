@@ -108,6 +108,23 @@ test.describe("Undo / redo", () => {
     await callAction(page, "undo");
     expect((await getStoreState<any[]>(page, "redoStack")).length).toBe(1);
   });
+
+  test("union history: batch edit undo/redo still works", async ({ page }) => {
+    await setupPage(page);
+    await loadProject(page);
+    await callAction(page, "newCanvas", [4, 4]);
+    await callAction(page, "batchSetCells", [[
+      { row: 0, col: 0, colorIndex: 5 },
+      { row: 0, col: 1, colorIndex: 5 },
+    ]]);
+    const at = (r: number, c: number) => page.evaluate(({ r, c }) =>
+      (window as any).__pindouStore.getState().layers[0].data[r][c].colorIndex, { r, c });
+    expect(await at(0, 0)).toBe(5);
+    await callAction(page, "undo", []);
+    expect(await at(0, 0)).toBe(null);
+    await callAction(page, "redo", []);
+    expect(await at(0, 0)).toBe(5);
+  });
 });
 
 test.describe("Selection / clipboard", () => {

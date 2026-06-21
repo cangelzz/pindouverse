@@ -47,6 +47,9 @@ instead of `--title` text; a white background is auto-keyed to transparent (use
 `--title-keep-bg` to disable). Prefer this when the franchise name is a **sensitive
 word** (e.g. region-blocked titles) — show the stylised logo art, never type the
 banned string. Logos are copyrighted: personal / non-commercial use only.
+Lift the logo off a busy background with `--title-shadow` (soft drop shadow); add
+`--title-stroke` for a soft shadow-style outline halo, tinted via `--title-stroke-color
+"r,g,b"`. `--title-scale` enlarges the logo (and its title band).
 
 ## Themes
 | theme | background | frame | vibe |
@@ -60,6 +63,7 @@ banned string. Logos are copyrighted: personal / non-commercial use only.
 | `beach` | aqua→sand gradient washed with light blooms, wavy ripple strokes, foam flecks | light card, teal border + inner line | seaside |
 | `genshin` | pale light-blue gradient + bubble & twinkle-sparkle pattern + dots | white card, light-blue border + inner line | lovely sky |
 | `aot` | dusty sepia sky + weathered stone wall + grunge + vignette | aged-cream card, leather-brown border + inner line | Survey Corps |
+| `aot-brick` | full-frame light dusty-RED brick wall + faint grain (brighter `aot` alt) | warm-cream card, brick-red border + inner line | Attack on Titan, clean |
 | `sakura` | soft pink gradient + light blooms + drifting cherry-blossom petals | white card, soft-pink border + inner line | lovely sakura |
 | `ember` | orange→red gradient + golden glow + warm clouds + ember sparks | cream card, red-orange border | warm / fiery |
 | `meadow` | sky-blue→grass-green gradient + clouds + grass blades + flowers + pollen | cream card, grass-green border | green meadow |

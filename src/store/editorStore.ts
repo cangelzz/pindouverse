@@ -10,9 +10,11 @@ import type {
   CanvasCell,
   CanvasData,
   CanvasSize,
+  CellsHistoryAction,
   EditorTool,
   GridConfig,
   HistoryAction,
+  HistoryEntry,
   ProjectFile,
   ProjectInfo,
 } from "../types";
@@ -148,12 +150,20 @@ interface EditorState {
   clearSelection: () => void;
   selectAll: () => void;
   copySelection: () => void;
+  /** Copy selection flattened across all VISIBLE layers (top-most non-null wins) into the clipboard. */
+  copySelectionAllVisibleLayers: () => void;
   cutSelection: () => void;
   pasteClipboard: () => Promise<void>;
   deleteSelection: () => void;
+  /** True if the active layer is empty within the selection but some other VISIBLE layer has content there. */
+  selectionOnlyOnOtherLayers: () => boolean;
   commitFloatingSelection: () => void;
   liftSelectionToFloat: () => void;
   setFloatingSelectionOffset: (row: number, col: number) => void;
+  /** Flip the floating selection's cells in place within their bbox; stays floating. */
+  mirrorFloatingSelection: (direction: "horizontal" | "vertical") => void;
+  /** Drop the floating selection without committing it to any layer. */
+  discardFloatingSelection: () => void;
   moveSelectionCells: (dRow: number, dCol: number) => void;
   /** Flip selected cells in place within the selection bounds. */
   mirrorSelection: (direction: "horizontal" | "vertical") => void;
@@ -214,6 +224,9 @@ interface EditorState {
   renameLayer: (id: string, name: string) => void;
   duplicateLayer: (id: string) => void;
   moveLayer: (id: string, direction: "up" | "down") => void;
+  /** Flatten a layer onto the one below it (upper pixels win). The merged layer keeps the
+   *  lower layer's id and name but is always set visible with opacity 1. Undoable via a layers snapshot. */
+  mergeLayerDown: (id: string) => void;
 
   // Highlight & replace
   setHighlightColor: (index: number | null) => void;
@@ -451,9 +464,10 @@ export const useEditorStore = create<EditorState>((set, get) => ({
     const newLayers = [...state.layers];
     newLayers[layerIdx] = { ...layer, data: newLayerData };
 
-    const action: HistoryAction = [
-      { row, col, prevColorIndex: prev, newColorIndex: colorIndex },
-    ];
+    const action: HistoryAction = {
+      kind: "cells",
+      entries: [{ row, col, prevColorIndex: prev, newColorIndex: colorIndex }],
+    };
     const undoStack = [...state.undoStack, action].slice(-MAX_HISTORY);
 
     set({
@@ -472,20 +486,20 @@ export const useEditorStore = create<EditorState>((set, get) => ({
     const layer = state.layers[layerIdx];
     if (!layer.visible) return; // don't edit a hidden layer
     const newLayerData = layer.data.map((r) => r.map((c) => ({ ...c })));
-    const action: HistoryAction = [];
-
+    const changedEntries: HistoryEntry[] = [];
     for (const { row, col, colorIndex } of entries) {
       const prev = newLayerData[row]?.[col]?.colorIndex ?? null;
       if (prev !== colorIndex) {
-        action.push({ row, col, prevColorIndex: prev, newColorIndex: colorIndex });
+        changedEntries.push({ row, col, prevColorIndex: prev, newColorIndex: colorIndex });
         newLayerData[row][col] = { colorIndex };
       }
     }
 
-    if (action.length === 0) return;
+    if (changedEntries.length === 0) return;
 
     const newLayers = [...state.layers];
     newLayers[layerIdx] = { ...layer, data: newLayerData };
+    const action: CellsHistoryAction = { kind: "cells", entries: changedEntries };
     const undoStack = [...state.undoStack, action].slice(-MAX_HISTORY);
 
     set({
@@ -668,18 +682,29 @@ export const useEditorStore = create<EditorState>((set, get) => ({
     if (state.undoStack.length === 0) return;
 
     const action = state.undoStack[state.undoStack.length - 1];
+
+    if (action.kind === "layers") {
+      const current: HistoryAction = { kind: "layers", layers: state.layers, activeLayerId: state.activeLayerId };
+      set({
+        layers: action.layers,
+        activeLayerId: action.activeLayerId,
+        canvasData: mergeLayers(action.layers, state.canvasSize.width, state.canvasSize.height),
+        undoStack: state.undoStack.slice(0, -1),
+        redoStack: [...state.redoStack, current],
+        isDirty: true,
+      });
+      return;
+    }
+
     const layerIdx = state.layers.findIndex((l) => l.id === state.activeLayerId);
     if (layerIdx === -1) return;
     const layer = state.layers[layerIdx];
     const newLayerData = layer.data.map((r) => r.map((c) => ({ ...c })));
-
-    for (const entry of action) {
+    for (const entry of action.entries) {
       newLayerData[entry.row][entry.col] = { colorIndex: entry.prevColorIndex };
     }
-
     const newLayers = [...state.layers];
     newLayers[layerIdx] = { ...layer, data: newLayerData };
-
     set({
       layers: newLayers,
       canvasData: mergeLayers(newLayers, state.canvasSize.width, state.canvasSize.height),
@@ -694,18 +719,29 @@ export const useEditorStore = create<EditorState>((set, get) => ({
     if (state.redoStack.length === 0) return;
 
     const action = state.redoStack[state.redoStack.length - 1];
+
+    if (action.kind === "layers") {
+      const current: HistoryAction = { kind: "layers", layers: state.layers, activeLayerId: state.activeLayerId };
+      set({
+        layers: action.layers,
+        activeLayerId: action.activeLayerId,
+        canvasData: mergeLayers(action.layers, state.canvasSize.width, state.canvasSize.height),
+        undoStack: [...state.undoStack, current],
+        redoStack: state.redoStack.slice(0, -1),
+        isDirty: true,
+      });
+      return;
+    }
+
     const layerIdx = state.layers.findIndex((l) => l.id === state.activeLayerId);
     if (layerIdx === -1) return;
     const layer = state.layers[layerIdx];
     const newLayerData = layer.data.map((r) => r.map((c) => ({ ...c })));
-
-    for (const entry of action) {
+    for (const entry of action.entries) {
       newLayerData[entry.row][entry.col] = { colorIndex: entry.newColorIndex };
     }
-
     const newLayers = [...state.layers];
     newLayers[layerIdx] = { ...layer, data: newLayerData };
-
     set({
       layers: newLayers,
       canvasData: mergeLayers(newLayers, state.canvasSize.width, state.canvasSize.height),
@@ -727,23 +763,24 @@ export const useEditorStore = create<EditorState>((set, get) => ({
       _strokeStartIdx = -1;
       return;
     }
-    // Merge all actions since stroke start into one
-    const merged: HistoryAction = [];
+    // Merge all cell entries since stroke start into one cells-action.
+    // Preserve any non-cells (layers) action that somehow landed in range
+    // rather than dropping it.
+    const merged: HistoryEntry[] = [];
+    const layerActions: HistoryAction[] = [];
     for (let i = _strokeStartIdx; i < stack.length; i++) {
-      merged.push(...stack[i]);
+      const a = stack[i];
+      if (a.kind === "cells") merged.push(...a.entries);
+      else layerActions.push(a);
     }
-    // Deduplicate: keep first prev and last new for each cell
-    const cellMap = new Map<string, { row: number; col: number; prevColorIndex: number | null; newColorIndex: number | null }>();
+    const cellMap = new Map<string, HistoryEntry>();
     for (const entry of merged) {
       const key = `${entry.row},${entry.col}`;
-      if (!cellMap.has(key)) {
-        cellMap.set(key, { ...entry });
-      } else {
-        cellMap.get(key)!.newColorIndex = entry.newColorIndex;
-      }
+      if (!cellMap.has(key)) cellMap.set(key, { ...entry });
+      else cellMap.get(key)!.newColorIndex = entry.newColorIndex;
     }
-    const combinedAction: HistoryAction = Array.from(cellMap.values());
-    const newStack = [...stack.slice(0, _strokeStartIdx), combinedAction];
+    const combinedAction: HistoryAction = { kind: "cells", entries: Array.from(cellMap.values()) };
+    const newStack = [...stack.slice(0, _strokeStartIdx), ...layerActions, combinedAction];
     set({ undoStack: newStack });
     _strokeStartIdx = -1;
   },
@@ -891,6 +928,33 @@ export const useEditorStore = create<EditorState>((set, get) => ({
     navigator.clipboard.writeText(JSON.stringify(data)).catch(() => {});
   },
 
+  copySelectionAllVisibleLayers: () => {
+    const state = get();
+    if (!state.selection || !state.selectionBounds) return;
+    const { r1, c1, r2, c2 } = state.selectionBounds;
+    const cells = new Map<string, CanvasCell>();
+    for (const key of state.selection) {
+      const [r, c] = key.split(",").map(Number);
+      let ci: number | null = null;
+      for (const l of state.layers) {
+        if (!l.visible) continue;
+        const v = l.data[r]?.[c]?.colorIndex;
+        if (v !== null && v !== undefined) ci = v; // bottom→top, top-most wins
+      }
+      // Flatten discards per-layer cell metadata by design — only the composited colorIndex is copied.
+      if (ci !== null) cells.set(`${r - r1},${c - c1}`, { colorIndex: ci });
+    }
+    if (cells.size === 0) return;
+    set({ clipboard: { cells, width: c2 - c1 + 1, height: r2 - r1 + 1 } });
+    const data = {
+      type: "pindou-selection",
+      width: c2 - c1 + 1,
+      height: r2 - r1 + 1,
+      cells: [...cells.entries()].map(([k, v]) => [k, v.colorIndex]),
+    };
+    navigator.clipboard.writeText(JSON.stringify(data)).catch(() => {});
+  },
+
   cutSelection: () => {
     const state = get();
     if (!state.selection) return;
@@ -931,6 +995,8 @@ export const useEditorStore = create<EditorState>((set, get) => ({
         offsetRow,
         offsetCol,
       },
+      selection: null,
+      selectionBounds: null,
     });
   },
 
@@ -949,24 +1015,52 @@ export const useEditorStore = create<EditorState>((set, get) => ({
     }
   },
 
+  selectionOnlyOnOtherLayers: () => {
+    const state = get();
+    if (!state.selection || state.selection.size === 0) return false;
+    const activeIdx = state.layers.findIndex((l) => l.id === state.activeLayerId);
+    if (activeIdx === -1) return false;
+    const active = state.layers[activeIdx];
+    for (const key of state.selection) {
+      const [r, c] = key.split(",").map(Number);
+      if (active.data[r]?.[c]?.colorIndex != null) return false; // active has content → not "only other"
+    }
+    for (let i = 0; i < state.layers.length; i++) {
+      if (i === activeIdx) continue;
+      const l = state.layers[i];
+      if (!l.visible) continue;
+      for (const key of state.selection) {
+        const [r, c] = key.split(",").map(Number);
+        if (l.data[r]?.[c]?.colorIndex != null) return true;
+      }
+    }
+    return false;
+  },
+
   commitFloatingSelection: () => {
     const state = get();
     if (!state.floatingSelection) return;
     const { cells, offsetRow, offsetCol } = state.floatingSelection;
     const { width, height } = state.canvasSize;
     const entries: { row: number; col: number; colorIndex: number | null }[] = [];
+    const footprint = new Set<string>();
     for (const [key, cell] of cells) {
       const [lr, lc] = key.split(",").map(Number);
       const r = lr + offsetRow;
       const c = lc + offsetCol;
       if (r >= 0 && r < height && c >= 0 && c < width && cell.colorIndex !== null) {
         entries.push({ row: r, col: c, colorIndex: cell.colorIndex });
+        footprint.add(`${r},${c}`);
       }
     }
     if (entries.length > 0) {
       get().batchSetCells(entries);
     }
-    set({ floatingSelection: null, selection: null, selectionBounds: null });
+    if (footprint.size > 0) {
+      set({ floatingSelection: null, selection: footprint, selectionBounds: computeBounds(footprint) });
+    } else {
+      set({ floatingSelection: null, selection: null, selectionBounds: null });
+    }
   },
 
   moveSelectionCells: (dRow, dCol) => {
@@ -1249,6 +1343,32 @@ export const useEditorStore = create<EditorState>((set, get) => ({
     set({ floatingSelection: { ...state.floatingSelection, offsetRow: row, offsetCol: col } });
   },
 
+  mirrorFloatingSelection: (direction) => {
+    const state = get();
+    const fs = state.floatingSelection;
+    if (!fs) return;
+    let minR = Infinity, maxR = -Infinity, minC = Infinity, maxC = -Infinity;
+    for (const key of fs.cells.keys()) {
+      const [lr, lc] = key.split(",").map(Number);
+      if (lr < minR) minR = lr;
+      if (lr > maxR) maxR = lr;
+      if (lc < minC) minC = lc;
+      if (lc > maxC) maxC = lc;
+    }
+    if (minR === Infinity) return;
+    const newCells = new Map<string, CanvasCell>();
+    for (const [key, cell] of fs.cells) {
+      const [lr, lc] = key.split(",").map(Number);
+      const nr = direction === "vertical" ? minR + maxR - lr : lr;
+      const nc = direction === "horizontal" ? minC + maxC - lc : lc;
+      newCells.set(`${nr},${nc}`, { ...cell });
+    }
+    // Float is ephemeral (not serialized to the project), so no isDirty — same as setFloatingSelectionOffset.
+    set({ floatingSelection: { cells: newCells, offsetRow: fs.offsetRow, offsetCol: fs.offsetCol } });
+  },
+
+  discardFloatingSelection: () => set({ floatingSelection: null }),
+
   placeImageOnCanvas: (imageData, imageW, imageH, canvasW, canvasH, startRow, startCol) => {
     const layer = createDefaultLayer(canvasW, canvasH);
     for (let r = 0; r < imageH; r++) {
@@ -1530,6 +1650,40 @@ export const useEditorStore = create<EditorState>((set, get) => ({
     });
   },
 
+  mergeLayerDown: (id) => {
+    const state = get();
+    const idx = state.layers.findIndex((l) => l.id === id);
+    if (idx <= 0) return; // bottom layer or not found — nothing below to merge into
+    const upper = state.layers[idx];
+    const lower = state.layers[idx - 1];
+    const { width, height } = state.canvasSize;
+
+    const mergedData = lower.data.map((row) => row.map((c) => ({ ...c })));
+    for (let r = 0; r < height; r++) {
+      for (let c = 0; c < width; c++) {
+        const up = upper.data[r]?.[c]?.colorIndex;
+        if (up !== null && up !== undefined) mergedData[r][c] = { colorIndex: up };
+      }
+    }
+    const mergedLayer = { ...lower, data: mergedData, visible: true, opacity: 1 };
+
+    const newLayers = [...state.layers];
+    newLayers[idx - 1] = mergedLayer;
+    newLayers.splice(idx, 1);
+
+    const snapshot: HistoryAction = { kind: "layers", layers: state.layers, activeLayerId: state.activeLayerId };
+    const undoStack = [...state.undoStack, snapshot].slice(-MAX_HISTORY);
+
+    set({
+      layers: newLayers,
+      activeLayerId: mergedLayer.id,
+      canvasData: mergeLayers(newLayers, width, height),
+      undoStack,
+      redoStack: [],
+      isDirty: true,
+    });
+  },
+
   setHighlightColor: (index) => set({ highlightColorIndex: index }),
 
   countColor: (index) => {
@@ -1549,21 +1703,22 @@ export const useEditorStore = create<EditorState>((set, get) => ({
     if (layerIdx === -1) return;
     const layer = state.layers[layerIdx];
     const newLayerData = layer.data.map((r) => r.map((c) => ({ ...c })));
-    const action: HistoryAction = [];
+    const entries: HistoryEntry[] = [];
 
     for (let row = 0; row < newLayerData.length; row++) {
       for (let col = 0; col < newLayerData[row].length; col++) {
         if (newLayerData[row][col].colorIndex === fromIndex) {
-          action.push({ row, col, prevColorIndex: fromIndex, newColorIndex: toIndex });
+          entries.push({ row, col, prevColorIndex: fromIndex, newColorIndex: toIndex });
           newLayerData[row][col] = { colorIndex: toIndex };
         }
       }
     }
 
-    if (action.length === 0) return;
+    if (entries.length === 0) return;
 
     const newLayers = [...state.layers];
     newLayers[layerIdx] = { ...layer, data: newLayerData };
+    const action: CellsHistoryAction = { kind: "cells", entries };
     const undoStack = [...state.undoStack, action].slice(-MAX_HISTORY);
     set({
       layers: newLayers,
