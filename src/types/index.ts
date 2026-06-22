@@ -127,8 +127,6 @@ export interface ProjectSnapshot {
 export interface ExportWatermarkSettings {
   /** Show top header band with icon + PindouVerse text. Default true. */
   showHeader: boolean;
-  /** Optional description appended as " - <desc>" after PindouVerse. Default "". */
-  appDescription: string;
   /** Tile PindouVerse text at 45° across the grid. Default false. */
   appWatermark: boolean;
   /** Tile resolved author text at 45° across the grid. Default true. */

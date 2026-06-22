@@ -8,6 +8,8 @@ import {
   callAction,
   clearMessages,
   dismissAppAlert,
+  setStoreState,
+  getStoreState,
 } from "./helpers";
 
 async function openExportDialog(page: import("@playwright/test").Page) {
@@ -69,7 +71,29 @@ test.describe("Export", () => {
     await expect(headerToggle).not.toBeChecked();
 
     await headerToggle.check();
-    await expect(page.getByPlaceholder(/犬夜叉桔梗/)).toBeVisible();
+    await expect(page.getByPlaceholder(/填写后将保存到项目信息/)).toBeVisible();
+  });
+
+  test("title field: shows project title as read-only when set", async ({ page }) => {
+    await setupPage(page);
+    await loadProject(page);
+    await setStoreState(page, { projectInfo: { title: "犬夜叉桔梗" } });
+    await openExportDialog(page);
+
+    await expect(page.getByText("标题来自当前项目设置，优先使用")).toBeVisible();
+    const titleSection = page.locator("div.pl-6").first();
+    await expect(titleSection.locator("input[disabled]")).toHaveValue("犬夜叉桔梗");
+  });
+
+  test("title field: editable when project has no title", async ({ page }) => {
+    await setupPage(page);
+    await loadProject(page);
+    await setStoreState(page, { projectInfo: {} });
+    await openExportDialog(page);
+
+    const titleInput = page.getByPlaceholder(/填写后将保存到项目信息/);
+    await expect(titleInput).toBeVisible();
+    await expect(titleInput).toBeEnabled();
   });
 
   test("watermark section: empty-author hint shows when author missing", async ({ page }) => {
@@ -254,6 +278,62 @@ test.describe("Export", () => {
     const header = decodeBase64Header(previewWrite.data);
     expect(header.slice(0, 3)).toEqual([0xff, 0xd8, 0xff]); // JPEG SOI
     await dismissAppAlert(page);
+  });
+
+  test("title write-back: typed title saved to projectInfo on export", async ({ page }) => {
+    await setupPage(page);
+    await loadProject(page);
+    await setStoreState(page, { projectInfo: {} });
+    await openExportDialog(page);
+
+    await page.getByPlaceholder(/填写后将保存到项目信息/).fill("犬夜叉");
+
+    await stageReply(page, "showSaveDialog", "/out/title-writeback.png");
+    await clearMessages(page);
+    await page.getByRole("button", { name: /^导出$/ }).last().click();
+
+    // The success alert appears only after the write-back runs.
+    await dismissAppAlert(page);
+
+    const info = await getStoreState<{ title?: string }>(page, "projectInfo");
+    expect(info?.title).toBe("犬夜叉");
+  });
+
+  test("title write-back: does not overwrite existing project title", async ({ page }) => {
+    await setupPage(page);
+    await loadProject(page);
+    await setStoreState(page, { projectInfo: { title: "原标题" } });
+    await openExportDialog(page);
+
+    await stageReply(page, "showSaveDialog", "/out/title-keep.png");
+    await clearMessages(page);
+    await page.getByRole("button", { name: /^导出$/ }).last().click();
+
+    await dismissAppAlert(page);
+
+    const info = await getStoreState<{ title?: string }>(page, "projectInfo");
+    expect(info?.title).toBe("原标题");
+  });
+
+  test("title write-back: cancelled preview-only export does not dirty project title", async ({ page }) => {
+    await setupPage(page);
+    await loadProject(page);
+    await setStoreState(page, { projectInfo: {} });
+    await openExportDialog(page);
+
+    // Preview-only: uncheck blueprint, check preview
+    await page.getByLabel(/图纸（带网格线/).uncheck();
+    await page.getByLabel(/效果图（模拟/).check();
+    await page.getByPlaceholder(/填写后将保存到项目信息/).fill("不该被保存");
+
+    // Cancel the (preview) save dialog
+    await stageReply(page, "showSaveDialog", null);
+    await clearMessages(page);
+    await page.getByRole("button", { name: /^导出$/ }).last().click();
+    await page.waitForTimeout(500);
+
+    const info = await getStoreState<{ title?: string }>(page, "projectInfo");
+    expect(info?.title).toBeFalsy();
   });
 
   // Regression: prior to this fix, exported blueprint canvas width = width * cs

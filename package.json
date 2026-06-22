@@ -1,7 +1,7 @@
 {
   "name": "pindouverse",
   "private": true,
-  "version": "1.2.101",
+  "version": "1.3.1",
   "type": "module",
   "scripts": {
     "dev": "vite",

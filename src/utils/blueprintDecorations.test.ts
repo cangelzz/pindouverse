@@ -128,7 +128,6 @@ describe("settings persistence", () => {
   it("round-trips persisted fields", () => {
     const s: ExportWatermarkSettings = {
       showHeader: false,
-      appDescription: "hello",
       appWatermark: true,
       authorWatermark: false,
       authorOverride: "Alice",
@@ -136,7 +135,6 @@ describe("settings persistence", () => {
     saveWatermarkSettings(s);
     const loaded = loadWatermarkSettings();
     expect(loaded.showHeader).toBe(false);
-    expect(loaded.appDescription).toBe("hello");
     expect(loaded.appWatermark).toBe(true);
     expect(loaded.authorWatermark).toBe(false);
     expect(loaded.authorOverride).toBe("Alice");
@@ -151,7 +149,6 @@ describe("settings persistence", () => {
     localStorage.setItem(KEY, JSON.stringify({ showHeader: false }));
     const loaded = loadWatermarkSettings();
     expect(loaded.showHeader).toBe(false);
-    expect(loaded.appDescription).toBe(DEFAULT_WATERMARK_SETTINGS.appDescription);
     expect(loaded.appWatermark).toBe(DEFAULT_WATERMARK_SETTINGS.appWatermark);
     expect(loaded.authorWatermark).toBe(DEFAULT_WATERMARK_SETTINGS.authorWatermark);
   });

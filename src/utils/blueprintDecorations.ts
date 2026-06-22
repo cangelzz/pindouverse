@@ -12,7 +12,6 @@ export const APP_NAME = "PindouVerse";
 
 export const DEFAULT_WATERMARK_SETTINGS: ExportWatermarkSettings = {
   showHeader: true,
-  appDescription: "",
   appWatermark: false,
   authorWatermark: true,
   authorOverride: "",

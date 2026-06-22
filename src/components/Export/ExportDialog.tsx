@@ -21,19 +21,25 @@ export function ExportDialog({ onClose }: { onClose: () => void }) {
   const gridConfig = useEditorStore((s) => s.gridConfig);
   const colorOverrides = useEditorStore((s) => s.colorOverrides);
   const projectInfo = useEditorStore((s) => s.projectInfo);
+  const setProjectInfo = useEditorStore((s) => s.setProjectInfo);
   const [watermark, setWatermark] = useState(() => loadWatermarkSettings());
 
   const projectAuthor = projectInfo?.author ?? "";
+  const projectTitle = projectInfo?.title ?? "";
+  const [titleInput, setTitleInput] = useState(projectTitle);
+  const hasProjectTitle = projectTitle.trim().length > 0;
+
+  const headerTitle = hasProjectTitle ? projectTitle : titleInput;
   const watermarkPayload: WatermarkPayload = useMemo(
     () => ({
       show_header: watermark.showHeader,
       app_description: composeHeaderDescription(
-        watermark.appDescription,
+        headerTitle,
         resolveWatermarkAuthor(watermark.authorOverride, projectAuthor)
       ),
       watermark_lines: computeWatermarkLines(watermark, projectAuthor),
     }),
-    [watermark, projectAuthor]
+    [watermark, projectAuthor, headerTitle]
   );
 
   // Persist settings when the dialog unmounts, even if the user closes without exporting
@@ -97,6 +103,7 @@ export function ExportDialog({ onClose }: { onClose: () => void }) {
     try {
       const cells = buildCells();
       saveWatermarkSettings(watermark);
+
       const results: string[] = [];
       const errors: string[] = [];
 
@@ -186,6 +193,13 @@ export function ExportDialog({ onClose }: { onClose: () => void }) {
             }),
           );
         }
+      }
+
+      // Persist the typed title to project info only after an export actually
+      // produced output, so cancelling every save dialog leaves the project clean.
+      const typedTitle = titleInput.trim();
+      if (!hasProjectTitle && typedTitle && results.length > 0) {
+        setProjectInfo({ ...(projectInfo ?? {}), title: typedTitle });
       }
 
       const successMsg = results.length ? `导出成功:\n${results.join("\n")}` : "";
@@ -314,14 +328,35 @@ export function ExportDialog({ onClose }: { onClose: () => void }) {
               </label>
               {watermark.showHeader && (
                 <div className="pl-6">
-                  <label className="text-[11px] text-gray-500 block mb-0.5">描述（可选）</label>
-                  <input
-                    type="text"
-                    value={watermark.appDescription}
-                    onChange={(e) => setWatermark({ ...watermark, appDescription: e.target.value })}
-                    placeholder="例如 犬夜叉桔梗 64x72"
-                    className="w-full px-2 py-1 text-xs border rounded"
-                  />
+                  <label className="text-[11px] text-gray-500 block mb-0.5">标题</label>
+                  {hasProjectTitle ? (
+                    <>
+                      <input
+                        type="text"
+                        value={projectTitle}
+                        disabled
+                        className="w-full px-2 py-1 text-xs border rounded bg-gray-50 text-gray-500"
+                      />
+                      <p className="text-[10px] text-gray-400 mt-0.5">
+                        标题来自当前项目设置，优先使用
+                      </p>
+                    </>
+                  ) : (
+                    <>
+                      <input
+                        type="text"
+                        value={titleInput}
+                        onChange={(e) => setTitleInput(e.target.value)}
+                        placeholder="(未设置，填写后将保存到项目信息)"
+                        className="w-full px-2 py-1 text-xs border rounded"
+                      />
+                      <p className="text-[10px] text-gray-400 mt-0.5">
+                        {titleInput.trim()
+                          ? "导出时将作为标题，并保存到项目信息"
+                          : "未设置标题，仅显示应用名"}
+                      </p>
+                    </>
+                  )}
                 </div>
               )}
 
