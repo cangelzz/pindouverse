@@ -1122,6 +1122,7 @@ def compose(images, theme, ratio, title, credit, out, base_w, font_path, font_bo
         total_w = sum(im.width + 2*pad for im in sized) + (n-1)*gap
         x = (W - total_w)//2
         cy = title_band + (H - title_band - bottom)//2
+        card_top = cy - (sized[0].height + 2*pad)//2
         for im in sized:
             cw, ch = im.width + 2*pad, im.height + 2*pad
             poster = frame_card(poster, im, x, cy-ch//2, cw, ch, pad, rad, th, rng)
@@ -1134,6 +1135,7 @@ def compose(images, theme, ratio, title, credit, out, base_w, font_path, font_bo
                  for im, asp in zip(arts, aspects)]
         total = sum(im.height + 2*pad for im in sized) + (n-1)*gap
         y = title_band + max(0, H - title_band - bottom - total)//4   # bias card up toward title
+        card_top = y
         cw = art_w + 2*pad; x = (W - cw)//2
         for im in sized:
             ch = im.height + 2*pad
@@ -1159,7 +1161,7 @@ def compose(images, theme, ratio, title, credit, out, base_w, font_path, font_bo
                 s2 = title_band*1.10/logo.height
                 logo = logo.resize((max(1, int(logo.width*s2)), max(1, int(logo.height*s2))),
                                    Image.LANCZOS)
-        poster.paste(logo, ((W-logo.width)//2, title_band//2 - logo.height//2), logo)
+        poster.paste(logo, ((W-logo.width)//2, max(0, card_top//2 - logo.height//2)), logo)
     elif title:
         fb = load_font(font_bold, int(W*0.051)) or ImageFont.load_default()
         b = d.textbbox((0, 0), title, font=fb); tw = b[2]-b[0]; tht = b[3]-b[1]
