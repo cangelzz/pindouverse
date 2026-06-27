@@ -1258,6 +1258,9 @@ export function PixelCanvas() {
   // Keyboard shortcuts
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
+      // Track Shift globally so the cursor can show an add-to-selection "+"
+      // badge while the magic wand is active.
+      if (e.key === "Shift") setShiftHeld(true);
       // Skip shortcuts when typing in input/textarea/select elements
       const tag = (e.target as HTMLElement)?.tagName;
       if (tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT") return;
@@ -1352,20 +1355,30 @@ export function PixelCanvas() {
       }
     };
     const onKeyUp = (e: KeyboardEvent) => {
+      if (e.key === "Shift") setShiftHeld(false);
       if (e.key === " ") {
         useEditorStore.getState().setTool("pen");
       }
     };
+    // If the window loses focus while Shift is down, the keyup never fires —
+    // clear the flag so the "+" cursor doesn't get stuck on.
+    const onBlur = () => setShiftHeld(false);
     window.addEventListener("keydown", onKey);
     window.addEventListener("keyup", onKeyUp);
+    window.addEventListener("blur", onBlur);
     return () => {
       window.removeEventListener("keydown", onKey);
       window.removeEventListener("keyup", onKeyUp);
+      window.removeEventListener("blur", onBlur);
     };
   }, []);
 
   // Cursor style
   const [hoverOnFloat, setHoverOnFloat] = useState(false);
+  // Shift-held tracking: with the magic wand, holding Shift adds the next
+  // flood-fill to the existing selection. Reflect that in the cursor (a "+"
+  // badge) so the add-to-selection mode is discoverable.
+  const [shiftHeld, setShiftHeld] = useState(false);
   const cursor =
     resizingHandle.current
       ? cursorForHandle(resizingHandle.current.handle)
@@ -1380,7 +1393,7 @@ export function PixelCanvas() {
               : currentTool === "eyedropper" || currentTool === "fill" || currentTool === "eraserFill"
                 ? "crosshair"
                 : currentTool === "select" || currentTool === "wand"
-                  ? "crosshair"
+                  ? (currentTool === "wand" && shiftHeld && selection ? "copy" : "crosshair")
                   : "default";
 
   return (

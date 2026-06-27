@@ -1230,7 +1230,17 @@ export const useEditorStore = create<EditorState>((set, get) => ({
     const state = get();
     const session = state.adjustSession;
     if (!session) return;
-    const pool = snapRange === "used" ? session.used : getGroupIndices("mard221");
+    // Always snap into the MARD 221 base group (A–H, M) — never the special
+    // 295-set series (P/Q/R/T/Y/ZG). "全色板" is the full base group; "仅已用色"
+    // is the project's used colors intersected with that base group.
+    const base221 = getGroupIndices("mard221");
+    let pool: number[];
+    if (snapRange === "used") {
+      const base = new Set(base221);
+      pool = session.used.filter((i) => base.has(i));
+    } else {
+      pool = base221;
+    }
     const remap = buildSelectionRemap(session.srcIndices, adj, pool, "ciede2000", state.colorOverrides);
     const overlay = new Map<string, number>();
     for (const [key, src] of session.cells) {
