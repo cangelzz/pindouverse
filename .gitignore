@@ -35,3 +35,6 @@ npm-debug.log*
 # Temp
 temp/
 temp2/
+
+# Editor autosave (PindouVerse writes per-session backups next to samples)
+.pindou_autosave/
