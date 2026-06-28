@@ -1,6 +1,6 @@
 use serde::Deserialize;
 use image::{Rgba, RgbaImage};
-use imageproc::drawing::draw_text_mut;
+use imageproc::drawing::{draw_text_mut, draw_line_segment_mut};
 use ab_glyph::{point, Font, FontRef, PxScale, ScaleFont};
 use std::collections::HashMap;
 
@@ -276,12 +276,28 @@ pub fn export_image(request: ExportRequest) -> Result<String, String> {
             let y0 = header_h + margin + row_idx as u32 * cs;
 
             if let Some(cell_data) = cell {
-                for dy in 0..cs {
-                    for dx in 0..cs {
-                        let px = x0 + dx;
-                        let py = y0 + dy;
-                        if px < img_width && py < img_height {
-                            img.put_pixel(px, py, Rgba([cell_data.r, cell_data.g, cell_data.b, 255]));
+                if cell_data.color_code == "H1" {
+                    // Transparent bead: leave the white background, draw a gray X.
+                    let ink = Rgba([80u8, 80, 80, 255]);
+                    let pad = cs as f32 * 0.12;
+                    let a = (x0 as f32 + pad, y0 as f32 + pad);
+                    let b = (x0 as f32 + cs as f32 - pad, y0 as f32 + cs as f32 - pad);
+                    let c = (x0 as f32 + cs as f32 - pad, y0 as f32 + pad);
+                    let d = (x0 as f32 + pad, y0 as f32 + cs as f32 - pad);
+                    // ~2px thick by drawing each diagonal twice with a 1px offset
+                    for off in 0..2i32 {
+                        let o = off as f32;
+                        draw_line_segment_mut(&mut img, (a.0, a.1 + o), (b.0, b.1 + o), ink);
+                        draw_line_segment_mut(&mut img, (c.0, c.1 + o), (d.0, d.1 + o), ink);
+                    }
+                } else {
+                    for dy in 0..cs {
+                        for dx in 0..cs {
+                            let px = x0 + dx;
+                            let py = y0 + dy;
+                            if px < img_width && py < img_height {
+                                img.put_pixel(px, py, Rgba([cell_data.r, cell_data.g, cell_data.b, 255]));
+                            }
                         }
                     }
                 }
@@ -384,13 +400,32 @@ pub fn export_image(request: ExportRequest) -> Result<String, String> {
             }
             let sy = row_start_y + row_idx * (swatch_h + LEGEND_ROW_GAP);
 
-            // Left sub-cell — color background
-            for dy in 0..swatch_h {
-                for dx in 0..left_w {
-                    let px = x + dx;
-                    let py = sy + dy;
-                    if px < img_width && py < img_height {
-                        img.put_pixel(px, py, Rgba([r, g, b, 255]));
+            // Left sub-cell — color background (H1 = transparent bead: white bg + gray X)
+            if code == "H1" {
+                // Leave white background (already set), draw a small gray X
+                let ink = Rgba([80u8, 80, 80, 255]);
+                let pad = swatch_h as f32 * 0.12;
+                let lx = x as f32;
+                let ly = sy as f32;
+                let lw = left_w as f32;
+                let lh = swatch_h as f32;
+                let a = (lx + pad, ly + pad);
+                let b = (lx + lw - pad, ly + lh - pad);
+                let c = (lx + lw - pad, ly + pad);
+                let d = (lx + pad, ly + lh - pad);
+                for off in 0..2i32 {
+                    let o = off as f32;
+                    draw_line_segment_mut(img, (a.0, a.1 + o), (b.0, b.1 + o), ink);
+                    draw_line_segment_mut(img, (c.0, c.1 + o), (d.0, d.1 + o), ink);
+                }
+            } else {
+                for dy in 0..swatch_h {
+                    for dx in 0..left_w {
+                        let px = x + dx;
+                        let py = sy + dy;
+                        if px < img_width && py < img_height {
+                            img.put_pixel(px, py, Rgba([r, g, b, 255]));
+                        }
                     }
                 }
             }

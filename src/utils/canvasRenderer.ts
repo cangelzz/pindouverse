@@ -1,5 +1,6 @@
 import { getEffectiveColor, type ColorOverrideMap } from "./colorHelper";
 import type { CanvasData, GridConfig } from "../types";
+import { isTransparentBead } from "../data/mard221";
 
 export interface RenderOptions {
   canvasData: CanvasData;
@@ -21,6 +22,42 @@ function textLum(hex: string): number {
   const g = parseInt(hex.slice(3, 5), 16);
   const b = parseInt(hex.slice(5, 7), 16);
   return 0.299 * r + 0.587 * g + 0.114 * b;
+}
+
+/**
+ * Draw the transparent-bead (H1) marker: an X (two diagonals) over a see-through
+ * cell. At very small sizes it degrades to a single diagonal so it stays
+ * legible. The caller MUST NOT fill the cell first — the transparent base is the
+ * point. Shared by the editor canvas and the JS export path.
+ *
+ * Accepts an optional `height` (defaulting to `width`) so it can mark non-square
+ * regions such as legend swatches; square callers can omit it and behave exactly
+ * as before.
+ */
+export function drawTransparentBeadMarker(
+  ctx: CanvasRenderingContext2D,
+  x: number,
+  y: number,
+  width: number,
+  height: number = width
+): void {
+  const minSide = Math.min(width, height);
+  const padX = width * 0.12;
+  const padY = height * 0.12;
+  const x0 = x + padX;
+  const y0 = y + padY;
+  const x1 = x + width - padX;
+  const y1 = y + height - padY;
+  ctx.strokeStyle = "rgba(80,80,80,0.6)";
+  ctx.lineWidth = Math.max(1, minSide * 0.08);
+  ctx.beginPath();
+  ctx.moveTo(x0, y0);          // top-left → bottom-right
+  ctx.lineTo(x1, y1);
+  if (minSide >= 6) {
+    ctx.moveTo(x1, y0);        // top-right → bottom-left (full X)
+    ctx.lineTo(x0, y1);
+  }
+  ctx.stroke();
 }
 
 /**
@@ -54,8 +91,12 @@ export function renderPixels(
         const color = getEffectiveColor(cell.colorIndex, overrides);
 
         if (!textOnly) {
-          ctx.fillStyle = color.hex || "#FF00FF";
-          ctx.fillRect(x, y, cellSize, cellSize);
+          if (isTransparentBead(cell.colorIndex)) {
+            drawTransparentBeadMarker(ctx, x, y, cellSize);
+          } else {
+            ctx.fillStyle = color.hex || "#FF00FF";
+            ctx.fillRect(x, y, cellSize, cellSize);
+          }
 
           // Blueprint mode: draw cell border
           if (blueprintMode) {
@@ -64,8 +105,8 @@ export function renderPixels(
             ctx.strokeRect(x, y, cellSize, cellSize);
           }
 
-          // Dim non-highlighted cells
-          if (hasHighlight && cell.colorIndex !== highlightColorIndex) {
+          // Dim non-highlighted cells (but keep the transparent bead's X visible)
+          if (hasHighlight && cell.colorIndex !== highlightColorIndex && !isTransparentBead(cell.colorIndex)) {
             ctx.fillStyle = "rgba(255,255,255,0.7)";
             ctx.fillRect(x, y, cellSize, cellSize);
           }

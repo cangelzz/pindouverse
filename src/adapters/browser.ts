@@ -18,6 +18,8 @@ import {
   drawHeader,
   drawWatermark,
 } from "../utils/blueprintDecorations";
+import { drawTransparentBeadMarker } from "../utils/canvasRenderer";
+import { TRANSPARENT_BEAD_CODE } from "../data/mard221";
 import { importBlueprintTS, detectBlueprintDimsTS } from "../utils/blueprintImportTS";
 import appIconUrl from "../../src-tauri/icons/64x64.png";
 
@@ -353,8 +355,12 @@ export class BrowserAdapter implements PlatformAdapter {
       for (let col = 0; col < width; col++) {
         const cell = cells[row]?.[col];
         if (cell) {
-          ctx.fillStyle = `rgb(${cell.r},${cell.g},${cell.b})`;
-          ctx.fillRect(col * cell_size, row * cell_size, cell_size, cell_size);
+          if (cell.color_code === TRANSPARENT_BEAD_CODE) {
+            drawTransparentBeadMarker(ctx, col * cell_size, row * cell_size, cell_size);
+          } else {
+            ctx.fillStyle = `rgb(${cell.r},${cell.g},${cell.b})`;
+            ctx.fillRect(col * cell_size, row * cell_size, cell_size, cell_size);
+          }
         }
       }
     }

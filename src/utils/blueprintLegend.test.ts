@@ -2,6 +2,7 @@ import { describe, it, expect, vi, beforeAll } from "vitest";
 import {
   buildLegendItems,
   computeLegendLayout,
+  drawLegend,
   LEGEND_PAD,
   LEGEND_GAP,
   type LegendCell,
@@ -166,5 +167,41 @@ describe("computeLegendLayout", () => {
     }))];
     const layout = computeLegendLayout(cells, 4, 30); // inner ~ 60px, ~2 items/row
     expect(layout.sections[0].rowsCount).toBeGreaterThanOrEqual(2);
+  });
+});
+
+describe("drawLegend transparent bead swatch", () => {
+  it("draws the H1 transparent bead legend swatch as white + X, not a solid near-white fill", () => {
+    // A single H1 item with a deliberately non-white rgb so a solid fill of
+    // that rgb would be detectable in the recorded fillRect styles.
+    const cells: (LegendCell | null)[][] = [[{ color_code: "H1", r: 10, g: 200, b: 30 }]];
+    const layout = computeLegendLayout(cells, 10, 30);
+
+    const fills: { style: string }[] = [];
+    let strokeCalls = 0;
+    const ctx = {
+      canvas: { width: 600, height: 600 },
+      save: () => {}, restore: () => {}, beginPath: () => {},
+      roundRect: () => {}, clip: () => {}, moveTo: () => {}, lineTo: () => {},
+      stroke: () => { strokeCalls++; },
+      fillRect: function () { fills.push({ style: String((ctx as any).fillStyle) }); },
+      fillText: () => {},
+      set fillStyle(v: string) { (this as any)._fs = v; },
+      get fillStyle() { return (this as any)._fs; },
+      set strokeStyle(_v: string) {}, get strokeStyle() { return ""; },
+      set lineWidth(_v: number) {}, get lineWidth() { return 0; },
+      set font(_v: string) {}, get font() { return ""; },
+      set textAlign(_v: string) {}, get textAlign() { return ""; },
+      set textBaseline(_v: string) {}, get textBaseline() { return ""; },
+    } as unknown as CanvasRenderingContext2D;
+
+    drawLegend(ctx, layout, 30, 0);
+
+    // No fillRect used H1's solid rgb(10,200,30):
+    expect(
+      fills.some((f) => f.style === "rgb(10,200,30)" || f.style === "rgb(10, 200, 30)"),
+    ).toBe(false);
+    // The X marker stroked at least once:
+    expect(strokeCalls).toBeGreaterThan(0);
   });
 });

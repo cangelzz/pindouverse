@@ -383,3 +383,17 @@ export function getGroupIndices(groupId: string): number[] {
     .filter(({ prefix, code }) => group.series.includes(prefix) && !TRANSPARENT_CODES.has(code))
     .map(({ i }) => i);
 }
+
+/** Index of the transparent bead (H1) in MARD_COLORS. Rendered see-through with
+ * an X marker rather than a solid fill. Distinct from an empty cell (null) and
+ * from the white bead (H2). */
+export const TRANSPARENT_BEAD_INDEX = MARD_COLORS.findIndex((c) => c.code === "H1");
+
+/** True when a color index is the transparent bead (H1). */
+export function isTransparentBead(index: number | null | undefined): boolean {
+  return index != null && index === TRANSPARENT_BEAD_INDEX;
+}
+
+/** The MARD color code of the transparent bead. Used at export boundaries that
+ * carry only the color code string (no palette index). */
+export const TRANSPARENT_BEAD_CODE = "H1";

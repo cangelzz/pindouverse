@@ -13,6 +13,9 @@
  * so browser/VS Code/Tauri exports look the same.
  */
 
+import { drawTransparentBeadMarker } from "./canvasRenderer";
+import { TRANSPARENT_BEAD_CODE } from "../data/mard221";
+
 // Legend cells/text are rendered at LEGEND_SCALE × the grid's cell size —
 // the grid itself can be tiny while the legend still needs to be readable.
 // At LEGEND_SCALE = 5/3, a 30 px grid cell yields a 50 px legend swatch.
@@ -220,9 +223,15 @@ export function drawLegend(
       ctx.roundRect(x, sy, itemW, swatchH, radius);
       ctx.clip();
 
-      // Left sub-cell — color background
-      ctx.fillStyle = `rgb(${it.r},${it.g},${it.b})`;
-      ctx.fillRect(x, sy, it.leftW, swatchH);
+      // Left sub-cell — color background (transparent bead H1 → white + X marker)
+      if (it.code === TRANSPARENT_BEAD_CODE) {
+        ctx.fillStyle = "rgb(255,255,255)";
+        ctx.fillRect(x, sy, it.leftW, swatchH);
+        drawTransparentBeadMarker(ctx, x, sy, it.leftW, swatchH);
+      } else {
+        ctx.fillStyle = `rgb(${it.r},${it.g},${it.b})`;
+        ctx.fillRect(x, sy, it.leftW, swatchH);
+      }
 
       // Right sub-cell — white background
       ctx.fillStyle = "rgb(255,255,255)";

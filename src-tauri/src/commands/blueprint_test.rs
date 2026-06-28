@@ -273,6 +273,63 @@ mod tests {
     }
 
     #[test]
+    fn test_h1_transparent_bead_not_filled() {
+        use image::GenericImageView;
+        let cs: u32 = 40;
+        // single H1 cell with a deliberately NON-white rgb so we can detect a fill
+        let cells: Vec<Vec<Option<CellData>>> = vec![vec![Some(CellData {
+            color_code: "H1".to_string(),
+            r: 10,
+            g: 200,
+            b: 30,
+        })]];
+
+        let test_dir = std::env::temp_dir().join("pindouverse_test");
+        fs::create_dir_all(&test_dir).unwrap();
+        let export_path = test_dir.join("test_h1.png");
+        let path_str = export_path.to_string_lossy().to_string();
+
+        let request = ExportRequest {
+            width: 1,
+            height: 1,
+            cell_size: cs,
+            cells,
+            output_path: path_str.clone(),
+            format: "png".to_string(),
+            start_x: Some(0),
+            start_y: Some(0),
+            edge_padding: Some(0),
+            watermark: None,
+            legend_options: None,
+        };
+        export_image(request).expect("Export failed");
+
+        let img = image::open(&path_str).expect("reopen").to_rgba8();
+        // The H1 cell must NOT be filled with its (10,200,30) rgb anywhere.
+        let mut green_fill = 0u32;
+        for p in img.pixels() {
+            if p[0] == 10 && p[1] == 200 && p[2] == 30 {
+                green_fill += 1;
+            }
+        }
+        assert_eq!(green_fill, 0, "H1 cell should not be solid-filled with its rgb");
+
+        // And there must be some gray X ink (around rgb 80,80,80).
+        let mut gray_ink = 0u32;
+        for p in img.pixels() {
+            if (p[0] as i32 - 80).abs() < 30
+                && (p[1] as i32 - 80).abs() < 30
+                && (p[2] as i32 - 80).abs() < 30
+            {
+                gray_ink += 1;
+            }
+        }
+        assert!(gray_ink > 0, "expected gray X strokes for the H1 transparent bead");
+
+        let _ = fs::remove_file(&path_str);
+    }
+
+    #[test]
     fn test_metadata_path_exact_reconstruction() {
         // Round-trip a non-square grid and verify the metadata path gives
         // 100% cell accuracy (no detection involved).

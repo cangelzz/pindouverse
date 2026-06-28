@@ -1,5 +1,5 @@
 import { useState, useMemo, useEffect, useRef } from "react";
-import { MARD_COLORS, COLOR_GROUPS, getGroupIndices, groupIndicesByLetter } from "../../data/mard221";
+import { MARD_COLORS, COLOR_GROUPS, getGroupIndices, groupIndicesByLetter, isTransparentBead } from "../../data/mard221";
 import { useEditorStore } from "../../store/editorStore";
 import { getEffectiveHex } from "../../utils/colorHelper";
 import { appPrompt, appConfirm } from "../Dialog/AppDialog";
@@ -17,6 +17,20 @@ function textColor(hex: string): string {
   const b = parseInt(hex.slice(5, 7), 16);
   const lum = 0.299 * r + 0.587 * g + 0.114 * b;
   return lum > 140 ? "#000000" : "#FFFFFF";
+}
+
+/** A faint X overlay marking the H1 transparent bead in swatches. */
+function TransparentBeadOverlay() {
+  return (
+    <span
+      className="absolute inset-0 pointer-events-none rounded-sm"
+      style={{
+        backgroundImage:
+          "linear-gradient(to bottom right, transparent 44%, rgba(80,80,80,0.6) 44%, rgba(80,80,80,0.6) 56%, transparent 56%)," +
+          "linear-gradient(to top right, transparent 44%, rgba(80,80,80,0.6) 44%, rgba(80,80,80,0.6) 56%, transparent 56%)",
+      }}
+    />
+  );
 }
 
 export function ColorPalette() {
@@ -266,6 +280,7 @@ export function ColorPalette() {
                     title={`${color.code}\n${getEffectiveHex(index, colorOverrides)}\nRGB(${color.rgb?.join(", ")})${colorOverrides.has(index) ? "\n(已调整)" : ""}`}
                   >
                     {color.code}
+                    {isTransparentBead(index) && <TransparentBeadOverlay />}
                     {colorOverrides.has(index) && (
                       <span className="absolute top-0 right-0 w-1.5 h-1.5 bg-orange-400 rounded-full" />
                     )}
@@ -282,9 +297,11 @@ export function ColorPalette() {
         <div className="px-2 py-1.5 border-t bg-gray-50 text-xs">
           <div className="flex items-center gap-2">
             <div
-              className="w-6 h-6 rounded border border-gray-300 shrink-0"
+              className="relative w-6 h-6 rounded border border-gray-300 shrink-0"
               style={{ backgroundColor: getEffectiveHex(selectedColorIndex, colorOverrides) }}
-            />
+            >
+              {isTransparentBead(selectedColorIndex) && <TransparentBeadOverlay />}
+            </div>
             <div className="min-w-0 flex-1">
               <div className="font-semibold">{MARD_COLORS[selectedColorIndex]?.code}</div>
               <div className="text-gray-400 truncate">{getEffectiveHex(selectedColorIndex, colorOverrides)}</div>

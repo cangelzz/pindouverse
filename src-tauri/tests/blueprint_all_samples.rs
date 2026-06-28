@@ -164,6 +164,7 @@ fn run_sample(path: &PathBuf, mard: &[MardEntry]) -> SampleResult {
         start_y: Some(1),
         edge_padding: Some(0),
         watermark: None,
+        legend_options: None,
     };
     export_image(export_request).expect("export");
 
