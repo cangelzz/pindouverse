@@ -67,6 +67,7 @@ Lift the logo off a busy background with `--title-shadow` (soft drop shadow); ad
 | `sakura` | soft pink gradient + light blooms + drifting cherry-blossom petals | white card, soft-pink border + inner line | lovely sakura |
 | `ember` | orange→red gradient + golden glow + warm clouds + ember sparks | cream card, red-orange border | warm / fiery |
 | `meadow` | sky-blue→grass-green gradient + clouds + grass blades + flowers + pollen | cream card, grass-green border | green meadow |
+| `soccer-pitch` | green grass + vertical mown stripes + white pitch lines (center circle/line, penalty arc) + stadium-light glow | white card, white border + green inner line | football field / sports |
 | `amethyst` | soft lilac→violet gradient + bokeh orbs + sparkles + purple petals | white card, purple border | dreamy purple |
 | `wizard` | deep indigo night + moon + golden stars + candle bokeh + castle skyline | dark card, gold border | magical night |
 | `sunset` | peach→rose gradient + low sun + radial rays + cloud bands | cream card, warm border | warm dusk |

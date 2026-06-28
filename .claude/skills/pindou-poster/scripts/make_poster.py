@@ -634,6 +634,55 @@ def bg_meadow(W, H, rng):
         pod.ellipse([x-pr, y-pr, x+pr, y+pr], fill=(255, 255, 240, rng.randint(60, 130)))
     return Image.alpha_composite(p, po.filter(ImageFilter.GaussianBlur(1)))
 
+def bg_soccer(W, H, rng):
+    """Green football pitch: vertical mown stripes (alternating light/dark grass),
+    crisp white pitch markings (center line + center circle + a penalty arc),
+    a soft stadium-light glow up top, and fine grass speckle. Built for Captain
+    Tsubasa / any sports bead-art."""
+    # base green gradient (a touch brighter at the top for logo legibility)
+    p = vgrad(W, H, (86, 168, 78), (52, 134, 58)).convert("RGBA")
+    # vertical mown stripes — alternating lighter / darker translucent bands
+    st = Image.new("RGBA", (W, H), (0, 0, 0, 0)); sd = ImageDraw.Draw(st)
+    nb = 9
+    bw = W / nb
+    for i in range(nb):
+        x0 = int(i*bw); x1 = int((i+1)*bw)
+        if i % 2 == 0:
+            sd.rectangle([x0, 0, x1, H], fill=(255, 255, 255, 26))   # lit stripe
+        else:
+            sd.rectangle([x0, 0, x1, H], fill=(0, 60, 20, 30))       # shaded stripe
+    p = Image.alpha_composite(p, st)
+    # stadium light wash top
+    glow = Image.new("RGBA", (W, H), (0, 0, 0, 0))
+    ImageDraw.Draw(glow).ellipse([-W//3, -int(H*0.5), W+W//3, int(H*0.28)],
+                                 fill=(220, 255, 210, 70))
+    p = Image.alpha_composite(p, glow.filter(ImageFilter.GaussianBlur(W//7)))
+    # white pitch markings
+    mk = Image.new("RGBA", (W, H), (0, 0, 0, 0)); md = ImageDraw.Draw(mk)
+    lw = max(3, W//220); col = (255, 255, 255, 150)
+    cy = int(H*0.52)
+    md.line([(int(W*0.04), cy), (int(W*0.96), cy)], fill=col, width=lw)   # halfway line
+    cr = int(W*0.17)                                                      # center circle
+    md.ellipse([W//2-cr, cy-cr, W//2+cr, cy+cr], outline=col, width=lw)
+    md.ellipse([W//2-lw*2, cy-lw*2, W//2+lw*2, cy+lw*2], fill=col)        # center spot
+    # penalty arc hint near the bottom edge
+    pr = int(W*0.22); pby = int(H*1.02)
+    md.arc([W//2-pr, pby-pr, W//2+pr, pby+pr], 200, 340, fill=col, width=lw)
+    # corner arcs
+    ca = int(W*0.05)
+    md.arc([-ca, -ca, ca, ca], 0, 90, fill=col, width=lw)
+    md.arc([W-ca, -ca, W+ca, ca], 90, 180, fill=col, width=lw)
+    p = Image.alpha_composite(p, mk)
+    # fine grass speckle / clipping texture
+    gr = Image.new("RGBA", (W, H), (0, 0, 0, 0)); gd = ImageDraw.Draw(gr)
+    for _ in range(W*H // 2600):
+        x, y = rng.randint(0, W), rng.randint(0, H)
+        sh = rng.randint(-22, 22)
+        gd.point((x, y), fill=(70+sh, 150+sh, 66+sh, 90))
+    p = Image.alpha_composite(p, gr)
+    return p
+
+
 def bg_amethyst(W, H, rng):
     """Dreamy purple: soft lilac→violet gradient, blurred bokeh orbs, drifting
     purple petals, and white twinkle sparkles. Lovely and magical."""
@@ -1000,6 +1049,10 @@ THEMES = {
         shadow_col=(40, 80, 40, 95), shadow_blur=24, shadow_off=18,
         border=(104, 162, 82), border_w=5, inner_line=(184, 210, 152),
         title_col=(60, 104, 56), title_halo=(250, 250, 244), pad_f=0.018),
+    "soccer-pitch": dict(bg=bg_soccer, card_bg=(250, 250, 246), radius_f=0.010,
+        shadow_col=(20, 60, 24, 110), shadow_blur=26, shadow_off=18,
+        border=(255, 255, 255), border_w=6, inner_line=(150, 200, 140),
+        title_col=(28, 96, 48), title_halo=(255, 255, 255), pad_f=0.018),
     "amethyst": dict(bg=bg_amethyst, card_bg=(255, 255, 255), radius_f=0.012,
         shadow_col=(110, 70, 150, 95), shadow_blur=24, shadow_off=18,
         border=(170, 120, 200), border_w=5, inner_line=(222, 200, 238),
