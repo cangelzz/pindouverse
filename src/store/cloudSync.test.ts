@@ -32,7 +32,7 @@ describe("editor cloud semantics", () => {
   });
 
   it("replaces a project from cloud as unsaved local content with synced cloud association", () => {
-    useEditorStore.setState({ projectPath: "old.pindou", projectDocument: { displayName: "old.pindou", writable: true }, baselineCanvasData: [[{ colorIndex: 1 }]], selection: new Set(["0,0"]), undoStack: [{ kind: "cells", entries: [] }] });
+    useEditorStore.setState({ projectPath: "old.pindou", projectDocument: { displayName: "old.pindou", writable: true }, baselineCanvasData: [[{ colorIndex: 1 }]], selection: new Set(["0,0"]), undoStack: [{ kind: "cells", changesByLayer: [{ layerId: useEditorStore.getState().activeLayerId, entries: [] }] }] });
     useEditorStore.getState().replaceProjectFromCloud(project, "g", "Cloud", "remote");
     expect(useEditorStore.getState()).toMatchObject({ canvasData: [[{ colorIndex: 6 }]], projectPath: null, projectDocument: null, baselineCanvasData: null, isDirty: true, cloudGistId: "g", cloudProjectName: "Cloud", cloudSyncStatus: "synced", selection: null, undoStack: [] });
   });
