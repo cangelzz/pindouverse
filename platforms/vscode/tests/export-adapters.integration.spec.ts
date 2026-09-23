@@ -13,10 +13,14 @@ function html(): string {
     window.acquireVsCodeApi = () => ({
       getState() {}, setState() {},
       postMessage(message) {
-        if (message.type === 'writeFile') window.__hostWrites.push(message);
-        if (message.requestId !== undefined) queueMicrotask(() =>
-          window.dispatchEvent(new MessageEvent('message', { data: { requestId: message.requestId } }))
-        );
+        if (message.type === 'writeFile') {
+          window.__hostWrites.push(message);
+          queueMicrotask(() =>
+            window.dispatchEvent(new MessageEvent('message', {
+              data: { type: 'fileResult', requestId: message.requestId, success: true }
+            }))
+          );
+        }
       }
     });
   </script><script type="module" src="/platforms/vscode/tests/fixtures/export-adapters-entry.ts"></script></body></html>`;

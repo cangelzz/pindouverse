@@ -69,6 +69,454 @@ beforeEach(() => {
   install();
 });
 
+describe("layer-bound history", () => {
+  it("keeps cell history when switching active layers", () => {
+    const store = storeModule.useEditorStore;
+    const firstId = store.getState().activeLayerId;
+    store.getState().addLayer("Second");
+    const secondId = store.getState().activeLayerId;
+    store.getState().setActiveLayer(firstId);
+    store.getState().setCell(0, 0, 7);
+    store.getState().setActiveLayer(secondId);
+    store.getState().setCell(0, 0, 8);
+    store.getState().setActiveLayer(firstId);
+    store.getState().undo();
+    expect(store.getState().layers.find(layer => layer.id === firstId)!.data[0][0].colorIndex).toBe(7);
+    expect(store.getState().layers.find(layer => layer.id === secondId)!.data[0][0].colorIndex).toBeNull();
+    store.getState().redo();
+    expect(store.getState().layers.find(layer => layer.id === secondId)!.data[0][0].colorIndex).toBe(8);
+    store.getState().undo();
+    store.getState().undo();
+    expect(store.getState().layers.find(layer => layer.id === firstId)!.data[0][0].colorIndex).toBeNull();
+  });
+
+  it.each(["undo", "redo"] as const)("rejects %s if a history target is missing", (direction) => {
+    const store = storeModule.useEditorStore;
+    const firstId = store.getState().activeLayerId;
+    store.getState().addLayer("Second");
+    const secondId = store.getState().activeLayerId;
+    store.getState().setCell(0, 0, 8);
+    if (direction === "redo") store.getState().undo();
+    store.setState({ layers: store.getState().layers.filter(layer => layer.id !== secondId), activeLayerId: firstId });
+    const before = store.getState();
+    store.getState()[direction]();
+    expect(store.getState()).toBe(before);
+  });
+
+  it("groups a stroke by layer and coordinate", () => {
+    const store = storeModule.useEditorStore;
+    const firstId = store.getState().activeLayerId;
+    store.getState().addLayer("Second");
+    const secondId = store.getState().activeLayerId;
+    const historyLength = store.getState().undoStack.length;
+    store.getState().beginStroke();
+    store.getState().setCell(0, 0, 8);
+    store.getState().setActiveLayer(firstId);
+    store.getState().setCell(0, 0, 7);
+    store.getState().setCell(0, 0, 9);
+    store.getState().endStroke();
+    expect(store.getState().undoStack).toHaveLength(historyLength + 1);
+    store.getState().undo();
+    expect(store.getState().layers.every(layer => layer.data[0][0].colorIndex === null)).toBe(true);
+    store.getState().redo();
+    expect(store.getState().layers.find(layer => layer.id === firstId)!.data[0][0].colorIndex).toBe(9);
+    expect(store.getState().layers.find(layer => layer.id === secondId)!.data[0][0].colorIndex).toBe(8);
+  });
+});
+
+describe("project transaction history", () => {
+  it("redoes a layer deletion after activating the restored layer", () => {
+    const store = storeModule.useEditorStore;
+    const firstId = store.getState().activeLayerId;
+    store.getState().addLayer("Second");
+    const secondId = store.getState().activeLayerId;
+    store.getState().setActiveLayer(firstId);
+    store.getState().removeLayer(secondId);
+    store.getState().undo();
+    store.getState().setActiveLayer(secondId);
+    const revision = store.getState().contentRevision;
+    store.getState().redo();
+    expect(store.getState().layers.map(layer => layer.id)).toEqual([firstId]);
+    expect(store.getState().activeLayerId).toBe(firstId);
+    expect(store.getState().contentRevision).toBe(revision + 1);
+    expect(store.getState().redoStack).toHaveLength(0);
+  });
+
+  it("replays a session with a pending deletion of the current active layer", async () => {
+    const store = storeModule.useEditorStore;
+    const session = await import("./editorSession");
+    const firstId = store.getState().activeLayerId;
+    store.getState().addLayer("Second");
+    const secondId = store.getState().activeLayerId;
+    store.getState().setActiveLayer(firstId);
+    store.getState().removeLayer(secondId);
+    store.getState().undo();
+    store.getState().setActiveLayer(secondId);
+    const snapshot = session.captureEditorSession();
+    expect(() => session.restoreEditorSession(snapshot, { displayName: "/saved.pindou", writable: true },
+      { project: snapshot.project, savedRevision: snapshot.revision })).not.toThrow();
+    expect(store.getState().activeLayerId).toBe(secondId);
+    store.getState().redo();
+    expect(store.getState().layers.map(layer => layer.id)).toEqual([firstId]);
+    const replayed = session.captureEditorSession();
+    expect(() => session.restoreEditorSession(replayed, { displayName: "/saved.pindou", writable: true },
+      { project: snapshot.project, savedRevision: snapshot.revision })).not.toThrow();
+  });
+
+  it("preserves active layer focus when replaying unrelated property edits", () => {
+    const store = storeModule.useEditorStore;
+    const firstId = store.getState().activeLayerId;
+    store.getState().addLayer("Second");
+    const secondId = store.getState().activeLayerId;
+    store.getState().setActiveLayer(firstId);
+    store.getState().renameLayer(firstId, "Renamed");
+    store.getState().setActiveLayer(secondId);
+    store.getState().undo();
+    expect(store.getState().activeLayerId).toBe(secondId);
+    store.getState().redo();
+    expect(store.getState().activeLayerId).toBe(secondId);
+    expect(store.getState().layers.find(layer => layer.id === firstId)?.name).toBe("Renamed");
+  });
+
+  it("delegates VS Code saves to the live service without legacy bookkeeping", async () => {
+    const saveLiveProject = vi.fn(async () => ({ ok: true as const, value: undefined }));
+    const saveProject = vi.fn();
+    const saveProjectAs = vi.fn();
+    install({ saveLiveProject, saveProject, saveProjectAs });
+    await storeModule.useEditorStore.getState().saveProject();
+    await storeModule.useEditorStore.getState().saveProjectAs();
+    expect(saveLiveProject.mock.calls).toEqual([["save"], ["saveAs"]]);
+    expect(saveProject).not.toHaveBeenCalled();
+    expect(saveProjectAs).not.toHaveBeenCalled();
+  });
+  it("restores an identical clean session and rejects corrupted history without mutation", async () => {
+    const store = storeModule.useEditorStore;
+    const session = await import("./editorSession");
+    store.getState().setCell(0, 0, 7);
+    const snapshot = session.captureEditorSession();
+    const saved = { project: snapshot.project, savedRevision: snapshot.revision };
+    session.restoreEditorSession(snapshot, { displayName: "/same.pindou", writable: true }, saved);
+    expect(store.getState().isDirty).toBe(false);
+    const corrupt = session.captureEditorSession();
+    const cells = corrupt.undoStack.find(action => action.kind === "cells");
+    if (cells?.kind !== "cells") throw new Error("Missing test cell history");
+    cells.changesByLayer[0].layerId = "missing";
+    const before = store.getState();
+    expect(() => session.restoreEditorSession(corrupt, { displayName: "/same.pindou", writable: true }, saved)).toThrow();
+    expect(store.getState()).toBe(before);
+  });
+
+  it("restores live edits newer than the written snapshot", async () => {
+    const store = storeModule.useEditorStore;
+    const session = await import("./editorSession");
+    store.getState().newCanvas(2, 1);
+    store.getState().setCell(0, 0, 7);
+    const written = storeModule.projectFromEditorState(store.getState());
+    const savedRevision = store.getState().contentRevision;
+    store.getState().setCell(0, 1, 8);
+    const live = JSON.parse(JSON.stringify(session.captureEditorSession()));
+    store.getState().newCanvas(1, 1);
+    session.restoreEditorSession(live, { displayName: "/saved.pindou", writable: true }, { project: written, savedRevision });
+    expect(store.getState().canvasData[0].map(cell => cell.colorIndex)).toEqual([7, 8]);
+    expect(store.getState().isDirty).toBe(true);
+    expect(store.getState().saveStatus?.revision).toBe(savedRevision);
+    store.getState().undo();
+    expect(store.getState().canvasData[0].map(cell => cell.colorIndex)).toEqual([7, null]);
+  });
+
+  it("blocks public mutations while a handoff lock is held", async () => {
+    const store = storeModule.useEditorStore;
+    const session = await import("./editorSession");
+    store.getState().setCell(0, 0, 7);
+    expect(session.acquireEditorSessionLock("handoff:1")).toBe(true);
+    const before = store.getState();
+    store.getState().setCell(0, 0, null);
+    store.getState().undo();
+    store.getState().newCanvas(4, 4);
+    store.getState().setZoom(2);
+    store.getState().setProjectInfo({ title: "Blocked" });
+    expect(store.getState()).toBe(before);
+    session.releaseEditorSessionLock("wrong-owner");
+    store.getState().setCell(0, 0, null);
+    expect(store.getState()).toBe(before);
+    session.releaseEditorSessionLock("handoff:1");
+    store.getState().setCell(0, 0, null);
+    expect(store.getState().canvasData[0][0].colorIndex).toBeNull();
+  });
+
+  it("rejects invalid patches atomically and clears metadata reversibly", () => {
+    const store = storeModule.useEditorStore;
+    store.getState().setProjectInfo({ title: "Original" });
+    const before = store.getState();
+    expect(before.commitProjectPatch({ layers: [] })).toBe(false);
+    expect(before.commitProjectPatch({ canvasSize: { width: 2, height: 1 } })).toBe(false);
+    expect(before.commitProjectPatch({ activeLayerId: "missing" })).toBe(false);
+    expect(before.commitProjectPatch({ layers: [before.layers[0], before.layers[0]] })).toBe(false);
+    expect(store.getState()).toBe(before);
+    expect(store.getState().commitProjectPatch({ projectInfo: null })).toBe(true);
+    expect(store.getState().projectInfo).toBeUndefined();
+    store.getState().undo();
+    expect(store.getState().projectInfo).toEqual({ title: "Original" });
+    store.getState().redo();
+    expect(store.getState().projectInfo).toBeUndefined();
+  });
+
+  it("undoes resize and then the older hand edit", () => {
+    const store = storeModule.useEditorStore;
+    store.getState().setCell(0, 0, 7);
+    const before = storeModule.projectFromEditorState(store.getState(), "2026-01-01T00:00:00Z");
+    store.getState().resizeCanvas(2, 2, 0, 0);
+    store.getState().undo();
+    expect(storeModule.projectFromEditorState(store.getState(), "2026-01-01T00:00:00Z")).toEqual(before);
+    store.getState().undo();
+    expect(store.getState().canvasData[0][0].colorIndex).toBeNull();
+  });
+
+  it.each([
+    ["add", () => storeModule.useEditorStore.getState().addLayer("Third")],
+    ["remove", () => { const state = storeModule.useEditorStore.getState(); state.removeLayer(state.activeLayerId); }],
+    ["duplicate", () => { const state = storeModule.useEditorStore.getState(); state.duplicateLayer(state.activeLayerId); }],
+    ["rename", () => { const state = storeModule.useEditorStore.getState(); state.renameLayer(state.activeLayerId, "Renamed"); }],
+    ["visibility", () => { const state = storeModule.useEditorStore.getState(); state.setLayerVisible(state.activeLayerId, false); }],
+    ["opacity", () => { const state = storeModule.useEditorStore.getState(); state.setLayerOpacity(state.activeLayerId, 0.5); }],
+    ["reorder", () => { const state = storeModule.useEditorStore.getState(); state.moveLayer(state.activeLayerId, "down"); }],
+    ["merge", () => { const state = storeModule.useEditorStore.getState(); state.mergeLayerDown(state.activeLayerId); }],
+    ["grid origin", () => storeModule.useEditorStore.getState().setGridStartCoords(2, 3)],
+    ["grid margin", () => storeModule.useEditorStore.getState().setEdgePadding(3)],
+    ["grid visibility", () => storeModule.useEditorStore.getState().setGridVisible(false)],
+    ["grid color", () => storeModule.useEditorStore.getState().setGridLineColor("#123456")],
+    ["grid width", () => storeModule.useEditorStore.getState().setGridLineWidth(3)],
+    ["group color", () => storeModule.useEditorStore.getState().setGridGroupLineColor("#123456")],
+    ["group width", () => storeModule.useEditorStore.getState().setGridGroupLineWidth(3)],
+    ["project info", () => storeModule.useEditorStore.getState().setProjectInfo({ title: "Updated" })],
+  ] as const)("round-trips %s without losing older history", (_label, change) => {
+    const store = storeModule.useEditorStore;
+    store.getState().addLayer("Second");
+    store.getState().setCell(0, 0, 7);
+    const snapshot = () => storeModule.projectFromEditorState(store.getState(), "2026-01-01T00:00:00Z");
+    const before = snapshot();
+    const historyLength = store.getState().undoStack.length;
+    const revision = store.getState().contentRevision;
+    change();
+    const after = snapshot();
+    expect(after).not.toEqual(before);
+    expect(store.getState().contentRevision).toBe(revision + 1);
+    expect(store.getState().undoStack).toHaveLength(historyLength + 1);
+    store.getState().undo();
+    expect(snapshot()).toEqual(before);
+    store.getState().redo();
+    expect(snapshot()).toEqual(after);
+    store.getState().undo();
+    store.getState().undo();
+    expect(store.getState().layers.every(layer => layer.data[0][0].colorIndex === null)).toBe(true);
+  });
+
+  it("preserves redo and revision for unchanged persistent settings", () => {
+    const store = storeModule.useEditorStore;
+    store.getState().setCell(0, 0, 7);
+    store.getState().undo();
+    const before = store.getState();
+    store.getState().setGridVisible(before.gridConfig.visible);
+    store.getState().setProjectInfo({});
+    const afterEmptyInfo = store.getState();
+    store.getState().setProjectInfo({});
+    expect(store.getState()).toBe(afterEmptyInfo);
+    expect(afterEmptyInfo.contentRevision).toBe(before.contentRevision + 1);
+    store.getState().undo();
+    const settings = store.getState();
+    store.getState().setGridVisible(settings.gridConfig.visible);
+    store.getState().setLayerOpacity(settings.activeLayerId, settings.layers[0].opacity);
+    expect(store.getState()).toBe(settings);
+  });
+});
+
+describe("live blueprint tools", () => {
+  it("exports a captured blueprint without consuming later edits", async () => {
+    const store = storeModule.useEditorStore;
+    const { dispatchBlueprintTool } = await import("../blueprint/toolDispatcher");
+    const state = store.getState();
+    const binding = { editorId: "editor-1", projectGeneration: state.projectGeneration };
+    let captured: import("../adapters").ExportImageRequest | undefined;
+    const result = await dispatchBlueprintTool({ type: "blueprintToolRequest", toolRequestId: "tool:editor-1:1", ...binding,
+      operation: "export_blueprint", input: { ...binding, path: "/export.png" } }, binding, new AbortController().signal, {
+      importPixels: async () => ({ width: 1, height: 1, pixels: [] }),
+      exportImage: async request => { captured = request; store.getState().setCell(0, 0, 7); },
+    });
+    expect(result.ok).toBe(true);
+    expect(captured?.cells[0][0]).toBeNull();
+    expect(captured?.format).toBe("png");
+    expect(store.getState().canvasData[0][0].colorIndex).toBe(7);
+    expect(store.getState().isDirty).toBe(true);
+  });
+  it("rejects image conversion completed after a manual edit", async () => {
+    const store = storeModule.useEditorStore;
+    const { dispatchBlueprintTool } = await import("../blueprint/toolDispatcher");
+    const state = store.getState();
+    const binding = { editorId: "editor-1", projectGeneration: state.projectGeneration };
+    let resolvePixels!: (pixels: { width: number; height: number; pixels: number[] }) => void;
+    const pixels = new Promise<{ width: number; height: number; pixels: number[] }>(resolve => { resolvePixels = resolve; });
+    const pending = dispatchBlueprintTool({ type: "blueprintToolRequest", toolRequestId: "tool:editor-1:1", ...binding,
+      operation: "import_image", input: { ...binding, layerId: state.activeLayerId, width: 1, height: 1, position: { x: 0, y: 0 } } }, binding, new AbortController().signal,
+      { importPixels: async () => pixels, exportImage: async () => undefined });
+    store.getState().setCell(0, 0, 7);
+    const afterHandEdit = store.getState();
+    resolvePixels({ width: 1, height: 1, pixels: [255, 255, 255] });
+    expect(await pending).toMatchObject({ ok: false, error: { code: "stale_revision" } });
+    expect(store.getState()).toBe(afterHandEdit);
+  });
+
+  it("imports a valid image into the named layer as one history action", async () => {
+    const store = storeModule.useEditorStore;
+    const { dispatchBlueprintTool } = await import("../blueprint/toolDispatcher");
+    const state = store.getState();
+    const binding = { editorId: "editor-1", projectGeneration: state.projectGeneration };
+    const result = await dispatchBlueprintTool({ type: "blueprintToolRequest", toolRequestId: "tool:editor-1:1", ...binding,
+      operation: "import_image", input: { ...binding, layerId: state.activeLayerId, width: 1, height: 1, position: { x: 0, y: 0 } } }, binding, new AbortController().signal,
+      { importPixels: async () => ({ width: 1, height: 1, pixels: [255, 255, 255] }), exportImage: async () => undefined });
+    expect(result.ok).toBe(true);
+    expect(store.getState().undoStack.length).toBe(state.undoStack.length + 1);
+    store.getState().undo();
+    expect(store.getState().canvasData[0][0].colorIndex).toBeNull();
+  });
+  it.each(["rename", "activate", "visibility", "opacity", "reorder", "duplicate", "mergeDown", "remove"] as const)(
+    "supports the %s layer operation", async kind => {
+      const store = storeModule.useEditorStore;
+      const { dispatchBlueprintTool } = await import("../blueprint/toolDispatcher");
+      store.getState().addLayer("Second");
+      const layerId = store.getState().activeLayerId;
+      store.getState().setCell(0, 0, 7);
+      store.getState().setActiveLayer(store.getState().layers[0].id);
+      const state = store.getState();
+      const binding = { editorId: "editor-1", projectGeneration: state.projectGeneration };
+      const changes = {
+        rename: { kind, layerId, name: "New name" }, activate: { kind, layerId }, visibility: { kind, layerId, visible: false },
+        opacity: { kind, layerId, opacity: 0.25 }, reorder: { kind, layerId, direction: "down" }, duplicate: { kind, layerId },
+        mergeDown: { kind, layerId }, remove: { kind, layerId, allowDataLoss: true },
+      };
+      const result = await dispatchBlueprintTool({ type: "blueprintToolRequest", toolRequestId: "tool:editor-1:1", ...binding,
+        operation: "manage_layer", input: { ...binding, expectedRevision: state.contentRevision, change: changes[kind] } }, binding, new AbortController().signal);
+      expect(result.ok).toBe(true);
+      if (kind === "activate") {
+        expect(store.getState().activeLayerId).toBe(layerId);
+        expect(store.getState().undoStack).toBe(state.undoStack);
+      } else {
+        expect(store.getState().undoStack.length).toBe(state.undoStack.length + 1);
+        store.getState().undo();
+        expect(store.getState().layers).toEqual(state.layers);
+      }
+    });
+
+  it("rejects all-layer color replacement if hidden matching beads exist", async () => {
+    const store = storeModule.useEditorStore;
+    const { dispatchBlueprintTool } = await import("../blueprint/toolDispatcher");
+    const { MARD_COLORS } = await import("../data/mard221");
+    store.getState().setCell(0, 0, 7);
+    store.getState().addLayer("Hidden");
+    store.getState().setCell(0, 0, 7);
+    store.getState().setLayerVisible(store.getState().activeLayerId, false);
+    const state = store.getState();
+    const binding = { editorId: "editor-1", projectGeneration: state.projectGeneration };
+    const result = await dispatchBlueprintTool({ type: "blueprintToolRequest", toolRequestId: "tool:editor-1:1", ...binding,
+      operation: "replace_color", input: { ...binding, from: MARD_COLORS[7].code, to: MARD_COLORS[8].code, scope: { kind: "allLayers" } } }, binding, new AbortController().signal);
+    expect(result).toMatchObject({ ok: false, error: { code: "editor_busy" } });
+    expect(store.getState()).toBe(state);
+  });
+
+  it.each(["draw_shape", "fill_region", "replace_color", "resize_canvas", "manage_layer", "configure_grid", "update_project_info"] as const)(
+    "executes %s as one reversible transaction", async operation => {
+      const store = storeModule.useEditorStore;
+      const { dispatchBlueprintTool } = await import("../blueprint/toolDispatcher");
+      const { MARD_COLORS } = await import("../data/mard221");
+      store.getState().newCanvas(3, 3);
+      store.getState().setCell(1, 1, 7);
+      const state = store.getState();
+      const binding = { editorId: "editor-1", projectGeneration: state.projectGeneration };
+      const inputs = {
+        draw_shape: { layerId: state.activeLayerId, color: MARD_COLORS[8].code, shape: { kind: "line", start: { x: 0, y: 0 }, end: { x: 2, y: 2 } } },
+        fill_region: { layerId: state.activeLayerId, color: MARD_COLORS[8].code, region: { kind: "rectangle", bounds: { x: 0, y: 0, width: 2, height: 2 } } },
+        replace_color: { from: MARD_COLORS[7].code, to: MARD_COLORS[8].code, scope: { kind: "allLayers" } },
+        resize_canvas: { width: 4, height: 4, anchorRow: 0, anchorCol: 0 },
+        manage_layer: { change: { kind: "add", name: "Tool layer" } },
+        configure_grid: { patch: { groupSize: 2, startX: 3 } },
+        update_project_info: { patch: { title: "Tool project", author: "Test" } },
+      };
+      const snapshot = () => storeModule.projectFromEditorState(store.getState(), "2026-01-01T00:00:00Z");
+      const before = snapshot();
+      const result = await dispatchBlueprintTool({ type: "blueprintToolRequest", toolRequestId: "tool:editor-1:1", ...binding,
+        operation, input: { ...binding, expectedRevision: state.contentRevision, ...inputs[operation] } }, binding, new AbortController().signal);
+      expect(result.ok).toBe(true);
+      const after = snapshot();
+      expect(after).not.toEqual(before);
+      expect(store.getState().undoStack.length).toBe(state.undoStack.length + 1);
+      store.getState().undo();
+      expect(snapshot()).toEqual(before);
+      store.getState().redo();
+      expect(snapshot()).toEqual(after);
+    });
+
+  it("requires loss confirmation including hidden beads before shrinking", async () => {
+    const store = storeModule.useEditorStore;
+    const { dispatchBlueprintTool } = await import("../blueprint/toolDispatcher");
+    store.getState().newCanvas(2, 1);
+    store.getState().setCell(0, 1, 7);
+    store.getState().setLayerVisible(store.getState().activeLayerId, false);
+    const state = store.getState();
+    const binding = { editorId: "editor-1", projectGeneration: state.projectGeneration };
+    const result = await dispatchBlueprintTool({ type: "blueprintToolRequest", toolRequestId: "tool:editor-1:1", ...binding,
+      operation: "resize_canvas", input: { ...binding, width: 1, height: 1, anchorRow: 0, anchorCol: 0 } }, binding, new AbortController().signal);
+    expect(result).toMatchObject({ ok: false, error: { code: "data_loss_confirmation_required", details: { lostBeads: 1 } } });
+    expect(store.getState()).toBe(state);
+  });
+
+  it("tool bead writes retain earlier manual edits and reject a stale retry", async () => {
+    const store = storeModule.useEditorStore;
+    const { dispatchBlueprintTool } = await import("../blueprint/toolDispatcher");
+    const { MARD_COLORS } = await import("../data/mard221");
+    store.getState().newCanvas(2, 1);
+    store.getState().setCell(0, 0, 7);
+    const before = store.getState();
+    const binding = { editorId: "editor-1", projectGeneration: before.projectGeneration };
+    const input = { ...binding, expectedRevision: before.contentRevision,
+      layerId: before.activeLayerId, beads: [{ x: 1, y: 0, color: MARD_COLORS[8].code }] };
+    const request = { type: "blueprintToolRequest" as const, toolRequestId: "tool:editor-1:1",
+      ...binding, operation: "set_beads" as const, input };
+    expect((await dispatchBlueprintTool(request, binding, new AbortController().signal)).ok).toBe(true);
+    expect(store.getState().canvasData[0].map(cell => cell.colorIndex)).toEqual([7, 8]);
+    const retry = await dispatchBlueprintTool({ ...request, toolRequestId: "tool:editor-1:2" }, binding, new AbortController().signal);
+    expect(retry).toMatchObject({ ok: false, error: { code: "stale_revision" } });
+    store.getState().undo();
+    expect(store.getState().canvasData[0].map(cell => cell.colorIndex)).toEqual([7, null]);
+  });
+
+  it("reads the live state and palette without adding history", async () => {
+    const store = storeModule.useEditorStore;
+    const { dispatchBlueprintTool } = await import("../blueprint/toolDispatcher");
+    store.getState().setCell(0, 0, 7);
+    const before = store.getState();
+    const binding = { editorId: "editor-1", projectGeneration: before.projectGeneration };
+    const request = { type: "blueprintToolRequest" as const, toolRequestId: "tool:editor-1:1", ...binding,
+      operation: "inspect_blueprint" as const, input: { region: { x: 0, y: 0, width: 1, height: 1 } } };
+    const result = await dispatchBlueprintTool(request, binding, new AbortController().signal);
+    expect(result).toMatchObject({ ok: true, stamp: { isDirty: true, revision: before.contentRevision }, value: { beadCount: 1 } });
+    const palette = await dispatchBlueprintTool({ ...request, operation: "search_palette", input: { limit: 2 } }, binding, new AbortController().signal);
+    expect(palette).toMatchObject({ ok: true });
+    if (palette.ok) expect(palette.value).toHaveLength(2);
+    expect(store.getState()).toBe(before);
+  });
+
+  it("rejects an invalid last bead without partially changing the first", async () => {
+    const store = storeModule.useEditorStore;
+    const { dispatchBlueprintTool } = await import("../blueprint/toolDispatcher");
+    const before = store.getState();
+    const binding = { editorId: "editor-1", projectGeneration: before.projectGeneration };
+    const result = await dispatchBlueprintTool({ type: "blueprintToolRequest", toolRequestId: "tool:editor-1:1", ...binding,
+      operation: "set_beads", input: { ...binding, layerId: before.activeLayerId,
+        beads: [{ x: 0, y: 0, color: null }, { x: 0, y: 0, color: "not-a-color" }] } }, binding, new AbortController().signal);
+    expect(result.ok).toBe(false);
+    expect(store.getState()).toBe(before);
+  });
+});
+
 describe("project timestamps", () => {
   it("preserves an opened createdAt through save, save-as, autosave and snapshot", async () => {
     const opened = project();
@@ -454,5 +902,43 @@ describe("autosave lifecycle", () => {
     storeModule.useEditorStore.getState().restoreAutosave(project(undefined, 8));
     expect(storeModule.useEditorStore.getState()).toMatchObject({ canvasData: [[{ colorIndex: 8 }]], projectPath: null, projectDocument: null, cloudGistId: null, baselineCanvasData: null, isDirty: true });
     expect(storeModule.useEditorStore.getState().projectId).not.toBe(before);
+  });
+});
+
+describe("fresh webview layer allocation", () => {
+  it.each(["add", "duplicate"] as const)("allocates unique IDs for %s after session restore and undo", async operation => {
+    vi.resetModules();
+    const { useEditorStore: store } = await import("./editorStore");
+    const session = await import("./editorSession");
+    expect(store.getState().activeLayerId).toBe("layer_1");
+    const snapshot = session.captureEditorSession();
+    snapshot.project = { ...project(), projectId: snapshot.project.projectId,
+      layers: ["layer_2", "layer_4"].map(id => ({ ...project().layers![0], id, name: id })) };
+    snapshot.activeLayerId = "layer_2";
+    session.restoreEditorSession(snapshot, { displayName: "/saved.pindou", writable: true },
+      { project: snapshot.project, savedRevision: snapshot.revision });
+    const create = () => operation === "add" ? store.getState().addLayer("Added")
+      : store.getState().duplicateLayer("layer_2", "Copy");
+    create();
+    const createdId = store.getState().activeLayerId;
+    expect(store.getState().layers).toHaveLength(3);
+    expect(["layer_2", "layer_4"]).not.toContain(createdId);
+    expect(store.getState().layers.find(layer => layer.id === createdId)).toMatchObject({
+      name: operation === "add" ? "Added" : "Copy",
+      data: [[{ colorIndex: operation === "add" ? null : 7 }]],
+    });
+    store.getState().undo();
+    expect(store.getState().layers.map(layer => layer.id)).toEqual(["layer_2", "layer_4"]);
+    store.getState().removeLayer("layer_4");
+    store.getState().undo();
+    create();
+    const ids = store.getState().layers.map(layer => layer.id);
+    expect(ids).toHaveLength(3);
+    expect(new Set(ids).size).toBe(3);
+    expect(ids).toContain("layer_2");
+    expect(ids).toContain("layer_4");
+    const replayed = session.captureEditorSession();
+    expect(() => session.restoreEditorSession(replayed, { displayName: "/saved.pindou", writable: true },
+      { project: snapshot.project, savedRevision: snapshot.revision })).not.toThrow();
   });
 });

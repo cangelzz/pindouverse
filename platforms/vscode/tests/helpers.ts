@@ -1,6 +1,7 @@
 import { type Page } from "@playwright/test";
 import * as path from "path";
 import * as fs from "fs";
+import type { ToolName, ToolResult } from "../../../src/blueprint/toolContract";
 
 export const DIST_DIR = path.resolve(__dirname, "../dist/webview");
 export const SAMPLES_DIR = path.resolve(__dirname, "../../../samples");
@@ -262,7 +263,7 @@ export async function loadProject(
       (window as any)._currentDocIsUntitled = isUntitled;
       window.dispatchEvent(
         new MessageEvent("message", {
-          data: { type: "loadDocument", content, path: filePath, isUntitled },
+          data: { type: "loadDocument", content, path: filePath, isUntitled, editorId: "test-editor" },
         })
       );
     },
@@ -280,6 +281,20 @@ export async function loadProject(
 }
 
 /** Read all postMessage calls the webview has sent to the host so far. */
+export async function requestBlueprintTool(page: Page, operation: ToolName, input: unknown, fileAccess?: { grantId: string; path: string }): Promise<ToolResult> {
+  const toolRequestId = `tool:test-editor:${Date.now()}:${Math.random()}`;
+  await page.evaluate(({ operation, input, toolRequestId, fileAccess }) => {
+    const ready = [...(window as any)._messages].reverse().find(message => message.type === "blueprintEditorReady");
+    if (!ready) throw new Error("Production blueprint bridge did not report readiness");
+    window.dispatchEvent(new MessageEvent("message", { data: {
+      type: "blueprintToolRequest", toolRequestId, editorId: ready.stamp.editorId,
+      projectGeneration: ready.stamp.projectGeneration, operation, input, ...(fileAccess ? { fileAccess } : {}),
+    } }));
+  }, { operation, input, toolRequestId, fileAccess });
+  await page.waitForFunction(id => (window as any)._messages.some((message: any) => message.type === "blueprintToolResponse" && message.toolRequestId === id), toolRequestId);
+  return page.evaluate(id => (window as any)._messages.find((message: any) => message.type === "blueprintToolResponse" && message.toolRequestId === id).result, toolRequestId);
+}
+
 export async function getMessages(page: Page): Promise<any[]> {
   return page.evaluate(() => (window as any)._messages.slice());
 }

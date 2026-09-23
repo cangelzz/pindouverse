@@ -2,7 +2,7 @@
   "name": "pindouverse",
   "displayName": "PindouVerse - Bead Art Editor",
   "description": "PindouVerse (拼豆宇宙) — Open and edit .pindou bead art projects inside VS Code. Pixel art editor for perler/fuse bead designs with 295-color MARD palette, multi-layer support, grid overlay, and blueprint mode.",
-  "version": "1.4.1",
+  "version": "1.5.0",
   "publisher": "PindouVerse",
   "license": "SEE LICENSE IN LICENSE",
   "repository": {
@@ -14,7 +14,7 @@
     "url": "https://github.com/cangelzz/pindouverse/issues"
   },
   "engines": {
-    "vscode": "^1.85.0"
+    "vscode": "^1.99.0"
   },
   "icon": "icons/icon.png",
   "categories": [
@@ -81,9 +81,1365 @@
         "mac": "cmd+shift+z",
         "when": "activeCustomEditorId == 'pindouverse.editor'"
       }
+    ],
+    "languageModelTools": [
+      {
+        "name": "pindouverse_inspect_blueprint",
+        "displayName": "Pindou: inspect blueprint",
+        "modelDescription": "Inspect the selected live Pindou blueprint, including unsaved edits. Returns editorId, projectGeneration, revision and activeLayerId for writes. Layer view requires layerId; regions use zero-based x/y and width/height. Omit region for metadata only.",
+        "toolReferenceName": "pindou_inspect_blueprint",
+        "canBeReferencedInPrompt": true,
+        "inputSchema": {
+          "$schema": "http://json-schema.org/draft-07/schema#",
+          "type": "object",
+          "properties": {
+            "editorId": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 200
+            },
+            "view": {
+              "default": "composite",
+              "type": "string",
+              "enum": [
+                "composite",
+                "layer"
+              ]
+            },
+            "layerId": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 200
+            },
+            "region": {
+              "type": "object",
+              "properties": {
+                "x": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 9007199254740991
+                },
+                "y": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 9007199254740991
+                },
+                "width": {
+                  "type": "integer",
+                  "minimum": 1,
+                  "maximum": 256
+                },
+                "height": {
+                  "type": "integer",
+                  "minimum": 1,
+                  "maximum": 256
+                }
+              },
+              "required": [
+                "x",
+                "y",
+                "width",
+                "height"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "additionalProperties": false,
+          "allOf": [
+            {
+              "if": {
+                "required": [
+                  "view"
+                ],
+                "properties": {
+                  "view": {
+                    "const": "layer"
+                  }
+                }
+              },
+              "then": {
+                "required": [
+                  "layerId"
+                ]
+              }
+            }
+          ]
+        }
+      },
+      {
+        "name": "pindouverse_search_palette",
+        "displayName": "Pindou: search palette",
+        "modelDescription": "Find actual MARD palette codes by code, name or hex value in the selected Pindou editor. Use returned codes for writes; never guess array indices.",
+        "toolReferenceName": "pindou_search_palette",
+        "canBeReferencedInPrompt": true,
+        "inputSchema": {
+          "$schema": "http://json-schema.org/draft-07/schema#",
+          "type": "object",
+          "properties": {
+            "editorId": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 200
+            },
+            "query": {
+              "default": "",
+              "type": "string",
+              "maxLength": 100
+            },
+            "limit": {
+              "default": 20,
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 50
+            }
+          },
+          "additionalProperties": false
+        }
+      },
+      {
+        "name": "pindouverse_set_beads",
+        "displayName": "Pindou: set beads",
+        "modelDescription": "Atomically set or clear beads in the named live layer. Zero-based x/y; null means empty, not a transparent bead. Duplicate coordinates are rejected. Use expectedRevision from inspection to protect against intervening hand edits.",
+        "toolReferenceName": "pindou_set_beads",
+        "canBeReferencedInPrompt": true,
+        "inputSchema": {
+          "$schema": "http://json-schema.org/draft-07/schema#",
+          "type": "object",
+          "properties": {
+            "editorId": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 200
+            },
+            "projectGeneration": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 9007199254740991
+            },
+            "expectedRevision": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 9007199254740991
+            },
+            "layerId": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 200
+            },
+            "beads": {
+              "minItems": 1,
+              "maxItems": 65536,
+              "type": "array",
+              "items": {
+                "type": "object",
+                "properties": {
+                  "x": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 255
+                  },
+                  "y": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 255
+                  },
+                  "color": {
+                    "anyOf": [
+                      {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": 16,
+                        "pattern": "^\\S+$"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  }
+                },
+                "required": [
+                  "x",
+                  "y",
+                  "color"
+                ],
+                "additionalProperties": false
+              }
+            }
+          },
+          "required": [
+            "editorId",
+            "projectGeneration",
+            "layerId",
+            "beads"
+          ],
+          "additionalProperties": false
+        }
+      },
+      {
+        "name": "pindouverse_draw_shape",
+        "displayName": "Pindou: draw shape",
+        "modelDescription": "Draw a line, rectangle or circle on a named layer using editor geometry. Coordinates are zero-based; null clears cells. Shapes outside canvas bounds are rejected, never clipped.",
+        "toolReferenceName": "pindou_draw_shape",
+        "canBeReferencedInPrompt": true,
+        "inputSchema": {
+          "$schema": "http://json-schema.org/draft-07/schema#",
+          "type": "object",
+          "properties": {
+            "editorId": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 200
+            },
+            "projectGeneration": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 9007199254740991
+            },
+            "expectedRevision": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 9007199254740991
+            },
+            "layerId": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 200
+            },
+            "color": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 16,
+                  "pattern": "^\\S+$"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "shape": {
+              "oneOf": [
+                {
+                  "type": "object",
+                  "properties": {
+                    "kind": {
+                      "type": "string",
+                      "const": "line"
+                    },
+                    "start": {
+                      "type": "object",
+                      "properties": {
+                        "x": {
+                          "type": "integer",
+                          "minimum": 0,
+                          "maximum": 255
+                        },
+                        "y": {
+                          "type": "integer",
+                          "minimum": 0,
+                          "maximum": 255
+                        }
+                      },
+                      "required": [
+                        "x",
+                        "y"
+                      ],
+                      "additionalProperties": false
+                    },
+                    "end": {
+                      "type": "object",
+                      "properties": {
+                        "x": {
+                          "type": "integer",
+                          "minimum": 0,
+                          "maximum": 255
+                        },
+                        "y": {
+                          "type": "integer",
+                          "minimum": 0,
+                          "maximum": 255
+                        }
+                      },
+                      "required": [
+                        "x",
+                        "y"
+                      ],
+                      "additionalProperties": false
+                    }
+                  },
+                  "required": [
+                    "kind",
+                    "start",
+                    "end"
+                  ],
+                  "additionalProperties": false
+                },
+                {
+                  "type": "object",
+                  "properties": {
+                    "kind": {
+                      "type": "string",
+                      "const": "rectangle"
+                    },
+                    "region": {
+                      "type": "object",
+                      "properties": {
+                        "x": {
+                          "type": "integer",
+                          "minimum": 0,
+                          "maximum": 255
+                        },
+                        "y": {
+                          "type": "integer",
+                          "minimum": 0,
+                          "maximum": 255
+                        },
+                        "width": {
+                          "type": "integer",
+                          "minimum": 1,
+                          "maximum": 256
+                        },
+                        "height": {
+                          "type": "integer",
+                          "minimum": 1,
+                          "maximum": 256
+                        }
+                      },
+                      "required": [
+                        "x",
+                        "y",
+                        "width",
+                        "height"
+                      ],
+                      "additionalProperties": false
+                    },
+                    "filled": {
+                      "default": false,
+                      "type": "boolean"
+                    }
+                  },
+                  "required": [
+                    "kind",
+                    "region"
+                  ],
+                  "additionalProperties": false
+                },
+                {
+                  "type": "object",
+                  "properties": {
+                    "kind": {
+                      "type": "string",
+                      "const": "circle"
+                    },
+                    "center": {
+                      "type": "object",
+                      "properties": {
+                        "x": {
+                          "type": "integer",
+                          "minimum": 0,
+                          "maximum": 255
+                        },
+                        "y": {
+                          "type": "integer",
+                          "minimum": 0,
+                          "maximum": 255
+                        }
+                      },
+                      "required": [
+                        "x",
+                        "y"
+                      ],
+                      "additionalProperties": false
+                    },
+                    "radius": {
+                      "type": "integer",
+                      "minimum": 0,
+                      "maximum": 255
+                    },
+                    "filled": {
+                      "default": false,
+                      "type": "boolean"
+                    }
+                  },
+                  "required": [
+                    "kind",
+                    "center",
+                    "radius"
+                  ],
+                  "additionalProperties": false
+                }
+              ]
+            }
+          },
+          "required": [
+            "editorId",
+            "projectGeneration",
+            "layerId",
+            "color",
+            "shape"
+          ],
+          "additionalProperties": false
+        }
+      },
+      {
+        "name": "pindouverse_fill_region",
+        "displayName": "Pindou: fill region",
+        "modelDescription": "Fill a rectangle or a connected region on a named layer. Coordinates are zero-based; null erases. This is one reversible edit.",
+        "toolReferenceName": "pindou_fill_region",
+        "canBeReferencedInPrompt": true,
+        "inputSchema": {
+          "$schema": "http://json-schema.org/draft-07/schema#",
+          "type": "object",
+          "properties": {
+            "editorId": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 200
+            },
+            "projectGeneration": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 9007199254740991
+            },
+            "expectedRevision": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 9007199254740991
+            },
+            "layerId": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 200
+            },
+            "color": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 16,
+                  "pattern": "^\\S+$"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "region": {
+              "oneOf": [
+                {
+                  "type": "object",
+                  "properties": {
+                    "kind": {
+                      "type": "string",
+                      "const": "rectangle"
+                    },
+                    "bounds": {
+                      "type": "object",
+                      "properties": {
+                        "x": {
+                          "type": "integer",
+                          "minimum": 0,
+                          "maximum": 255
+                        },
+                        "y": {
+                          "type": "integer",
+                          "minimum": 0,
+                          "maximum": 255
+                        },
+                        "width": {
+                          "type": "integer",
+                          "minimum": 1,
+                          "maximum": 256
+                        },
+                        "height": {
+                          "type": "integer",
+                          "minimum": 1,
+                          "maximum": 256
+                        }
+                      },
+                      "required": [
+                        "x",
+                        "y",
+                        "width",
+                        "height"
+                      ],
+                      "additionalProperties": false
+                    }
+                  },
+                  "required": [
+                    "kind",
+                    "bounds"
+                  ],
+                  "additionalProperties": false
+                },
+                {
+                  "type": "object",
+                  "properties": {
+                    "kind": {
+                      "type": "string",
+                      "const": "connected"
+                    },
+                    "seed": {
+                      "type": "object",
+                      "properties": {
+                        "x": {
+                          "type": "integer",
+                          "minimum": 0,
+                          "maximum": 255
+                        },
+                        "y": {
+                          "type": "integer",
+                          "minimum": 0,
+                          "maximum": 255
+                        }
+                      },
+                      "required": [
+                        "x",
+                        "y"
+                      ],
+                      "additionalProperties": false
+                    }
+                  },
+                  "required": [
+                    "kind",
+                    "seed"
+                  ],
+                  "additionalProperties": false
+                }
+              ]
+            }
+          },
+          "required": [
+            "editorId",
+            "projectGeneration",
+            "layerId",
+            "color",
+            "region"
+          ],
+          "additionalProperties": false
+        }
+      },
+      {
+        "name": "pindouverse_replace_color",
+        "displayName": "Pindou: replace color",
+        "modelDescription": "Replace actual palette codes in an explicit layer/rectangle or all layers in one reversible operation. Hidden layers are not silently edited or skipped.",
+        "toolReferenceName": "pindou_replace_color",
+        "canBeReferencedInPrompt": true,
+        "inputSchema": {
+          "$schema": "http://json-schema.org/draft-07/schema#",
+          "type": "object",
+          "properties": {
+            "editorId": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 200
+            },
+            "projectGeneration": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 9007199254740991
+            },
+            "expectedRevision": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 9007199254740991
+            },
+            "from": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 16,
+              "pattern": "^\\S+$"
+            },
+            "to": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 16,
+              "pattern": "^\\S+$"
+            },
+            "scope": {
+              "oneOf": [
+                {
+                  "type": "object",
+                  "properties": {
+                    "kind": {
+                      "type": "string",
+                      "const": "layer"
+                    },
+                    "layerId": {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 200
+                    },
+                    "region": {
+                      "type": "object",
+                      "properties": {
+                        "x": {
+                          "type": "integer",
+                          "minimum": 0,
+                          "maximum": 255
+                        },
+                        "y": {
+                          "type": "integer",
+                          "minimum": 0,
+                          "maximum": 255
+                        },
+                        "width": {
+                          "type": "integer",
+                          "minimum": 1,
+                          "maximum": 256
+                        },
+                        "height": {
+                          "type": "integer",
+                          "minimum": 1,
+                          "maximum": 256
+                        }
+                      },
+                      "required": [
+                        "x",
+                        "y",
+                        "width",
+                        "height"
+                      ],
+                      "additionalProperties": false
+                    }
+                  },
+                  "required": [
+                    "kind",
+                    "layerId"
+                  ],
+                  "additionalProperties": false
+                },
+                {
+                  "type": "object",
+                  "properties": {
+                    "kind": {
+                      "type": "string",
+                      "const": "allLayers"
+                    }
+                  },
+                  "required": [
+                    "kind"
+                  ],
+                  "additionalProperties": false
+                }
+              ]
+            }
+          },
+          "required": [
+            "editorId",
+            "projectGeneration",
+            "from",
+            "to",
+            "scope"
+          ],
+          "additionalProperties": false
+        }
+      },
+      {
+        "name": "pindouverse_resize_canvas",
+        "displayName": "Pindou: resize canvas",
+        "modelDescription": "Resize canvas bounds without resampling using anchorRow/anchorCol 0,1,2. Data loss requires allowDataLoss=true and the expectedRevision returned by the loss estimate.",
+        "toolReferenceName": "pindou_resize_canvas",
+        "canBeReferencedInPrompt": true,
+        "inputSchema": {
+          "$schema": "http://json-schema.org/draft-07/schema#",
+          "type": "object",
+          "properties": {
+            "editorId": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 200
+            },
+            "projectGeneration": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 9007199254740991
+            },
+            "expectedRevision": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 9007199254740991
+            },
+            "width": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 256
+            },
+            "height": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 256
+            },
+            "anchorRow": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 2
+            },
+            "anchorCol": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 2
+            },
+            "allowDataLoss": {
+              "default": false,
+              "type": "boolean"
+            }
+          },
+          "required": [
+            "editorId",
+            "projectGeneration",
+            "width",
+            "height",
+            "anchorRow",
+            "anchorCol"
+          ],
+          "additionalProperties": false,
+          "allOf": [
+            {
+              "if": {
+                "required": [
+                  "allowDataLoss"
+                ],
+                "properties": {
+                  "allowDataLoss": {
+                    "const": true
+                  }
+                }
+              },
+              "then": {
+                "required": [
+                  "expectedRevision"
+                ]
+              }
+            }
+          ]
+        }
+      },
+      {
+        "name": "pindouverse_manage_layer",
+        "displayName": "Pindou: manage layer",
+        "modelDescription": "Add, rename, activate, show/hide, change opacity, reorder, duplicate, merge down or remove layers by ID. Removing nonempty layers requires allowDataLoss and the estimate's expectedRevision. Activation is nonpersistent.",
+        "toolReferenceName": "pindou_manage_layer",
+        "canBeReferencedInPrompt": true,
+        "inputSchema": {
+          "$schema": "http://json-schema.org/draft-07/schema#",
+          "type": "object",
+          "properties": {
+            "editorId": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 200
+            },
+            "projectGeneration": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 9007199254740991
+            },
+            "expectedRevision": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 9007199254740991
+            },
+            "change": {
+              "oneOf": [
+                {
+                  "type": "object",
+                  "properties": {
+                    "kind": {
+                      "type": "string",
+                      "const": "add"
+                    },
+                    "name": {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 200,
+                      "pattern": "\\S"
+                    }
+                  },
+                  "required": [
+                    "kind"
+                  ],
+                  "additionalProperties": false
+                },
+                {
+                  "type": "object",
+                  "properties": {
+                    "kind": {
+                      "type": "string",
+                      "const": "rename"
+                    },
+                    "layerId": {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 200
+                    },
+                    "name": {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 200,
+                      "pattern": "\\S"
+                    }
+                  },
+                  "required": [
+                    "kind",
+                    "layerId"
+                  ],
+                  "additionalProperties": false
+                },
+                {
+                  "type": "object",
+                  "properties": {
+                    "kind": {
+                      "type": "string",
+                      "const": "activate"
+                    },
+                    "layerId": {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 200
+                    }
+                  },
+                  "required": [
+                    "kind",
+                    "layerId"
+                  ],
+                  "additionalProperties": false
+                },
+                {
+                  "type": "object",
+                  "properties": {
+                    "kind": {
+                      "type": "string",
+                      "const": "visibility"
+                    },
+                    "layerId": {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 200
+                    },
+                    "visible": {
+                      "type": "boolean"
+                    }
+                  },
+                  "required": [
+                    "kind",
+                    "layerId",
+                    "visible"
+                  ],
+                  "additionalProperties": false
+                },
+                {
+                  "type": "object",
+                  "properties": {
+                    "kind": {
+                      "type": "string",
+                      "const": "opacity"
+                    },
+                    "layerId": {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 200
+                    },
+                    "opacity": {
+                      "type": "number",
+                      "minimum": 0,
+                      "maximum": 1
+                    }
+                  },
+                  "required": [
+                    "kind",
+                    "layerId",
+                    "opacity"
+                  ],
+                  "additionalProperties": false
+                },
+                {
+                  "type": "object",
+                  "properties": {
+                    "kind": {
+                      "type": "string",
+                      "const": "reorder"
+                    },
+                    "layerId": {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 200
+                    },
+                    "direction": {
+                      "type": "string",
+                      "enum": [
+                        "up",
+                        "down"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "kind",
+                    "layerId",
+                    "direction"
+                  ],
+                  "additionalProperties": false
+                },
+                {
+                  "type": "object",
+                  "properties": {
+                    "kind": {
+                      "type": "string",
+                      "const": "duplicate"
+                    },
+                    "layerId": {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 200
+                    },
+                    "name": {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 200,
+                      "pattern": "\\S"
+                    }
+                  },
+                  "required": [
+                    "kind",
+                    "layerId"
+                  ],
+                  "additionalProperties": false
+                },
+                {
+                  "type": "object",
+                  "properties": {
+                    "kind": {
+                      "type": "string",
+                      "const": "mergeDown"
+                    },
+                    "layerId": {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 200
+                    }
+                  },
+                  "required": [
+                    "kind",
+                    "layerId"
+                  ],
+                  "additionalProperties": false
+                },
+                {
+                  "type": "object",
+                  "properties": {
+                    "kind": {
+                      "type": "string",
+                      "const": "remove"
+                    },
+                    "layerId": {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 200
+                    },
+                    "allowDataLoss": {
+                      "default": false,
+                      "type": "boolean"
+                    }
+                  },
+                  "required": [
+                    "kind",
+                    "layerId"
+                  ],
+                  "additionalProperties": false
+                }
+              ]
+            }
+          },
+          "required": [
+            "editorId",
+            "projectGeneration",
+            "change"
+          ],
+          "additionalProperties": false,
+          "allOf": [
+            {
+              "if": {
+                "required": [
+                  "change"
+                ],
+                "properties": {
+                  "change": {
+                    "required": [
+                      "kind",
+                      "allowDataLoss"
+                    ],
+                    "properties": {
+                      "kind": {
+                        "const": "remove"
+                      },
+                      "allowDataLoss": {
+                        "const": true
+                      }
+                    }
+                  }
+                }
+              },
+              "then": {
+                "required": [
+                  "expectedRevision"
+                ]
+              }
+            }
+          ]
+        }
+      },
+      {
+        "name": "pindouverse_configure_grid",
+        "displayName": "Pindou: configure grid",
+        "modelDescription": "Atomically patch persisted grid settings. Provide at least one field; omitted fields remain unchanged. Does not move beads.",
+        "toolReferenceName": "pindou_configure_grid",
+        "canBeReferencedInPrompt": true,
+        "inputSchema": {
+          "$schema": "http://json-schema.org/draft-07/schema#",
+          "type": "object",
+          "properties": {
+            "editorId": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 200
+            },
+            "projectGeneration": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 9007199254740991
+            },
+            "expectedRevision": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 9007199254740991
+            },
+            "patch": {
+              "type": "object",
+              "properties": {
+                "groupSize": {
+                  "type": "integer",
+                  "minimum": 1,
+                  "maximum": 256
+                },
+                "edgePadding": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 64
+                },
+                "startX": {
+                  "type": "integer",
+                  "minimum": -10000,
+                  "maximum": 10000
+                },
+                "startY": {
+                  "type": "integer",
+                  "minimum": -10000,
+                  "maximum": 10000
+                },
+                "visible": {
+                  "type": "boolean"
+                },
+                "lineColor": {
+                  "type": "string",
+                  "pattern": "^#(?:[0-9a-fA-F]{3}|[0-9a-fA-F]{6})$"
+                },
+                "groupLineColor": {
+                  "type": "string",
+                  "pattern": "^#(?:[0-9a-fA-F]{3}|[0-9a-fA-F]{6})$"
+                },
+                "lineWidth": {
+                  "type": "number",
+                  "minimum": 0,
+                  "maximum": 8
+                },
+                "groupLineWidth": {
+                  "type": "number",
+                  "minimum": 0,
+                  "maximum": 8
+                }
+              },
+              "additionalProperties": false,
+              "minProperties": 1
+            }
+          },
+          "required": [
+            "editorId",
+            "projectGeneration",
+            "patch"
+          ],
+          "additionalProperties": false
+        }
+      },
+      {
+        "name": "pindouverse_update_project_info",
+        "displayName": "Pindou: update project info",
+        "modelDescription": "Atomically patch project title, author, description or HTTP(S) link. At least one field is required. Null clears a field; omitted fields remain unchanged.",
+        "toolReferenceName": "pindou_update_project_info",
+        "canBeReferencedInPrompt": true,
+        "inputSchema": {
+          "$schema": "http://json-schema.org/draft-07/schema#",
+          "type": "object",
+          "properties": {
+            "editorId": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 200
+            },
+            "projectGeneration": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 9007199254740991
+            },
+            "expectedRevision": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 9007199254740991
+            },
+            "patch": {
+              "type": "object",
+              "properties": {
+                "title": {
+                  "anyOf": [
+                    {
+                      "type": "string",
+                      "maxLength": 200
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "author": {
+                  "anyOf": [
+                    {
+                      "type": "string",
+                      "maxLength": 200
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "description": {
+                  "anyOf": [
+                    {
+                      "type": "string",
+                      "maxLength": 4000
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "link": {
+                  "anyOf": [
+                    {
+                      "anyOf": [
+                        {
+                          "type": "string",
+                          "const": ""
+                        },
+                        {
+                          "type": "string",
+                          "maxLength": 2048,
+                          "format": "uri"
+                        }
+                      ]
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                }
+              },
+              "additionalProperties": false,
+              "minProperties": 1
+            }
+          },
+          "required": [
+            "editorId",
+            "projectGeneration",
+            "patch"
+          ],
+          "additionalProperties": false
+        }
+      },
+      {
+        "name": "pindouverse_import_image",
+        "displayName": "Pindou: import image",
+        "modelDescription": "Import a bounded local image into a named layer at zero-based position. Stale conversions are rejected. An omitted path opens the normal user file dialog.",
+        "toolReferenceName": "pindou_import_image",
+        "canBeReferencedInPrompt": true,
+        "inputSchema": {
+          "$schema": "http://json-schema.org/draft-07/schema#",
+          "type": "object",
+          "properties": {
+            "editorId": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 200
+            },
+            "projectGeneration": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 9007199254740991
+            },
+            "expectedRevision": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 9007199254740991
+            },
+            "layerId": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 200
+            },
+            "path": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 4096
+            },
+            "width": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 256
+            },
+            "height": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 256
+            },
+            "position": {
+              "type": "object",
+              "properties": {
+                "x": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 255
+                },
+                "y": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 255
+                }
+              },
+              "required": [
+                "x",
+                "y"
+              ],
+              "additionalProperties": false
+            },
+            "algorithm": {
+              "default": "ciede2000",
+              "type": "string",
+              "enum": [
+                "euclidean",
+                "ciede2000"
+              ]
+            }
+          },
+          "required": [
+            "editorId",
+            "projectGeneration",
+            "layerId",
+            "width",
+            "height",
+            "position"
+          ],
+          "additionalProperties": false
+        }
+      },
+      {
+        "name": "pindouverse_export_blueprint",
+        "displayName": "Pindou: export blueprint",
+        "modelDescription": "Export a consistent live blueprint snapshot to PNG or JPEG using existing decoration defaults. Explicit paths are restricted to authorized local files; omitted path opens a save dialog. This writes a file, not the project.",
+        "toolReferenceName": "pindou_export_blueprint",
+        "canBeReferencedInPrompt": true,
+        "inputSchema": {
+          "$schema": "http://json-schema.org/draft-07/schema#",
+          "type": "object",
+          "properties": {
+            "editorId": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 200
+            },
+            "projectGeneration": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 9007199254740991
+            },
+            "expectedRevision": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 9007199254740991
+            },
+            "path": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 4096
+            },
+            "format": {
+              "default": "png",
+              "type": "string",
+              "enum": [
+                "png",
+                "jpeg"
+              ]
+            },
+            "cellSize": {
+              "default": 32,
+              "type": "integer",
+              "minimum": 8,
+              "maximum": 64
+            }
+          },
+          "required": [
+            "editorId",
+            "projectGeneration"
+          ],
+          "additionalProperties": false
+        }
+      },
+      {
+        "name": "pindouverse_save_blueprint",
+        "displayName": "Pindou: save blueprint",
+        "modelDescription": "Explicitly save live unsaved edits. First save opens a destination dialog and safely transfers the editor session. Results distinguish the written revision from newer dirty content and panel-handoff failures.",
+        "toolReferenceName": "pindou_save_blueprint",
+        "canBeReferencedInPrompt": true,
+        "inputSchema": {
+          "$schema": "http://json-schema.org/draft-07/schema#",
+          "type": "object",
+          "properties": {
+            "editorId": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 200
+            },
+            "projectGeneration": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 9007199254740991
+            },
+            "expectedRevision": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 9007199254740991
+            }
+          },
+          "required": [
+            "editorId",
+            "projectGeneration"
+          ],
+          "additionalProperties": false
+        }
+      }
     ]
   },
   "scripts": {
+    "sync:tools": "esbuild scripts/sync-agent-tools.ts --bundle --platform=node --format=cjs --outfile=dist/sync-agent-tools.cjs && node dist/sync-agent-tools.cjs",
+    "check:tools": "esbuild scripts/sync-agent-tools.ts --bundle --platform=node --format=cjs --outfile=dist/sync-agent-tools.cjs && node dist/sync-agent-tools.cjs --check",
     "build": "npm run check:types && npm run build:ext && npm run build:webview",
     "check:types": "tsc --noEmit -p tsconfig.host.json && tsc --noEmit -p tsconfig.webview.json",
     "build:ext": "esbuild src/extension.ts --bundle --outfile=dist/extension.js --external:vscode --format=cjs --platform=node",
@@ -105,7 +1461,7 @@
     "@tailwindcss/vite": "^4.2.2",
     "@types/mocha": "^10.0.10",
     "@types/node": "^25.6.0",
-    "@types/vscode": "^1.85.0",
+    "@types/vscode": "1.99.0",
     "@vitejs/plugin-react": "^4.3.0",
     "@vscode/test-electron": "^2.5.2",
     "concurrently": "^8.2.0",

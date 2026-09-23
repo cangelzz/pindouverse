@@ -14,6 +14,7 @@ export interface OpenedProject {
 }
 
 export interface ProjectFileService {
+  saveLiveProject?(mode: "save" | "saveAs"): Promise<PlatformResult<void>>;
   openProject(): Promise<PlatformResult<OpenedProject>>;
   saveProject(project: ProjectFile, current: ProjectDocumentRef): Promise<PlatformResult<ProjectDocumentRef>>;
   saveProjectAs(project: ProjectFile, suggestedName: string): Promise<PlatformResult<ProjectDocumentRef>>;

@@ -369,6 +369,8 @@
     "current": "当前状态",
     "layerSnapshot": "图层快照",
     "layerDetail": "图层快照（结构性操作）",
+    "projectSnapshot": "项目变更",
+    "projectDetail": "画布、图层、网格或项目信息变更",
     "pixelChanges": "{{count}} 个像素变更",
     "moreChanges": "... 共 {{count}} 个像素变更",
     "steps": "-{{count}}步"

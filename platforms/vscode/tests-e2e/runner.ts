@@ -21,6 +21,7 @@ async function main() {
     const extensionTestsPath = path.resolve(__dirname, "./suite/index");
 
     await runTests({
+      version: process.env.PINDOU_VSCODE_VERSION || "stable",
       extensionDevelopmentPath,
       extensionTestsPath,
       launchArgs: ["--disable-extensions"],

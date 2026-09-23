@@ -6,8 +6,9 @@ import type { PlatformResult } from "../platform/result";
 import { loadOverrides, saveOverrides, hexToRgb, type ColorOverrideMap } from "../utils/colorHelper";
 import { computeFloodReplaceEntries } from "../utils/floodFill";
 import { buildSelectionRemap, type ColorAdjustments } from "../utils/colorAdjust";
-import { getGroupIndices } from "../data/mard221";
+import { getGroupIndices, MARD_COLORS } from "../data/mard221";
 import { canonicalizeDefaultLayer, getCanonicalDefaultLayerName } from "./defaultLayerNames";
+import { applyCellsHistory, groupStrokeHistory, prepareProjectHistory } from "./editorHistory";
 import type {
   BeadLayer,
   CanvasCell,
@@ -19,6 +20,7 @@ import type {
   HistoryAction,
   HistoryEntry,
   ProjectFile,
+  ProjectHistoryPatch,
   ProjectInfo,
 } from "../types";
 
@@ -29,6 +31,7 @@ export interface AutosaveTicket {
 }
 
 interface EditorState {
+  sessionLocked: boolean;
   // Canvas data (merged view from layers)
   canvasSize: CanvasSize;
   canvasData: CanvasData; // computed merged view
@@ -130,9 +133,12 @@ interface EditorState {
 
   // Actions
   newCanvas: (width: number, height: number, defaultLayerName?: string) => void;
+  commitProjectPatch: (patch: ProjectHistoryPatch) => boolean;
   localizeDefaultLayerNames: () => void;
   setCell: (row: number, col: number, colorIndex: number | null) => void;
   batchSetCells: (entries: { row: number; col: number; colorIndex: number | null }[]) => void;
+  batchSetLayerCells: (groups: { layerId: string; cells: { row: number; col: number; colorIndex: number | null }[] }[]) => number;
+  getBlueprintBusyReason: () => string | null;
   floodFill: (row: number, col: number, colorIndex: number | null) => void;
   floodErase: (row: number, col: number) => void;
   pickActiveLayerColor: (row: number, col: number) => boolean;
@@ -278,8 +284,13 @@ function createEmptyCanvas(width: number, height: number): CanvasData {
 }
 
 let layerIdCounter = 1;
+let liveLayerIds = new Set<string>();
 function nextLayerId(): string {
-  return `layer_${layerIdCounter++}`;
+  let id: string;
+  do {
+    id = `layer_${layerIdCounter++}`;
+  } while (liveLayerIds.has(id));
+  return id;
 }
 
 function hydrateLayers(layers: BeadLayer[]): BeadLayer[] {
@@ -310,7 +321,7 @@ function createDefaultLayer(width: number, height: number, name?: string, number
 }
 
 /** Merge layers from bottom to top into a single CanvasData */
-function mergeLayers(layers: BeadLayer[], width: number, height: number): CanvasData {
+export function mergeLayers(layers: BeadLayer[], width: number, height: number): CanvasData {
   const merged = createEmptyCanvas(width, height);
   for (const layer of layers) {
     if (!layer.visible) continue;
@@ -468,10 +479,16 @@ export function projectFromEditorState(state: Pick<EditorState, "canvasSize" | "
 function buildProjectFile(state: EditorState): ProjectFile { return projectFromEditorState(state); }
 
 const _initLayer = createDefaultLayer(52, 52);
+liveLayerIds.add(_initLayer.id);
 const _initialCreatedAt = nowIso();
 const _initialIdentity = newProjectIdentity();
 
-export const useEditorStore = create<EditorState>((set, get) => ({
+export const useEditorStore = create<EditorState>((write, get) => {
+  const set: typeof write = ((partial: Parameters<typeof write>[0], replace?: false) => {
+    if (!get()?.sessionLocked) write(partial, replace);
+  }) as typeof write;
+  return ({
+  sessionLocked: false,
   canvasSize: { width: 52, height: 52 },
   canvasData: createEmptyCanvas(52, 52),
   gridConfig: DEFAULT_GRID_CONFIG,
@@ -596,6 +613,22 @@ export const useEditorStore = create<EditorState>((set, get) => ({
     });
   },
 
+  commitProjectPatch: (patch) => {
+    const state = get();
+    const action = prepareProjectHistory(state, patch);
+    if (!action) return false;
+    const next = { ...state, ...action.after };
+    set(markPersistentChange({
+      ...action.after,
+      projectInfo: next.projectInfo ?? undefined,
+      canvasData: action.after.layers || action.after.canvasSize
+        ? mergeLayers(next.layers, next.canvasSize.width, next.canvasSize.height) : state.canvasData,
+      undoStack: [...state.undoStack, action].slice(-MAX_HISTORY),
+      redoStack: [],
+    }));
+    return true;
+  },
+
   localizeDefaultLayerNames: () => {},
 
   setCell: (row, col, colorIndex) => {
@@ -615,7 +648,7 @@ export const useEditorStore = create<EditorState>((set, get) => ({
 
     const action: HistoryAction = {
       kind: "cells",
-      entries: [{ row, col, prevColorIndex: prev, newColorIndex: colorIndex }],
+      changesByLayer: [{ layerId: layer.id, entries: [{ row, col, prevColorIndex: prev, newColorIndex: colorIndex }] }],
     };
     const undoStack = [...state.undoStack, action].slice(-MAX_HISTORY);
 
@@ -628,36 +661,46 @@ export const useEditorStore = create<EditorState>((set, get) => ({
     });
   },
 
-  batchSetCells: (entries) => {
+  batchSetCells: (entries) => { get().batchSetLayerCells([{ layerId: get().activeLayerId, cells: entries }]); },
+
+  batchSetLayerCells: (groups) => {
     const state = get();
-    const layerIdx = state.layers.findIndex((l) => l.id === state.activeLayerId);
-    if (layerIdx === -1) return;
-    const layer = state.layers[layerIdx];
-    if (!layer.visible) return; // don't edit a hidden layer
-    const newLayerData = layer.data.map((r) => r.map((c) => ({ ...c })));
-    const changedEntries: HistoryEntry[] = [];
-    for (const { row, col, colorIndex } of entries) {
-      const prev = newLayerData[row]?.[col]?.colorIndex ?? null;
-      if (prev !== colorIndex) {
-        changedEntries.push({ row, col, prevColorIndex: prev, newColorIndex: colorIndex });
-        newLayerData[row][col] = { colorIndex };
+    const action: CellsHistoryAction = { kind: "cells", changesByLayer: [] };
+    const seenLayers = new Set<string>();
+    for (const group of groups) {
+      const layer = state.layers.find(item => item.id === group.layerId);
+      if (!layer?.visible || seenLayers.has(group.layerId)) return 0;
+      seenLayers.add(group.layerId);
+      const entries = new Map<string, HistoryEntry>();
+      for (const cell of group.cells) {
+        if (!Number.isInteger(cell.row) || !Number.isInteger(cell.col)
+          || cell.row < 0 || cell.col < 0 || !layer.data[cell.row]?.[cell.col]
+          || (cell.colorIndex !== null && (!Number.isInteger(cell.colorIndex) || cell.colorIndex < 0 || cell.colorIndex >= MARD_COLORS.length))) return 0;
+        const key = `${cell.row},${cell.col}`;
+        entries.set(key, {
+          row: cell.row, col: cell.col, prevColorIndex: layer.data[cell.row][cell.col].colorIndex,
+          newColorIndex: cell.colorIndex,
+        });
       }
+      const changed = [...entries.values()].filter(entry => entry.prevColorIndex !== entry.newColorIndex);
+      if (changed.length) action.changesByLayer.push({ layerId: group.layerId, entries: changed });
     }
+    const count = action.changesByLayer.reduce((total, group) => total + group.entries.length, 0);
+    if (!count) return 0;
+    const layers = applyCellsHistory(state.layers, action, "redo");
+    if (!layers) return 0;
+    set(markPersistentChange({ layers, canvasData: mergeLayers(layers, state.canvasSize.width, state.canvasSize.height),
+      undoStack: [...state.undoStack, action].slice(-MAX_HISTORY), redoStack: [] }));
+    return count;
+  },
 
-    if (changedEntries.length === 0) return;
-
-    const newLayers = [...state.layers];
-    newLayers[layerIdx] = { ...layer, data: newLayerData };
-    const action: CellsHistoryAction = { kind: "cells", entries: changedEntries };
-    const undoStack = [...state.undoStack, action].slice(-MAX_HISTORY);
-
-    set({
-      layers: newLayers,
-      canvasData: mergeLayers(newLayers, state.canvasSize.width, state.canvasSize.height),
-      undoStack,
-      redoStack: [],
-      isDirty: true,
-    });
+  getBlueprintBusyReason: () => {
+    const state = get();
+    if (state.sessionLocked) return "An editor session handoff is in progress";
+    if (_strokeStartIdx >= 0) return "A drawing stroke is in progress";
+    if (state.floatingSelection) return "A floating selection is being edited";
+    if (state.adjustSession) return "A color adjustment is in progress";
+    return null;
   },
 
   floodFill: (row, col, colorIndex) => {
@@ -807,39 +850,39 @@ export const useEditorStore = create<EditorState>((set, get) => ({
     set({ colorOverrides: new Map() });
   },
 
-  setGridStartCoords: (startX, startY) => set((state) => markPersistentChange({
-    gridConfig: { ...state.gridConfig, startX, startY },
-  })),
+  setGridStartCoords: (startX, startY) => { get().commitProjectPatch({ gridConfig: { ...get().gridConfig, startX, startY } }); },
 
-  setEdgePadding: (padding) => set((state) => markPersistentChange({
-    gridConfig: { ...state.gridConfig, edgePadding: Math.max(0, padding) },
-  })),
+  setEdgePadding: (padding) => { get().commitProjectPatch({ gridConfig: { ...get().gridConfig, edgePadding: Math.max(0, padding) } }); },
 
-  setGridVisible: (visible) => set((state) => markPersistentChange({
-    gridConfig: { ...state.gridConfig, visible },
-  })),
+  setGridVisible: (visible) => { get().commitProjectPatch({ gridConfig: { ...get().gridConfig, visible } }); },
 
-  setGridLineColor: (color) => set((state) => markPersistentChange({
-    gridConfig: { ...state.gridConfig, lineColor: color },
-  })),
+  setGridLineColor: (color) => { get().commitProjectPatch({ gridConfig: { ...get().gridConfig, lineColor: color } }); },
 
-  setGridLineWidth: (width) => set((state) => markPersistentChange({
-    gridConfig: { ...state.gridConfig, lineWidth: Math.max(0, width) },
-  })),
+  setGridLineWidth: (width) => { get().commitProjectPatch({ gridConfig: { ...get().gridConfig, lineWidth: Math.max(0, width) } }); },
 
-  setGridGroupLineColor: (color) => set((state) => markPersistentChange({
-    gridConfig: { ...state.gridConfig, groupLineColor: color },
-  })),
+  setGridGroupLineColor: (color) => { get().commitProjectPatch({ gridConfig: { ...get().gridConfig, groupLineColor: color } }); },
 
-  setGridGroupLineWidth: (width) => set((state) => markPersistentChange({
-    gridConfig: { ...state.gridConfig, groupLineWidth: Math.max(0, width) },
-  })),
+  setGridGroupLineWidth: (width) => { get().commitProjectPatch({ gridConfig: { ...get().gridConfig, groupLineWidth: Math.max(0, width) } }); },
 
   undo: () => {
     const state = get();
     if (state.undoStack.length === 0) return;
 
     const action = state.undoStack[state.undoStack.length - 1];
+
+    if (action.kind === "projectPatch") {
+      const prepared = prepareProjectHistory(state, action.before);
+      if (!prepared) return;
+      const next = { ...state, ...prepared.after };
+      set(markPersistentChange({
+        ...prepared.after,
+        projectInfo: next.projectInfo ?? undefined,
+        canvasData: mergeLayers(next.layers, next.canvasSize.width, next.canvasSize.height),
+        undoStack: state.undoStack.slice(0, -1),
+        redoStack: [...state.redoStack, action],
+      }));
+      return;
+    }
 
     if (action.kind === "layers") {
       const current: HistoryAction = { kind: "layers", layers: state.layers, activeLayerId: state.activeLayerId };
@@ -854,15 +897,8 @@ export const useEditorStore = create<EditorState>((set, get) => ({
       return;
     }
 
-    const layerIdx = state.layers.findIndex((l) => l.id === state.activeLayerId);
-    if (layerIdx === -1) return;
-    const layer = state.layers[layerIdx];
-    const newLayerData = layer.data.map((r) => r.map((c) => ({ ...c })));
-    for (const entry of action.entries) {
-      newLayerData[entry.row][entry.col] = { colorIndex: entry.prevColorIndex };
-    }
-    const newLayers = [...state.layers];
-    newLayers[layerIdx] = { ...layer, data: newLayerData };
+    const newLayers = applyCellsHistory(state.layers, action, "undo");
+    if (!newLayers) return;
     set({
       layers: newLayers,
       canvasData: mergeLayers(newLayers, state.canvasSize.width, state.canvasSize.height),
@@ -878,6 +914,20 @@ export const useEditorStore = create<EditorState>((set, get) => ({
 
     const action = state.redoStack[state.redoStack.length - 1];
 
+    if (action.kind === "projectPatch") {
+      const prepared = prepareProjectHistory(state, action.after);
+      if (!prepared) return;
+      const next = { ...state, ...prepared.after };
+      set(markPersistentChange({
+        ...prepared.after,
+        projectInfo: next.projectInfo ?? undefined,
+        canvasData: mergeLayers(next.layers, next.canvasSize.width, next.canvasSize.height),
+        undoStack: [...state.undoStack, action],
+        redoStack: state.redoStack.slice(0, -1),
+      }));
+      return;
+    }
+
     if (action.kind === "layers") {
       const current: HistoryAction = { kind: "layers", layers: state.layers, activeLayerId: state.activeLayerId };
       set({
@@ -891,15 +941,8 @@ export const useEditorStore = create<EditorState>((set, get) => ({
       return;
     }
 
-    const layerIdx = state.layers.findIndex((l) => l.id === state.activeLayerId);
-    if (layerIdx === -1) return;
-    const layer = state.layers[layerIdx];
-    const newLayerData = layer.data.map((r) => r.map((c) => ({ ...c })));
-    for (const entry of action.entries) {
-      newLayerData[entry.row][entry.col] = { colorIndex: entry.newColorIndex };
-    }
-    const newLayers = [...state.layers];
-    newLayers[layerIdx] = { ...layer, data: newLayerData };
+    const newLayers = applyCellsHistory(state.layers, action, "redo");
+    if (!newLayers) return;
     set({
       layers: newLayers,
       canvasData: mergeLayers(newLayers, state.canvasSize.width, state.canvasSize.height),
@@ -921,24 +964,7 @@ export const useEditorStore = create<EditorState>((set, get) => ({
       _strokeStartIdx = -1;
       return;
     }
-    // Merge all cell entries since stroke start into one cells-action.
-    // Preserve any non-cells (layers) action that somehow landed in range
-    // rather than dropping it.
-    const merged: HistoryEntry[] = [];
-    const layerActions: HistoryAction[] = [];
-    for (let i = _strokeStartIdx; i < stack.length; i++) {
-      const a = stack[i];
-      if (a.kind === "cells") merged.push(...a.entries);
-      else layerActions.push(a);
-    }
-    const cellMap = new Map<string, HistoryEntry>();
-    for (const entry of merged) {
-      const key = `${entry.row},${entry.col}`;
-      if (!cellMap.has(key)) cellMap.set(key, { ...entry });
-      else cellMap.get(key)!.newColorIndex = entry.newColorIndex;
-    }
-    const combinedAction: HistoryAction = { kind: "cells", entries: Array.from(cellMap.values()) };
-    const newStack = [...stack.slice(0, _strokeStartIdx), ...layerActions, combinedAction];
+    const newStack = [...stack.slice(0, _strokeStartIdx), ...groupStrokeHistory(stack.slice(_strokeStartIdx))];
     set({ undoStack: newStack });
     _strokeStartIdx = -1;
   },
@@ -1070,17 +1096,12 @@ export const useEditorStore = create<EditorState>((set, get) => ({
       data: resizeLayerData(layer.data, oldW, oldH, newWidth, newHeight, anchorRow, anchorCol),
     }));
 
-    set({
+    get().commitProjectPatch({
       canvasSize: { width: newWidth, height: newHeight },
-      canvasData: mergeLayers(newLayers, newWidth, newHeight),
       gridConfig: makeGridConfig(newWidth, newHeight),
       layers: newLayers,
-      undoStack: [],
-      redoStack: [],
-      isDirty: true,
-      offsetX: 0,
-      offsetY: 0,
     });
+    set({ offsetX: 0, offsetY: 0 });
   },
 
   countLostPixels: (newWidth, newHeight, anchorRow, anchorCol) => {
@@ -1655,9 +1676,11 @@ export const useEditorStore = create<EditorState>((set, get) => ({
     projectDocument: path ? { displayName: path, writable: true } : null,
   }),
   setImportedFileName: (name: string | null) => set({ importedFileName: name }),
-  setProjectInfo: (info: ProjectInfo) => set(markPersistentChange({ projectInfo: info })),
+  setProjectInfo: (info: ProjectInfo) => { get().commitProjectPatch({ projectInfo: info }); },
 
   saveProject: async () => {
+    const liveService = getPlatformServices().projectFiles;
+    if (liveService.saveLiveProject) return liveService.saveLiveProject("save");
     const operationGeneration = invalidateFileOperations();
     const state = get();
     const formalClear = queueFormalAutosaveClear();
@@ -1696,6 +1719,8 @@ export const useEditorStore = create<EditorState>((set, get) => ({
   },
 
   saveProjectAs: async () => {
+    const liveService = getPlatformServices().projectFiles;
+    if (liveService.saveLiveProject) return liveService.saveLiveProject("saveAs");
     const operationGeneration = invalidateFileOperations();
     const state = get();
     const formalClear = queueFormalAutosaveClear();
@@ -1938,11 +1963,11 @@ export const useEditorStore = create<EditorState>((set, get) => ({
       ? createDefaultLayer(state.canvasSize.width, state.canvasSize.height, name)
       : createDefaultLayer(state.canvasSize.width, state.canvasSize.height, undefined, state.nextDefaultLayerNameIndex);
     const newLayers = [...state.layers, layer];
-    set(markPersistentChange({
+    get().commitProjectPatch({
       layers: newLayers,
       activeLayerId: layer.id,
       nextDefaultLayerNameIndex: name ? state.nextDefaultLayerNameIndex : state.nextDefaultLayerNameIndex + 1,
-    }));
+    });
   },
 
   removeLayer: (id) => {
@@ -1950,31 +1975,26 @@ export const useEditorStore = create<EditorState>((set, get) => ({
     if (state.layers.length <= 1) return; // keep at least 1
     const newLayers = state.layers.filter((l) => l.id !== id);
     const newActive = state.activeLayerId === id ? newLayers[newLayers.length - 1].id : state.activeLayerId;
-    set({
+    get().commitProjectPatch({
       layers: newLayers,
       activeLayerId: newActive,
-      canvasData: mergeLayers(newLayers, state.canvasSize.width, state.canvasSize.height),
-      undoStack: [],
-      redoStack: [],
-      isDirty: true,
     });
   },
 
-  setActiveLayer: (id) => set({ activeLayerId: id, undoStack: [], redoStack: [] }),
+  setActiveLayer: (id) => {
+    if (get().layers.some(layer => layer.id === id)) set({ activeLayerId: id });
+  },
 
   setLayerVisible: (id, visible) => {
     const state = get();
     const newLayers = state.layers.map((l) => l.id === id ? { ...l, visible } : l);
-    set(markPersistentChange({
-      layers: newLayers,
-      canvasData: mergeLayers(newLayers, state.canvasSize.width, state.canvasSize.height),
-    }));
+    get().commitProjectPatch({ layers: newLayers });
   },
 
   setLayerOpacity: (id, opacity) => {
     const state = get();
     const newLayers = state.layers.map((l) => l.id === id ? { ...l, opacity: Math.max(0, Math.min(1, opacity)) } : l);
-    set(markPersistentChange({ layers: newLayers }));
+    get().commitProjectPatch({ layers: newLayers });
   },
 
   renameLayer: (id, name) => {
@@ -1984,7 +2004,7 @@ export const useEditorStore = create<EditorState>((set, get) => ({
         ? { ...l, name: getCanonicalDefaultLayerName(l.defaultNameIndex) }
         : { ...l, name: name ?? l.name, defaultNameIndex: undefined }
       : l);
-    set(markPersistentChange({ layers: newLayers }));
+    get().commitProjectPatch({ layers: newLayers });
   },
 
   duplicateLayer: (id, copyName) => {
@@ -2001,11 +2021,9 @@ export const useEditorStore = create<EditorState>((set, get) => ({
     const idx = state.layers.findIndex((l) => l.id === id);
     const newLayers = [...state.layers];
     newLayers.splice(idx + 1, 0, copy);
-    set({
+    get().commitProjectPatch({
       layers: newLayers,
       activeLayerId: copy.id,
-      canvasData: mergeLayers(newLayers, state.canvasSize.width, state.canvasSize.height),
-      isDirty: true,
     });
   },
 
@@ -2017,10 +2035,7 @@ export const useEditorStore = create<EditorState>((set, get) => ({
     if (newIdx < 0 || newIdx >= state.layers.length) return;
     const newLayers = [...state.layers];
     [newLayers[idx], newLayers[newIdx]] = [newLayers[newIdx], newLayers[idx]];
-    set(markPersistentChange({
-      layers: newLayers,
-      canvasData: mergeLayers(newLayers, state.canvasSize.width, state.canvasSize.height),
-    }));
+    get().commitProjectPatch({ layers: newLayers });
   },
 
   mergeLayerDown: (id) => {
@@ -2044,16 +2059,9 @@ export const useEditorStore = create<EditorState>((set, get) => ({
     newLayers[idx - 1] = mergedLayer;
     newLayers.splice(idx, 1);
 
-    const snapshot: HistoryAction = { kind: "layers", layers: state.layers, activeLayerId: state.activeLayerId };
-    const undoStack = [...state.undoStack, snapshot].slice(-MAX_HISTORY);
-
-    set({
+    get().commitProjectPatch({
       layers: newLayers,
       activeLayerId: mergedLayer.id,
-      canvasData: mergeLayers(newLayers, width, height),
-      undoStack,
-      redoStack: [],
-      isDirty: true,
     });
   },
 
@@ -2091,7 +2099,7 @@ export const useEditorStore = create<EditorState>((set, get) => ({
 
     const newLayers = [...state.layers];
     newLayers[layerIdx] = { ...layer, data: newLayerData };
-    const action: CellsHistoryAction = { kind: "cells", entries };
+    const action: CellsHistoryAction = { kind: "cells", changesByLayer: [{ layerId: layer.id, entries }] };
     const undoStack = [...state.undoStack, action].slice(-MAX_HISTORY);
     set({
       layers: newLayers,
@@ -2101,7 +2109,28 @@ export const useEditorStore = create<EditorState>((set, get) => ({
       isDirty: true,
     });
   },
-}));
+  });
+});
+
+let pendingSessionActions = 0;
+export function getPendingSessionActions(): number { return pendingSessionActions; }
+const readOnlyActions = new Set(["currentSaveStatus", "getBlueprintBusyReason", "countColor", "countLostPixels", "selectionOnlyOnOtherLayers", "createAutosaveTicket"]);
+const guardedActions: Record<string, unknown> = {};
+for (const [name, value] of Object.entries(useEditorStore.getState())) {
+  if (typeof value !== "function" || readOnlyActions.has(name)) continue;
+  guardedActions[name] = (...args: unknown[]) => {
+    if (useEditorStore.getState().sessionLocked) {
+      return value.constructor.name === "AsyncFunction" ? Promise.resolve({ ok: false, code: "cancelled" }) : false;
+    }
+    const result = value(...args);
+    if (result instanceof Promise && name !== "saveProject" && name !== "saveProjectAs") {
+      pendingSessionActions++;
+      return result.finally(() => { pendingSessionActions--; });
+    }
+    return result;
+  };
+}
+useEditorStore.setState(guardedActions as Partial<EditorState>);
 
 // Keep cloud freshness independent from local-file dirty state. Persisted
 // project-content changes advance a lightweight cloud revision.
@@ -2110,6 +2139,7 @@ let _observedCloudContent = (() => {
   return { canvasData: state.canvasData, layers: state.layers, gridConfig: state.gridConfig, projectInfo: state.projectInfo, revision: state.contentRevision };
 })();
 useEditorStore.subscribe((state) => {
+  if (state.layers !== _observedCloudContent.layers) liveLayerIds = new Set(state.layers.map(layer => layer.id));
   const changed = state.canvasData !== _observedCloudContent.canvasData || state.layers !== _observedCloudContent.layers
     || state.gridConfig !== _observedCloudContent.gridConfig || state.projectInfo !== _observedCloudContent.projectInfo;
   if (!changed) { _observedCloudContent.revision = state.contentRevision; return; }

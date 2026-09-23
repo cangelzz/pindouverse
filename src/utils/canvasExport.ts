@@ -13,6 +13,7 @@ export interface CanvasExportAssets {
 
 export interface CanvasExportDependencies {
   createCanvas?: () => HTMLCanvasElement;
+  maxPixels?: number;
 }
 
 const MAX_CANVAS_SIDE = 32_767;
@@ -34,6 +35,7 @@ function validateDimensions(width: number, height: number): void {
 
 function prepareCanvas(width: number, height: number, dependencies?: CanvasExportDependencies) {
   validateDimensions(width, height);
+  if (dependencies?.maxPixels !== undefined && width * height > dependencies.maxPixels) throw new Error("Export exceeds the configured pixel budget");
   const canvas = createCanvas(dependencies);
   canvas.width = width;
   canvas.height = height;

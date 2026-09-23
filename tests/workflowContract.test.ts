@@ -241,8 +241,8 @@ describe("browser extension workflow contract", () => {
     expect(jobBlock(release, "build-and-upload")).toContain("needs: [compute-version, create-draft-release]");
   });
 
-  it("keeps extension products at 1.4.1 while desktop version files remain unchanged", () => {
-    expect(vscodePackage.version).toBe("1.4.1");
+  it("keeps extension products at 1.5.0 while desktop version files remain unchanged", () => {
+    expect(vscodePackage.version).toBe("1.5.0");
     expect(vscodeLock.version).toBe(vscodePackage.version);
     expect(vscodeLock.packages[""].version).toBe(vscodePackage.version);
     expect(rootPackage.version).toBe("1.3.4");

@@ -23,6 +23,8 @@ import {
 import { renderBlueprintBlob, renderPreviewBlob } from "../../../src/utils/canvasExport";
 import { importBlueprintTS, detectBlueprintDimsTS } from "../../../src/utils/blueprintImportTS";
 import appIconUrl from "../../../src-tauri/icons/64x64.png";
+import { TOOL_LIMITS } from "../../../src/blueprint/toolContract";
+import type { ToolMediaServices } from "../../../src/blueprint/toolMedia";
 
 let _cachedIcon: HTMLImageElement | null = null;
 let _iconPromise: Promise<HTMLImageElement | null> | null = null;
@@ -52,14 +54,25 @@ declare function acquireVsCodeApi(): {
 const vscode = acquireVsCodeApi();
 let requestCounter = 0;
 const pendingRequests = new Map<number, {
+  expectedType: string;
   resolve: (val: any) => void;
   reject: (err: any) => void;
   timeout: ReturnType<typeof setTimeout> | null;
 }>();
 
+const replyTypes: Record<string, string> = {
+  save: "saveResult", saveAs: "fileResult",
+  saveBlueprint: "saveBlueprintResult",
+  showSaveDialog: "dialogResult", showOpenDialog: "dialogResult",
+  readFile: "fileResult", writeFile: "fileResult", getAutosaveDir: "fileResult",
+  listSnapshots: "fileResult", deleteSnapshot: "fileResult",
+  getGitHubToken: "githubToken", getUiEnvironment: "uiEnvironment",
+  storageGet: "storageResult", storageSet: "storageResult", storageRemove: "storageResult",
+};
+
 function requestTimeout(type: string, data: Record<string, any>): number | null {
   if (type === "getGitHubToken" && data.createIfNone) return null;
-  if (type === "showOpenDialog" || type === "showSaveDialog") return null;
+  if (type === "showOpenDialog" || type === "showSaveDialog" || type === "saveBlueprint") return null;
   if (type === "readFile" || type === "writeFile" || type === "save" || type === "saveAs") return 120_000;
   if (type === "listSnapshots" || type === "getAutosaveDir") return 30_000;
   return 5_000;
@@ -68,8 +81,11 @@ function requestTimeout(type: string, data: Record<string, any>): number | null 
 // Listen for responses from extension host
 window.addEventListener("message", (event) => {
   const msg = event.data;
-  if (msg.requestId !== undefined && pendingRequests.has(msg.requestId)) {
-    const { resolve, reject, timeout } = pendingRequests.get(msg.requestId)!;
+  if (!msg || typeof msg !== "object" || !Number.isInteger(msg.requestId)
+    || "toolRequestId" in msg || "handoffId" in msg) return;
+  const pending = pendingRequests.get(msg.requestId);
+  if (pending && pending.expectedType === msg.type) {
+    const { resolve, reject, timeout } = pending;
     pendingRequests.delete(msg.requestId);
     if (timeout !== null) clearTimeout(timeout);
     if (msg.error) {
@@ -85,14 +101,16 @@ export function sendRequest(
   data: Record<string, any> = {},
   timeoutMs = requestTimeout(type, data),
 ): Promise<any> {
+  const expectedType = replyTypes[type];
+  if (!expectedType) return Promise.reject(new Error(`Unsupported VS Code request ${type}`));
   const requestId = ++requestCounter;
   return new Promise((resolve, reject) => {
     const timeout = timeoutMs === null ? null : setTimeout(() => {
       pendingRequests.delete(requestId);
       reject(new Error(`VS Code request ${type} timed out`));
     }, timeoutMs);
-    pendingRequests.set(requestId, { resolve, reject, timeout });
-    vscode.postMessage({ type, requestId, ...data });
+    pendingRequests.set(requestId, { expectedType, resolve, reject, timeout });
+    vscode.postMessage({ ...data, type, requestId });
   });
 }
 
@@ -201,11 +219,13 @@ function extractPixels(
 
 // Current document state (set by extension on load)
 let currentDocPath = "";
-let onDocumentLoad: ((content: string, path: string, isUntitled: boolean, isBackup: boolean) => void) | null = null;
+let liveSaveSupport = false;
+export function hasLiveSaveSupport(): boolean { return liveSaveSupport; }
+let onDocumentLoad: ((content: string, path: string, isUntitled: boolean, isBackup: boolean, editorId?: string, sessionOwnerId?: string) => void) | null = null;
 // Track content we just saved, so we can ignore the echo from extension host
 let lastSavedContent: string | null = null;
 
-export function setDocumentLoadHandler(handler: (content: string, path: string, isUntitled: boolean, isBackup: boolean) => void) {
+export function setDocumentLoadHandler(handler: (content: string, path: string, isUntitled: boolean, isBackup: boolean, editorId?: string, sessionOwnerId?: string) => void) {
   onDocumentLoad = handler;
 }
 
@@ -213,6 +233,7 @@ export function setDocumentLoadHandler(handler: (content: string, path: string, 
 window.addEventListener("message", (event) => {
   const msg = event.data;
   if (msg.type === "loadDocument") {
+    if (typeof msg.liveSave === "boolean") liveSaveSupport = msg.liveSave;
     currentDocPath = msg.path;
     // Skip reload if this is an echo of our own save
     if (lastSavedContent !== null && msg.content === lastSavedContent) {
@@ -221,7 +242,7 @@ window.addEventListener("message", (event) => {
     }
     lastSavedContent = null;
     if (onDocumentLoad) {
-      onDocumentLoad(msg.content, msg.path, !!msg.isUntitled, !!msg.isBackup);
+      onDocumentLoad(msg.content, msg.path, !!msg.isUntitled, !!msg.isBackup, msg.editorId, msg.sessionOwnerId);
     }
   }
 });
@@ -229,6 +250,48 @@ window.addEventListener("message", (event) => {
 // Signal ready
 export function signalReady() {
   vscode.postMessage({ type: "ready" });
+}
+
+export function postHostMessage(message: unknown): void {
+  vscode.postMessage(message);
+}
+
+export function createToolMediaServices(file: { grantId: string; path: string }, operationId: string): ToolMediaServices {
+  const grant = { agentFileGrantId: file.grantId, agentOperationId: operationId, path: file.path };
+  return {
+    async importPixels(input, signal) {
+      if (signal.aborted) throw new Error("Image import cancelled");
+      const reply = await sendRequest("readFile", grant);
+      const decoded = atob(reply.data);
+      if (decoded.length > TOOL_LIMITS.imageBytes) throw new Error("Image exceeds byte budget");
+      const bytes = Uint8Array.from(decoded, character => character.charCodeAt(0));
+      const bitmap = await createImageBitmap(new Blob([bytes], { type: reply.mimeType || "image/png" }));
+      try {
+        if (signal.aborted || bitmap.width * bitmap.height > TOOL_LIMITS.decodedPixels) throw new Error("Image decode cancelled or oversized");
+        const canvas = document.createElement("canvas");
+        canvas.width = input.width;
+        canvas.height = input.height;
+        const context = canvas.getContext("2d");
+        if (!context) throw new Error("Image context is unavailable");
+        context.imageSmoothingEnabled = true;
+        context.drawImage(bitmap, 0, 0, input.width, input.height);
+        const rgba = context.getImageData(0, 0, input.width, input.height).data;
+        const pixels: number[] = [];
+        for (let offset = 0; offset < rgba.length; offset += 4) pixels.push(rgba[offset], rgba[offset + 1], rgba[offset + 2]);
+        return { width: input.width, height: input.height, pixels };
+      } finally { bitmap.close(); }
+    },
+    async exportImage(request, signal) {
+      if (signal.aborted) throw new Error("Export cancelled");
+      const { output_path: _path, ...renderRequest } = request;
+      const blob = await renderBlueprintBlob(renderRequest, { appIcon: await loadAppIcon() }, { maxPixels: TOOL_LIMITS.exportPixels });
+      if (blob.size > TOOL_LIMITS.outputBytes) throw new Error("Export exceeds byte budget");
+      const data = await blobToBase64(blob);
+      if (signal.aborted) throw new Error("Export cancelled before write");
+      const reply = await sendRequest("writeFile", { ...grant, data });
+      if (reply.success === false) throw new Error("Host rejected the export write");
+    },
+  };
 }
 
 /**

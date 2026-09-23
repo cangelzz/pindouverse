@@ -1,5 +1,13 @@
 # Changelog
 
+## 1.5.0
+
+- Feature: Add 13 native VS Code Agent tools for live blueprint inspection, bead and layer editing, image import/export, and explicit project saving. These tools are not an external MCP server.
+- Fix: Preserve manual edits and layer-aware Undo/Redo across Agent operations and layer switches.
+- Fix: Coordinate first-save and Save As session transfer to preserve newer unsaved edits and history; isolate file, tool, and handoff RPC messages.
+- Safety: Validate editor identity, content revisions, destructive operations, workspace trust, and local file access before applying changes.
+- Requirements: VS Code 1.99.0 or newer; Agent use also requires compatible Copilot Chat with Agent mode enabled.
+
 ## 1.4.0
 
 - Feature (shared English/Chinese UI): VS Code, Chrome, and Edge now use the same complete English and Chinese interface across editor tools, dialogs, menus, notifications, import/export, cloud sync, project management, and recovery flows. / VS Code、Chrome 与 Edge 现共享完整的中英文界面，覆盖编辑工具、对话框、菜单、通知、导入导出、云同步、项目管理与恢复流程。

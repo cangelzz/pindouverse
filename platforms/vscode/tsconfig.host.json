@@ -2,7 +2,7 @@
   "extends": "./tsconfig.json",
   "compilerOptions": {
     "noEmit": true,
-    "rootDir": "src",
+    "rootDir": "../..",
     "declaration": false,
     "declarationMap": false,
     "sourceMap": false
@@ -10,7 +10,9 @@
   "include": [
     "src/extension.ts",
     "src/newProjectCommand.ts",
-    "src/uiPlatformHost.ts"
+    "src/uiPlatformHost.ts",
+    "src/blueprintTools.ts",
+    "scripts/sync-agent-tools.ts"
   ],
   "exclude": ["node_modules", "dist", "webview", "src/vscodeAdapter.ts", "src/vscodeServices.ts"]
 }

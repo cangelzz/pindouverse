@@ -64,7 +64,8 @@ function ColorSwatch({ colorIndex, overrides }: { colorIndex: number | null; ove
 /** Render the inline summary of a history action (1-pixel: from→to + pos; many: count) */
 function renderActionSummary(action: HistoryAction, overrides: ColorOverrideMap, t: ReturnType<typeof useTranslation>["t"]) {
   if (action.kind === "layers") return <span>{t("history.layerSnapshot")}</span>;
-  const { entries } = action;
+  if (action.kind === "projectPatch") return <span>{t("history.projectSnapshot")}</span>;
+  const entries = action.changesByLayer.flatMap(group => group.entries);
   if (entries.length === 1) {
     const e = entries[0];
     return (
@@ -82,6 +83,7 @@ function renderActionSummary(action: HistoryAction, overrides: ColorOverrideMap,
 /** Verbose tooltip text describing an action */
 function describeAction(action: HistoryAction, overrides: ColorOverrideMap, t: ReturnType<typeof useTranslation>["t"]): string {
   if (action.kind === "layers") return t("history.layerDetail");
+  if (action.kind === "projectPatch") return t("history.projectDetail");
   const label = (idx: number | null) => {
     if (idx === null) return t("import.blueprint.empty");
     const c = MARD_COLORS[idx];
@@ -90,7 +92,7 @@ function describeAction(action: HistoryAction, overrides: ColorOverrideMap, t: R
     return ov ? `${c.code}(${ov.hex})` : `${c.code} ${c.name}`;
   };
   const fmt = (e: HistoryEntry) => `(${e.col + 1},${e.row + 1}) ${label(e.prevColorIndex)} → ${label(e.newColorIndex)}`;
-  const { entries } = action;
+  const entries = action.changesByLayer.flatMap(group => group.entries);
   if (entries.length <= 5) return entries.map(fmt).join("\n");
   const head = entries.slice(0, 5).map(fmt).join("\n");
   return `${head}\n${t("history.moreChanges", { count: entries.length })}`;

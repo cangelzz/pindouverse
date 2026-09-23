@@ -38,15 +38,25 @@ jobs:
         run: cd platforms/vscode && npm ci
       - name: Build VS Code extension
         run: cd platforms/vscode && npm run build
+      - name: Check Agent tool contributions (read-only manifest check)
+        run: cd platforms/vscode && npm run check:tools
       - name: Run VS Code adapter unit tests
         run: cd platforms/vscode && npm run test:unit
       - name: Install Playwright browsers
         run: cd platforms/vscode && npx playwright install --with-deps chromium
       - name: Run VS Code webview tests
-        run: cd platforms/vscode && npm run test:webview
-      - name: Run VS Code host smoke tests (real VS Code via test-electron)
-        run: cd platforms/vscode && xvfb-run -a npm run test:e2e
+        run: cd platforms/vscode && npx playwright test
+      - name: Compile VS Code host tests
+        run: cd platforms/vscode && npx tsc -p tests-e2e/tsconfig.json
+      - name: Run VS Code host tests (minimum 1.99.0)
+        run: cd platforms/vscode && xvfb-run -a node out-e2e/runner.js
         env:
+          PINDOU_VSCODE_VERSION: "1.99.0"
+          DISPLAY: ":99.0"
+      - name: Run VS Code host tests (stable)
+        run: cd platforms/vscode && xvfb-run -a node out-e2e/runner.js
+        env:
+          PINDOU_VSCODE_VERSION: stable
           DISPLAY: ":99.0"
       - uses: actions/upload-artifact@v4
         if: failure()

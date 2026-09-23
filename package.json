@@ -41,9 +41,11 @@
     "@tauri-apps/plugin-fs": "^2.0.0",
     "@tauri-apps/plugin-shell": "^2.3.5",
     "i18next": "^26.3.6",
+    "image-size": "2.0.2",
     "react": "^19.0.0",
     "react-dom": "^19.0.0",
     "react-i18next": "^17.0.11",
+    "zod": "4.6.1",
     "zustand": "^5.0.0"
   },
   "devDependencies": {

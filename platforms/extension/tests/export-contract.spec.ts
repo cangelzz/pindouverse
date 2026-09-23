@@ -92,7 +92,7 @@ describe("browser export contract", () => {
         messages.push(message);
         if (message.type === "writeFile") {
           queueMicrotask(() => eventTarget.dispatchEvent(new MessageEvent("message", {
-            data: { requestId: message.requestId },
+            data: { type: "fileResult", requestId: message.requestId, success: true },
           })));
         }
       },

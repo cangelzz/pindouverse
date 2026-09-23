@@ -64,7 +64,7 @@ export interface HistoryEntry {
 /** A cell-delta action (drawing/selection edits on the active layer). */
 export interface CellsHistoryAction {
   kind: "cells";
-  entries: HistoryEntry[];
+  changesByLayer: Array<{ layerId: string; entries: HistoryEntry[] }>;
 }
 
 /** A whole-layers snapshot taken before a structural op (e.g. merge). */
@@ -74,7 +74,22 @@ export interface LayersHistoryAction {
   activeLayerId: string;
 }
 
-export type HistoryAction = CellsHistoryAction | LayersHistoryAction;
+export interface ProjectHistoryPatch {
+  canvasSize?: CanvasSize;
+  layers?: BeadLayer[];
+  activeLayerId?: string;
+  gridConfig?: GridConfig;
+  projectInfo?: ProjectInfo | null;
+  nextDefaultLayerNameIndex?: number;
+}
+
+export interface ProjectPatchHistoryAction {
+  kind: "projectPatch";
+  before: ProjectHistoryPatch;
+  after: ProjectHistoryPatch;
+}
+
+export type HistoryAction = CellsHistoryAction | LayersHistoryAction | ProjectPatchHistoryAction;
 
 export type ColorMatchAlgorithm = "euclidean" | "ciede2000";
 
@@ -126,6 +141,33 @@ export interface ProjectSnapshot {
   label: string;
   canvasSize: CanvasSize;
   canvasData: CanvasData;
+}
+
+export interface EditorSessionSnapshot {
+  version: 1;
+  project: ProjectFile;
+  projectGeneration: number;
+  revision: number;
+  activeLayerId: string;
+  nextDefaultLayerNameIndex: number;
+  undoStack: HistoryAction[];
+  redoStack: HistoryAction[];
+  isDirty: boolean;
+  baselineCanvasData: CanvasData | null;
+  saveStatus: { kind: "saved" | "autosaved"; at: string; revision?: number } | null;
+  selection: string[] | null;
+  selectionBounds: { r1: number; c1: number; r2: number; c2: number } | null;
+  clipboard: { cells: [string, CanvasCell][]; width: number; height: number } | null;
+  colorOverrides: [number, { hex: string; rgb: [number, number, number] }][];
+  view: {
+    zoom: number; cellSize: number; offsetX: number; offsetY: number;
+    blueprintMode: boolean; blueprintMirror: boolean; gridFocusMode: boolean;
+    currentTool: EditorTool; selectedColorIndex: number | null; highlightColorIndex: number | null;
+    beadLayerVisible: boolean; beadLayerOpacity: number; refImagePixels: number[] | null;
+    refImageWidth: number; refImageHeight: number; refImageVisible: boolean; refImageOpacity: number;
+    showActiveLayerTag: boolean; autoSaveEnabled: boolean; importedFileName: string | null;
+    lastEraserSubmode: "eraser" | "eraserFill";
+  };
 }
 
 export interface ExportWatermarkSettings {

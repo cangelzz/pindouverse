@@ -369,6 +369,8 @@
     "current": "Current State",
     "layerSnapshot": "Layer snapshot",
     "layerDetail": "Layer snapshot (structural operation)",
+    "projectSnapshot": "Project change",
+    "projectDetail": "Canvas, layer, grid or project information change",
     "pixelChanges": "{{count}} pixel changes",
     "moreChanges": "... {{count}} pixel changes total",
     "steps": "-{{count}} steps"

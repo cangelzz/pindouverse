@@ -2,13 +2,17 @@ import { useEffect } from "react";
 import ReactDOM from "react-dom/client";
 import App from "../../../src/App";
 import { setAdapter } from "../../../src/adapters";
-import { VScodeAdapter, setDocumentLoadHandler, signalReady, requestGitHubToken, requestNewProject, sendRequest } from "../src/vscodeAdapter";
+import { VScodeAdapter, setDocumentLoadHandler, signalReady, requestGitHubToken, requestNewProject, sendRequest, postHostMessage, hasLiveSaveSupport, createToolMediaServices } from "../src/vscodeAdapter";
+import { dispatchBlueprintTool, getEditorStamp } from "../../../src/blueprint/toolDispatcher";
+import { toolRequestSchema, toolCancelSchema, toolFailure, TOOL_LIMITS, type EditorBinding } from "../../../src/blueprint/toolContract";
+import { acquireEditorSessionLock, releaseEditorSessionLock, captureEditorSession, restoreEditorSession, finalizeEditorSave } from "../../../src/store/editorSession";
+import { projectFromEditorState } from "../../../src/store/editorStore";
 import { useEditorStore } from "../../../src/store/editorStore";
 import { VSCodeGitHubService } from "../../../src/platform/vscodeGitHubService";
 import { normalizeProjectFromDisk } from "../../../src/utils/projectSerialization";
 import { setPlatformServices } from "../../../src/platform/serviceRegistry";
 import { createLegacyPlatformServices } from "../../../src/platform/services";
-import { VSCodeLocaleService, VSCodeStorageService } from "../src/vscodeServices";
+import { VSCodeLocaleService, VSCodeStorageService, VSCodeProjectFileService } from "../src/vscodeServices";
 import { bootstrapUiLanguage } from "../../../src/i18n/bootstrap";
 import { initializeI18n } from "../../../src/i18n";
 import { renderStartupFailure } from "../../../src/i18n/startup";
@@ -35,6 +39,7 @@ const mutableCapabilities = {
 const legacyServices = createLegacyPlatformServices(adapter, mutableCapabilities);
 const services = {
   ...legacyServices,
+  projectFiles: new VSCodeProjectFileService(legacyServices.projectFiles, sendRequest, hasLiveSaveSupport),
   github: githubService,
   storage: new VSCodeStorageService(sendRequest),
   locale: new VSCodeLocaleService(sendRequest),
@@ -104,14 +109,112 @@ window.addEventListener("message", (event) => {
   else store.redo();
 });
 
+let editorBinding: EditorBinding | undefined;
+let documentReady = false;
+const toolControllers = new Map<string, AbortController>();
+const sessionReplies = new Set<string>();
+const sessionTypes = new Set(["blueprintCaptureForSave", "blueprintAcquireSession", "blueprintRestoreSession", "blueprintFinalizeSave", "blueprintReleaseSession", "blueprintEnableSession"]);
+const onSessionMessage = (event: MessageEvent) => {
+  const message = event.data;
+  if (!message || !sessionTypes.has(message.type) || typeof message.handoffId !== "string" || typeof message.ownerId !== "string"
+    || "requestId" in message || "toolRequestId" in message || sessionReplies.has(message.handoffId)) return;
+  sessionReplies.add(message.handoffId);
+  if (sessionReplies.size > 256) sessionReplies.delete(sessionReplies.values().next().value!);
+  const reply = (value?: unknown, error?: string) => postHostMessage({ type: `${message.type}Result`, handoffId: message.handoffId, value, error });
+  try {
+    if (!editorBinding || !documentReady) throw new Error("Editor is not ready for session transfer");
+    const state = useEditorStore.getState();
+    if (message.expectedGeneration !== undefined && message.expectedGeneration !== state.projectGeneration) throw new Error("Project changed during save");
+    if (message.expectedRevision !== undefined && message.expectedRevision !== state.contentRevision) throw new Error("Blueprint changed before save");
+    switch (message.type) {
+      case "blueprintCaptureForSave": {
+        const busy = state.getBlueprintBusyReason();
+        if (busy) throw new Error(busy);
+        reply({ project: projectFromEditorState(state), savedRevision: state.contentRevision });
+        break;
+      }
+      case "blueprintAcquireSession":
+        if (!acquireEditorSessionLock(message.ownerId)) throw new Error("Editor is busy; save handoff could not acquire the session");
+        reply(captureEditorSession());
+        break;
+      case "blueprintRestoreSession":
+        if (!state.sessionLocked && !acquireEditorSessionLock(message.ownerId)) throw new Error("Destination editor is busy");
+        restoreEditorSession(message.snapshot, { displayName: message.path, writable: true }, message.saved);
+        reportEditorState();
+        reply(getEditorStamp(editorBinding));
+        break;
+      case "blueprintFinalizeSave":
+        if (message.inPlace) finalizeEditorSave(message.saved);
+        reply(getEditorStamp(editorBinding));
+        break;
+      case "blueprintReleaseSession":
+      case "blueprintEnableSession":
+        releaseEditorSessionLock(message.ownerId);
+        reply(getEditorStamp(editorBinding));
+        break;
+    }
+  } catch (error) { reply(undefined, error instanceof Error ? error.message : "Session operation failed"); }
+};
+window.addEventListener("message", onSessionMessage);
+const completedToolIds = new Set<string>();
+const reportEditorState = () => {
+  if (!editorBinding || !documentReady) return;
+  editorBinding = { editorId: editorBinding.editorId, projectGeneration: useEditorStore.getState().projectGeneration };
+  postHostMessage({ type: "blueprintEditorReady", stamp: getEditorStamp(editorBinding) });
+};
+const toolStateSubscription = useEditorStore.subscribe((state, previous) => {
+  if (state.projectGeneration !== previous.projectGeneration) {
+    for (const controller of toolControllers.values()) controller.abort();
+  }
+  if (state.contentRevision !== previous.contentRevision || state.projectGeneration !== previous.projectGeneration
+    || state.activeLayerId !== previous.activeLayerId || state.isDirty !== previous.isDirty) reportEditorState();
+});
+const onToolMessage = (event: MessageEvent) => {
+  const cancel = toolCancelSchema.safeParse(event.data);
+  if (cancel.success) {
+    if (cancel.data.editorId === editorBinding?.editorId && cancel.data.projectGeneration === editorBinding.projectGeneration)
+      toolControllers.get(cancel.data.toolRequestId)?.abort();
+    return;
+  }
+  const parsed = toolRequestSchema.safeParse(event.data);
+  if (!parsed.success || !editorBinding || !documentReady) return;
+  const request = parsed.data;
+  if (toolControllers.has(request.toolRequestId) || completedToolIds.has(request.toolRequestId)) return;
+  const binding = { ...editorBinding };
+  const controller = new AbortController();
+  if (toolControllers.size >= TOOL_LIMITS.pendingPerEditor) return;
+  toolControllers.set(request.toolRequestId, controller);
+  void dispatchBlueprintTool(request, binding, controller.signal, request.fileAccess ? createToolMediaServices(request.fileAccess, request.toolRequestId) : undefined)
+    .catch(() => toolFailure("outcome_unknown", "Editor operation failed; inspect before retrying"))
+    .then(result => postHostMessage({ type: "blueprintToolResponse", toolRequestId: request.toolRequestId,
+      editorId: request.editorId, projectGeneration: request.projectGeneration, result }))
+    .finally(() => {
+      toolControllers.delete(request.toolRequestId);
+      completedToolIds.add(request.toolRequestId);
+      if (completedToolIds.size > 256) completedToolIds.delete(completedToolIds.values().next().value!);
+    });
+};
+window.addEventListener("message", onToolMessage);
+window.addEventListener("unload", () => {
+  window.removeEventListener("message", onSessionMessage);
+  window.removeEventListener("message", onToolMessage);
+  toolStateSubscription();
+  for (const controller of toolControllers.values()) controller.abort();
+}, { once: true });
+
 // Handle document load from extension host
-setDocumentLoadHandler((content: string, path: string, isUntitled: boolean, isBackup: boolean) => {
+setDocumentLoadHandler((content: string, path: string, isUntitled: boolean, isBackup: boolean, editorId?: string, sessionOwnerId?: string) => {
+  documentReady = false;
   try {
     const project = normalizeProjectFromDisk(content);
     if (project.canvasSize && project.canvasData) {
       // Use the same whole-project load boundary as other platforms so timestamps,
       // document identity, cloud detachment and transient resets cannot drift.
       useEditorStore.getState().loadProjectDocument(project, isUntitled ? null : path, isBackup);
+      if (editorId) editorBinding = { editorId, projectGeneration: useEditorStore.getState().projectGeneration };
+      if (sessionOwnerId && !acquireEditorSessionLock(sessionOwnerId)) throw new Error("Cannot stage destination editor");
+      documentReady = true;
+      reportEditorState();
     }
   } catch (e) {
     console.error("Failed to parse .pindou file:", e);
@@ -122,13 +225,14 @@ setDocumentLoadHandler((content: string, path: string, isUntitled: boolean, isBa
 // so all Zustand store subscriptions are established before data arrives.
 // Also auto-requests GitHub token from VS Code's built-in auth.
 function WebviewApp() {
+  const sessionLocked = useEditorStore(state => state.sessionLocked);
   useEffect(() => {
     signalReady();
     void githubService.restore().catch(() => {
       // Ignore — user not logged in to GitHub in VS Code.
     });
   }, []);
-  return <App />;
+  return <div style={{ height: "100%" }} aria-busy={sessionLocked} inert={sessionLocked ? true : undefined}><App /></div>;
 }
 
 // Initialize language before mounting. RPCs intentionally happen before ready;

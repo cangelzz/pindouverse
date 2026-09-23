@@ -5,6 +5,24 @@ import { dispatchNewProjectCommand } from "./newProjectCommand";
 import { handleUiPlatformMessage } from "./uiPlatformHost";
 import { saveDocument } from "./saveDocument";
 import { SaveQueue } from "./saveQueue";
+import { BlueprintEditorRegistry, BlueprintToolRouter, registerBlueprintTools, type BlueprintPanel } from "./blueprintTools";
+import { SaveHandoffCoordinator, SessionChannel, type SavedBlueprint } from "./saveHandoff";
+import { BlueprintFileAccess } from "./blueprintFileAccess";
+import { toolFailure, stampSchema, type ToolResult, TOOL_LIMITS } from "../../../src/blueprint/toolContract";
+import { serializeProjectToV3 } from "../../../src/utils/projectSerialization";
+import type { EditorSessionSnapshot } from "../../../src/types";
+import { randomUUID } from "node:crypto";
+import { imageSize } from "image-size";
+
+interface LiveEditor {
+  editorId: string;
+  panel: vscode.WebviewPanel;
+  transport: BlueprintPanel;
+  document: vscode.TextDocument;
+  isUntitled: boolean;
+  save(content: string): Promise<void>;
+  abortSave?: () => void;
+}
 
 // The custom editor panel that currently has focus. Used by the
 // pindouverse.undo/redo commands (bound to Ctrl+Z/Y) to forward undo/redo into
@@ -42,8 +60,15 @@ async function createUntitledProject(
 }
 
 export function activate(context: vscode.ExtensionContext) {
+  const registry = new BlueprintEditorRegistry();
+  const router = new BlueprintToolRouter(registry, () => {
+    const input = vscode.window.tabGroups.activeTabGroup.activeTab?.input;
+    return input instanceof vscode.TabInputCustom && input.viewType === "pindouverse.editor"
+      ? registry.idForUri(input.uri.toString()) : undefined;
+  }, () => vscode.workspace.isTrusted);
+  context.subscriptions.push(router, ...registerBlueprintTools(vscode, router, context.extensionMode === vscode.ExtensionMode.Test));
   context.subscriptions.push(
-    PindouEditorProvider.register(context, createUntitledProject)
+    PindouEditorProvider.register(context, createUntitledProject, router)
   );
 
   // Command Palette must use the same in-webview dirty guard as the toolbar.
@@ -88,22 +113,56 @@ export function activate(context: vscode.ExtensionContext) {
       activePindouWebview?.webview.postMessage({ type: "redo" });
     })
   );
+  return context.extensionMode === vscode.ExtensionMode.Test ? router.testControls : undefined;
 }
 
 export function deactivate() {}
 
 class PindouEditorProvider implements vscode.CustomTextEditorProvider {
+  private testSaveDestination: string | undefined;
+  private failDestinationOnce = false;
+  private readonly liveEditors = new Map<string, LiveEditor>();
+  private readonly sessions = new SessionChannel();
+  private readonly stagedOwners = new Map<string, string>();
+  private readonly readyWaiters = new Map<string, Set<(editor: LiveEditor) => void>>();
+  private readonly fileAccess = new BlueprintFileAccess(vscode.workspace.workspaceFolders?.map(folder => folder.uri.fsPath) ?? [], () => vscode.workspace.isTrusted);
   private static readonly viewType = "pindouverse.editor";
   private readonly panels = new Set<vscode.WebviewPanel>();
   private languageUpdateQueue: Promise<void> = Promise.resolve();
 
   static register(
     context: vscode.ExtensionContext,
-    createUntitled: (ctx: vscode.ExtensionContext, w?: number, h?: number) => Promise<void>
+    createUntitled: (ctx: vscode.ExtensionContext, w?: number, h?: number) => Promise<void>,
+    router: BlueprintToolRouter,
   ): vscode.Disposable {
+    const provider = new PindouEditorProvider(context, createUntitled, router);
+    if (context.extensionMode === vscode.ExtensionMode.Test) router.testControls = {
+      waitForEditor: async uri => { await provider.waitForReady(uri); },
+      setSaveDestination: file => { provider.testSaveDestination = file; },
+      failNextDestination: () => { provider.failDestinationOnce = true; },
+    };
+    router.saveHandler = (editorId, expectedRevision, signal) => provider.saveBlueprint(editorId, "save", expectedRevision, signal);
+    router.releaseFile = operationId => provider.fileAccess.revokeOperation(operationId);
+    router.prepareFile = async (editorId, operation, value, operationId, signal) => {
+      const input = value as { path?: string; format?: string };
+      const mode = operation === "import_image" ? "read" : "write";
+      let file = input.path;
+      let userSelected = false;
+      if (mode === "write" || !file) {
+        const uri = mode === "write"
+          ? await vscode.window.showSaveDialog({ defaultUri: file ? vscode.Uri.file(file) : undefined, filters: input.format === "jpeg" ? { JPEG: ["jpg", "jpeg"] } : { PNG: ["png"] } })
+          : (await vscode.window.showOpenDialog({ canSelectMany: false, filters: { Images: ["png", "jpg", "jpeg", "gif", "bmp", "webp"] } }))?.[0];
+        if (!uri || signal.aborted) return toolFailure("cancelled", "File selection cancelled");
+        file = uri.fsPath;
+        userSelected = true;
+      }
+      if (vscode.workspace.textDocuments.some(document => document.uri.fsPath === file && document.isDirty)) return toolFailure("permission_denied", "The destination has unsaved edits");
+      const grant = await provider.fileAccess.authorize(file, mode, editorId, operationId, userSelected);
+      return { grantId: grant.id, path: grant.path };
+    };
     return vscode.window.registerCustomEditorProvider(
       PindouEditorProvider.viewType,
-      new PindouEditorProvider(context, createUntitled),
+      provider,
       {
         webviewOptions: { retainContextWhenHidden: true },
         supportsMultipleEditorsPerDocument: false,
@@ -113,14 +172,116 @@ class PindouEditorProvider implements vscode.CustomTextEditorProvider {
 
   constructor(
     private readonly context: vscode.ExtensionContext,
-    private readonly createUntitled: (ctx: vscode.ExtensionContext, w?: number, h?: number) => Promise<void>
+    private readonly createUntitled: (ctx: vscode.ExtensionContext, w?: number, h?: number) => Promise<void>,
+    private readonly router: BlueprintToolRouter,
   ) {}
+
+  private waitForReady(uri: string): Promise<LiveEditor> {
+    const id = this.router.registry.idForUri(uri);
+    if (id && this.router.registry.resolveEditor(id)?.stamp && this.liveEditors.has(id)) return Promise.resolve(this.liveEditors.get(id)!);
+    return new Promise((resolve, reject) => {
+      const listeners = this.readyWaiters.get(uri) ?? new Set();
+      const ready = (editor: LiveEditor) => { clearTimeout(timer); listeners.delete(ready); if (!listeners.size) this.readyWaiters.delete(uri); resolve(editor); };
+      const timer = setTimeout(() => { listeners.delete(ready); if (!listeners.size) this.readyWaiters.delete(uri); reject(new Error("Destination editor did not become ready")); }, TOOL_LIMITS.handoffTimeoutMs);
+      listeners.add(ready);
+      this.readyWaiters.set(uri, listeners);
+    });
+  }
+
+  private async saveBlueprint(editorId: string, mode: "save" | "saveAs", expectedRevision?: number, signal = new AbortController().signal, forcedPath?: string, beforeRetire?: (result: ToolResult) => Promise<void>): Promise<ToolResult> {
+    const source = this.liveEditors.get(editorId);
+    const record = this.router.registry.resolveEditor(editorId);
+    if (!source || !record?.stamp) return toolFailure("editor_closed", "The source editor is not ready");
+    if (record.saving) return toolFailure("editor_busy", "A save is already in progress");
+    if (!vscode.workspace.isTrusted) return toolFailure("permission_denied", "Live file operations require workspace trust");
+    record.saving = true;
+    const controller = new AbortController();
+    const abort = () => controller.abort();
+    signal.addEventListener("abort", abort, { once: true });
+    if (signal.aborted) abort();
+    source.abortSave = abort;
+    const ownerId = `save:${randomUUID()}`;
+    const generation = record.stamp.projectGeneration;
+    const control = (type: string, data: Record<string, unknown> = {}) => this.sessions.request(source.transport, type, ownerId, { expectedGeneration: generation, ...data });
+    const capture = async () => {
+      if (controller.signal.aborted) throw new Error("Save was cancelled or the source changed");
+      return await control("blueprintCaptureForSave", expectedRevision === undefined ? {} : { expectedRevision }) as SavedBlueprint;
+    };
+    let destination: LiveEditor | undefined;
+    let destinationUri: string | undefined;
+    try {
+      if (mode === "save" && !source.isUntitled && !forcedPath) {
+        const saved = await capture();
+        await source.save(serializeProjectToV3(saved.project));
+        const stamp = stampSchema.parse(await control("blueprintFinalizeSave", { saved, inPlace: true }));
+        return { ok: true, stamp, summary: "Saved blueprint", value: { path: source.document.uri.fsPath, savedRevision: saved.savedRevision, fileWritten: true } };
+      }
+      const access = new BlueprintFileAccess(vscode.workspace.workspaceFolders?.map(folder => folder.uri.fsPath) ?? [], () => vscode.workspace.isTrusted);
+      const coordinator = new SaveHandoffCoordinator({
+        selectDestination: async () => {
+          const selectedPath = this.testSaveDestination ?? forcedPath;
+          const uri = selectedPath ? vscode.Uri.file(selectedPath) : await vscode.window.showSaveDialog({ filters: { "PindouVerse Project": ["pindou"] }, defaultUri: source.isUntitled ? undefined : source.document.uri });
+          if (!uri) return null;
+          if (uri.toString() === source.document.uri.toString()) throw new Error("Use Save for the current document path");
+          if (this.router.registry.idForUri(uri.toString())) throw new Error("The destination is already open in a Pindou editor");
+          destinationUri = uri.toString();
+          return uri.fsPath;
+        },
+        capture,
+        write: async (file, saved) => {
+          const grant = await access.authorize(file, "write", editorId, ownerId, true);
+          await access.validate(grant.id, "write", editorId, ownerId);
+          if (controller.signal.aborted) throw new Error("Save cancelled before write");
+          await vscode.workspace.fs.writeFile(vscode.Uri.file(file), Buffer.from(serializeProjectToV3(saved.project)));
+        },
+        lock: async () => await control("blueprintAcquireSession") as EditorSessionSnapshot,
+        restore: async (file, snapshot, saved) => {
+          if (this.failDestinationOnce) { this.failDestinationOnce = false; throw new Error("Test destination startup failure"); }
+          const uri = vscode.Uri.file(file);
+          this.stagedOwners.set(uri.toString(), ownerId);
+          const ready = this.waitForReady(uri.toString());
+          await Promise.all([vscode.commands.executeCommand("vscode.openWith", uri, "pindouverse.editor"), ready]);
+          destination = await ready;
+          destination.abortSave = abort;
+          return stampSchema.parse(await this.sessions.request(destination.transport, "blueprintRestoreSession", ownerId, { path: file, snapshot, saved }));
+        },
+        finalize: async saved => { await control("blueprintFinalizeSave", { saved, inPlace: false }); },
+        enable: async () => {
+          if (!destination || !await destination.transport.postMessage({ type: "blueprintEnableSession", handoffId: `handoff:${randomUUID()}`, ownerId })) throw new Error("Cannot enable the restored destination");
+        },
+        beforeRetire: beforeRetire ? async result => {
+          await beforeRetire(result);
+          await control("blueprintFinalizeSave", { inPlace: false });
+        } : undefined,
+        disposeSource: () => source.panel.dispose(),
+        abortDestination: async () => {
+          const stagedId = destinationUri ? this.router.registry.idForUri(destinationUri) : undefined;
+          const staged = destination ?? (stagedId ? this.liveEditors.get(stagedId) : undefined);
+          staged?.panel.dispose();
+        },
+        releaseSource: async () => { if (this.liveEditors.has(editorId)) await control("blueprintReleaseSession"); },
+      });
+      const result = await coordinator.run(controller.signal);
+      access.revokeOperation(ownerId);
+      return result.ok ? result : { ...result, error: { ...result.error, details: { ...result.error.details as object, sourceEditorId: editorId } } };
+    } catch (error) {
+      return toolFailure("outcome_unknown", error instanceof Error ? error.message : "Save could not be confirmed; inspect before retrying");
+    } finally {
+      record.saving = false;
+      source.abortSave = undefined;
+      if (destination) destination.abortSave = undefined;
+      signal.removeEventListener("abort", abort);
+      if (destinationUri) this.stagedOwners.delete(destinationUri);
+    }
+  }
 
   async resolveCustomTextEditor(
     document: vscode.TextDocument,
     webviewPanel: vscode.WebviewPanel,
     _token: vscode.CancellationToken
   ): Promise<void> {
+    const toolPanel = { postMessage: (message: unknown) => webviewPanel.webview.postMessage(message) };
+    const editorId = this.router.registry.registerPanel(toolPanel, document.uri.toString());
     this.panels.add(webviewPanel);
     const panelSub = webviewPanel.onDidDispose(() => this.panels.delete(webviewPanel));
     webviewPanel.webview.options = {
@@ -162,6 +323,9 @@ class PindouEditorProvider implements vscode.CustomTextEditorProvider {
     const sendDocument = () => {
       webviewPanel.webview.postMessage({
         type: "loadDocument",
+        editorId,
+        liveSave: true,
+        sessionOwnerId: this.stagedOwners.get(document.uri.toString()),
         content: document.getText(),
         path: document.uri.fsPath,
         isUntitled,
@@ -172,16 +336,78 @@ class PindouEditorProvider implements vscode.CustomTextEditorProvider {
     // Suppress reload during save (our own edit triggers onDidChangeTextDocument)
     let isSaving = false;
     const saveQueue = new SaveQueue((value) => { isSaving = value; });
+    const liveEditor: LiveEditor = { editorId, panel: webviewPanel, transport: toolPanel, document, isUntitled,
+      save: async content => {
+        await saveQueue.run(async () => {
+          const edit = new vscode.WorkspaceEdit();
+          edit.replace(document.uri, new vscode.Range(0, 0, document.lineCount, 0), content);
+          if (!await vscode.workspace.applyEdit(edit) || !await document.save()) throw new Error("VS Code could not save the document");
+        });
+      },
+    };
+    this.liveEditors.set(editorId, liveEditor);
 
     // Listen for document changes (external edits)
     const changeDocSub = vscode.workspace.onDidChangeTextDocument((e) => {
       if (e.document.uri.toString() === document.uri.toString() && !isSaving) {
+        liveEditor.abortSave?.();
         sendDocument();
       }
     });
 
     // Listen for messages from webview
     webviewPanel.webview.onDidReceiveMessage(async (msg) => {
+      if ((msg?.type === "readFile" || msg?.type === "writeFile") && msg.agentFileGrantId) {
+        try {
+          const mode = msg.type === "readFile" ? "read" : "write";
+          const grant = await this.fileAccess.validate(msg.agentFileGrantId, mode, editorId, msg.agentOperationId);
+          if (msg.path !== grant.path) throw new Error("File request differs from its grant");
+          if (mode === "read") {
+            const bytes = await vscode.workspace.fs.readFile(vscode.Uri.file(grant.path));
+            if (!bytes.length || bytes.length > TOOL_LIMITS.imageBytes) throw new Error("Image exceeds byte limit");
+            const dimensions = imageSize(bytes);
+            if (!dimensions.width || !dimensions.height || dimensions.width * dimensions.height > TOOL_LIMITS.decodedPixels) throw new Error("Image exceeds decoded pixel limit");
+            const extension = path.extname(grant.path).slice(1).toLowerCase().replace("jpeg", "jpg");
+            if (dimensions.type !== extension || !["png", "jpg", "gif", "bmp", "webp"].includes(extension)) throw new Error("Image content does not match its extension");
+            await webviewPanel.webview.postMessage({ type: "fileResult", requestId: msg.requestId, success: true,
+              data: Buffer.from(bytes).toString("base64"), mimeType: `image/${extension === "jpg" ? "jpeg" : extension}` });
+          } else {
+            if (typeof msg.data !== "string" || msg.data.length > Math.ceil(TOOL_LIMITS.outputBytes * 4 / 3) + 4) throw new Error("Output exceeds byte budget");
+            const bytes = Buffer.from(msg.data, "base64");
+            const dimensions = imageSize(bytes);
+            if (bytes.length > TOOL_LIMITS.outputBytes || dimensions.width * dimensions.height > TOOL_LIMITS.exportPixels) throw new Error("Output exceeds image budget");
+            const extension = path.extname(grant.path).slice(1).toLowerCase().replace("jpeg", "jpg");
+            if (!["png", "jpg"].includes(extension) || dimensions.type !== extension) throw new Error("Output type does not match its path");
+            await this.fileAccess.validate(msg.agentFileGrantId, mode, editorId, msg.agentOperationId);
+            await vscode.workspace.fs.writeFile(vscode.Uri.file(grant.path), bytes);
+            await webviewPanel.webview.postMessage({ type: "fileResult", requestId: msg.requestId, success: true });
+          }
+        } catch (error) {
+          await webviewPanel.webview.postMessage({ type: "fileResult", requestId: msg.requestId, success: false, error: error instanceof Error ? error.message : "Authorized file operation failed" });
+        }
+        return;
+      }
+      if (this.sessions.accept(toolPanel, msg)) return;
+      if (msg?.type === "saveBlueprint") {
+        let replied = false;
+        const reply = async (result: ToolResult) => {
+          if (replied) return;
+          replied = true;
+          await webviewPanel.webview.postMessage({ type: "saveBlueprintResult", requestId: msg.requestId, result });
+        };
+        const result = await this.saveBlueprint(editorId, msg.mode === "saveAs" ? "saveAs" : "save", undefined, undefined, undefined, reply);
+        await reply(result);
+        return;
+      }
+      if (msg?.type === "blueprintEditorReady") {
+        this.router.registry.updateReadyState(toolPanel, msg.stamp);
+        for (const ready of [...this.readyWaiters.get(document.uri.toString()) ?? []]) ready(liveEditor);
+        return;
+      }
+      if (msg?.type === "blueprintToolResponse") {
+        this.router.acceptResponse(toolPanel, msg);
+        return;
+      }
       const handledUiMessage = await handleUiPlatformMessage(msg, {
         language: vscode.env.language,
         globalState: this.context.globalState,
@@ -217,34 +443,15 @@ class PindouEditorProvider implements vscode.CustomTextEditorProvider {
         }
 
         case "saveAs": {
-          // Write content to the new path, then re-open it in our custom editor.
-          // The current webview panel is disposed so the new editor takes over.
-          try {
-            const newUri = vscode.Uri.file(msg.path);
-            await vscode.workspace.fs.writeFile(
-              newUri,
-              Buffer.from(msg.content, "utf8")
-            );
-            webviewPanel.webview.postMessage({
-              type: "fileResult",
-              requestId: msg.requestId,
-              success: true,
-            });
-            // Open the freshly saved file in the custom editor (replaces this panel)
-            await vscode.commands.executeCommand(
-              "vscode.openWith",
-              newUri,
-              "pindouverse.editor"
-            );
-            webviewPanel.dispose();
-          } catch (e: any) {
-            webviewPanel.webview.postMessage({
-              type: "fileResult",
-              requestId: msg.requestId,
-              success: false,
-              error: e.message,
-            });
-          }
+          let replied = false;
+          const reply = async (result: ToolResult) => {
+            if (replied) return;
+            replied = true;
+            await webviewPanel.webview.postMessage({ type: "fileResult", requestId: msg.requestId, success: result.ok,
+              ...(result.ok ? {} : { error: result.error.message }) });
+          };
+          const result = await this.saveBlueprint(editorId, "saveAs", undefined, undefined, msg.path, reply);
+          await reply(result);
           break;
         }
 
@@ -470,6 +677,11 @@ class PindouEditorProvider implements vscode.CustomTextEditorProvider {
     });
 
     webviewPanel.onDidDispose(() => {
+      this.fileAccess.revokeEditor(editorId);
+      liveEditor.abortSave?.();
+      this.liveEditors.delete(editorId);
+      this.sessions.disposePanel(toolPanel);
+      this.router.disposePanel(toolPanel);
       changeDocSub.dispose();
       viewStateSub.dispose();
       panelSub.dispose();

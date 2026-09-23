@@ -31,7 +31,7 @@ describe("VS Code sendRequest", () => {
 
     await vi.advanceTimersByTimeAsync(5_001);
     expect(settled).toBe(false);
-    dispatchReply(windowLike, 1, { path: "/chosen.pindou" });
+    dispatchReply(windowLike, 1, { type: "dialogResult", path: "/chosen.pindou" });
 
     await expect(request).resolves.toMatchObject({ path: "/chosen.pindou" });
     expect(vi.getTimerCount()).toBe(0);
@@ -49,7 +49,7 @@ describe("VS Code sendRequest", () => {
     expect(vi.getTimerCount()).toBe(0);
 
     // A late host response must be ignored after timeout cleanup.
-    dispatchReply(windowLike, 1, { language: "zh-CN" });
+    dispatchReply(windowLike, 1, { type: "uiEnvironment", language: "zh-CN" });
   });
 
   it.each([
@@ -78,7 +78,7 @@ describe("VS Code sendRequest", () => {
     const request = sendRequest("getGitHubToken", { createIfNone: true });
 
     await vi.advanceTimersByTimeAsync(10 * 60_000);
-    dispatchReply(windowLike, 1, { token: "token" });
+    dispatchReply(windowLike, 1, { type: "githubToken", token: "token" });
 
     await expect(request).resolves.toMatchObject({ token: "token" });
     expect(vi.getTimerCount()).toBe(0);
